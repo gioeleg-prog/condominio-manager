@@ -5438,13 +5438,18 @@ Sposta o elimina prima tutti i dati associati.`);
   if (bReset) bReset.onclick = () => {
     // Prima conferma
     if (!confirm(
-      '⚠️ ATTENZIONE — Stai per eliminare TUTTI i dati del condominio attivo.\n\n' +
-      'Verranno cancellati:\n' +
+      '⚠️ ATTENZIONE — Reset completo dei dati.\n\n' +
+      'Verranno CANCELLATI:\n' +
       '• Tutte le spese\n' +
       '• Tutti i versamenti\n' +
       '• Tutti i fornitori\n' +
-      '• Tutti i condomini (sostituiti con i default)\n\n' +
-      'Questa operazione NON è reversibile.\n\nProcedi?'
+      '• Tutti i condomini (sostituiti con i 6 default)\n' +
+      '• Tutte le password offline\n\n' +
+      'Verranno MANTENUTI:\n' +
+      '• Edifici (condomini)\n' +
+      '• Categorie di spesa\n' +
+      '• Account Firebase\n\n' +
+      'Operazione NON reversibile (fai prima il backup!).\n\nProcedi?'
     )) return;
 
     // Seconda conferma — digita RESET
@@ -5457,13 +5462,14 @@ Sposta o elimina prima tutti i dati associati.`);
       return;
     }
 
-    // Esegui reset
-    save('cm_spese', []);
-    save('cm_entrate', []);
-    save('cm_fornitori', []);
-    save('cm_condomini', CONDOMINI_DEFAULT);
+    // Esegui reset — mantieni categorie e edifici, azzera tutto il resto
+    save('cm_spese',      []);
+    save('cm_entrate',    []);
+    save('cm_fornitori',  []);
+    save('cm_condomini',  CONDOMINI_DEFAULT);
+    save('cm_passwords',  {});  // pulisci anche le password offline
     setState({spese:[], entrate:[], fornitori:[], condomini:CONDOMINI_DEFAULT});
-    alert('✅ Reset completato. Tutti i dati sono stati eliminati.');
+    alert('✅ Reset completato. Puoi ricominciare da zero.');
   };
 
   // Data-page quick links
