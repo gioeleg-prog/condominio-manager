@@ -5711,8 +5711,30 @@ function renderPianoRateBox(annoSel, canEdit) {
     '</div>' +
     '<div style="display:flex;gap:.75rem;flex-wrap:wrap">' + rateHtml + '</div>' +
     '<div style="font-size:11px;color:var(--text2);margin-top:.75rem">' +
+    '<div style="font-size:11px;color:var(--text2);margin-top:.75rem">' +
     '💡 Rate su Marzo, Luglio e Novembre in base alle spese restanti. Clicca per creare versamenti previsionali.' +
-    '</div></div></div>';
+    '</div>' +
+    (function(){
+      // Analisi rotture di cassa tra oggi e la prima rata
+      if (!piano.rate.length) return '';
+      const oggi = new Date();
+      const firstRata = new Date(piano.rate[0].data);
+      const myEdId2 = state.edificioAttivo;
+      const allSpese = isSuperAdmin(state.user)?state.spese:state.spese.filter(s=>s.edificioId===myEdId2);
+      const speseAntecedenti = allSpese
+        .filter(s=>parseFloat(s.consuntivo||0)===0&&parseFloat(s.preventivo||0)>0)
+        .filter(s=>{ const d=new Date(s.data); return d>oggi&&d<firstRata; });
+      if (!speseAntecedenti.length) return '<div style="font-size:11px;color:var(--green);margin-top:5px">✅ Nessuna spesa forecast prima della prima rata — cassa al sicuro.</div>';
+      const totPrima = speseAntecedenti.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
+      const totCons  = allSpese.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+      const saldo    = piano.totGiaVersato - totCons;
+      const ok       = saldo >= totPrima;
+      return '<div style="background:'+(ok?'#f0fdf4':'#fef2f2')+';border:1px solid '+(ok?'#bbf7d0':'#fecaca')+';border-radius:6px;padding:.4rem .75rem;margin-top:5px;font-size:11px">' +
+        (ok?'✅':'⚠️') + ' Prima della prima rata (' + piano.rate[0].mese + ') ci sono <strong>' + speseAntecedenti.length + ' spese forecast</strong> per <strong>' + fmt(totPrima) + '</strong>' +
+        (ok?' — cassa sufficiente (saldo ' + fmt(saldo) + ')' : ' — <strong style="color:var(--red)">RISCHIO ROTTURA DI CASSA</strong> (saldo ' + fmt(saldo) + ')') +
+        '</div>';
+    })() +
+    '</div></div>';
 }
 
 // ===========================
