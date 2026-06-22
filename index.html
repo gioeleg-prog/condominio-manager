@@ -139,29 +139,33 @@
   .card { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); overflow: hidden; margin-bottom: 1.5rem; }
   .card-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
   .card-header h3 { font-size: 15px; font-weight: 600; }
-  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .table-wrap table { width: 100%; border-collapse: collapse; }
-  .table-wrap th.col-azioni, .table-wrap td.col-azioni { width: 82px; white-space: nowrap; }
-  .table-wrap th.col-allegati, .table-wrap td.col-allegati { width: 72px; text-align:center; }
-  .table-wrap th.col-quota, .table-wrap td.col-quota { width: 90px; text-align:right; white-space:nowrap; }
-  .table-wrap th.col-data, .table-wrap td.col-data { width: 92px; white-space:nowrap; }
-  .table-wrap th.col-stato, .table-wrap td.col-stato { width: 95px; white-space:nowrap; }
-  /* Celle testo: non forzare wrap */
-  .table-wrap td { white-space: nowrap; font-size:13px; }
-  .table-wrap th { font-size:12px; padding:8px 10px; }
-  .table-wrap td { padding:8px 10px; }
-  .table-wrap td.col-title { white-space: normal; min-width: 130px; max-width: 200px; }
-  /* Colonne più compatte su schermi larghi */
-  @media (min-width: 1100px) {
-    .table-wrap th.col-azioni, .table-wrap td.col-azioni { width: 76px; }
-    .table-wrap th.col-data,   .table-wrap td.col-data   { width: 90px; }
-    .table-wrap th.col-stato,  .table-wrap td.col-stato  { width: 95px; }
-    .table-wrap th.col-quota,  .table-wrap td.col-quota  { width: 75px; }
-    .table-wrap th.col-allegati,.table-wrap td.col-allegati { width: 65px; }
+  /* ── TABLE WRAP: scrollbar sempre presente ───────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Forza scrollbar visibile su tutti i browser */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
+  .table-wrap::-webkit-scrollbar { height: 6px; }
+  .table-wrap::-webkit-scrollbar-track { background: var(--surface2); border-radius: 3px; }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .table-wrap::-webkit-scrollbar-thumb:hover { background: var(--text2); }
+  .table-wrap table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 900px; /* forza scrollbar quando schermo è stretto */
+  }
+  .table-wrap td { white-space: nowrap; font-size: 13px; padding: 8px 10px; }
+  .table-wrap th { font-size: 12px; padding: 8px 10px; white-space: nowrap; }
+  .table-wrap td.col-title { white-space: normal; min-width: 140px; max-width: 220px; }
+  .table-wrap th.col-azioni, .table-wrap td.col-azioni   { width: 82px; }
+  .table-wrap th.col-data,   .table-wrap td.col-data     { width: 92px; }
+  .table-wrap th.col-stato,  .table-wrap td.col-stato    { width: 95px; }
+  .table-wrap th.col-quota,  .table-wrap td.col-quota    { width: 90px; text-align: right; }
+  .table-wrap th.col-allegati,.table-wrap td.col-allegati{ width: 72px; text-align: center; }
   /* Su schermi larghi: niente scrollbar */
-  /* Scrollbar sempre visibile su tabella spese */
-  .table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th { padding: 10px 12px; background: var(--surface2); font-weight: 600; text-align: left; font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); white-space: nowrap; }
   td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
@@ -2051,12 +2055,17 @@ function renderFornitoreCard(f, canEdit, archived=false) {
   const catF = CATEGORIE_FORNITORE.find(c=>c.id===f.categoria)||{label:f.categoria||'—', icon:'📦'};
   const _edForn = f.edificioId || getUserEdificio(state.user);
   const _allSpeseF = state.spese.filter(s=>!s.edificioId||s.edificioId===_edForn);
-  const speseF = _allSpeseF.filter(s=>s.fornitoreId===f.id);
-  const totaleStorico = speseF.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
+  const speseF = _allSpeseF.filter(s=>s.fornitoreId===f.id).sort((a,b)=>new Date(b.data)-new Date(a.data));
   const anno = new Date().getFullYear();
-  const totaleAnno = speseF.filter(s=>new Date(s.data).getFullYear()===anno)
-    .reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
-  const ultimaSpesa = speseF.sort((a,b)=>new Date(b.data)-new Date(a.data))[0];
+
+  // Separa actual da forecast
+  const speseFAnno   = speseF.filter(s=>new Date(s.data).getFullYear()===anno);
+  const actualAnno   = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)>0);
+  const forecastAnno = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
+  const totActual    = actualAnno.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const totForecast  = forecastAnno.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
+  const totaleStorico= speseF.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const ultimaSpesa  = speseF[0];
 
   return `<div class="fornitore-card${archived?' disabled':''}">
     <div class="fc-head">
@@ -2071,16 +2080,36 @@ function renderFornitoreCard(f, canEdit, archived=false) {
     ${f.indirizzo ? `<div style="font-size:12px;color:var(--text2);margin-bottom:4px">📍 ${esc(f.indirizzo)}</div>` : ''}
     ${f.telefono  ? `<div style="font-size:12px;color:var(--text2);margin-bottom:4px">📞 <a href="tel:${esc(f.telefono)}" style="color:var(--accent)">${esc(f.telefono)}</a></div>` : ''}
     ${f.email     ? `<div style="font-size:12px;color:var(--text2);margin-bottom:4px">📧 <a href="mailto:${esc(f.email)}" style="color:var(--accent)">${esc(f.email)}</a></div>` : ''}
-    ${f.iban ? `<div style="font-size:11px;color:var(--text2);margin-bottom:4px">IBAN:
+    ${f.iban ? `<div style="font-size:11px;color:var(--text2);margin-bottom:6px">IBAN:
       <div class="iban-box"><span>${esc(f.iban)}</span>
         <button class="copy-btn" data-copy-iban="${esc(f.iban)}" title="Copia IBAN">📋</button>
       </div></div>` : ''}
-    ${f.note ? `<div style="font-size:12px;color:var(--text2);margin-bottom:4px;font-style:italic">"${esc(f.note)}"</div>` : ''}
+    ${f.note ? `<div style="font-size:12px;color:var(--text2);margin-bottom:6px;font-style:italic">"${esc(f.note)}"</div>` : ''}
 
-    <div class="fc-row"><span style="color:var(--text2)">Spese ${anno}</span><span class="amount-neg" style="font-weight:600">${fmt(totaleAnno)}</span></div>
-    <div class="fc-row"><span style="color:var(--text2)">Totale storico</span><span style="font-weight:600">${fmt(totaleStorico)}</span></div>
-    <div class="fc-row"><span style="color:var(--text2)">N° interventi</span><span>${speseF.length}</span></div>
-    ${ultimaSpesa ? `<div class="fc-row"><span style="color:var(--text2)">Ultimo</span><span style="font-size:12px">${ultimaSpesa.data}</span></div>` : ''}
+    <!-- Spese anno corrente: actual + forecast -->
+    <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:.625rem .75rem;margin-bottom:.5rem">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:6px">SPESE ${anno}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+        <div style="text-align:center;background:${totActual>0?'#fef2f2':'var(--surface)'};border-radius:5px;padding:5px 4px">
+          <div style="font-size:9px;color:var(--red);font-weight:700;letter-spacing:.04em">ACTUAL</div>
+          <div style="font-size:1rem;font-weight:800;color:${totActual>0?'var(--red)':'var(--text2)'}">${totActual>0?fmt(totActual):'—'}</div>
+          <div style="font-size:10px;color:var(--text2)">${actualAnno.length} interventi</div>
+        </div>
+        <div style="text-align:center;background:${totForecast>0?'#f5f3ff':'var(--surface)'};border-radius:5px;padding:5px 4px">
+          <div style="font-size:9px;color:#7c3aed;font-weight:700;letter-spacing:.04em">FORECAST</div>
+          <div style="font-size:1rem;font-weight:800;color:${totForecast>0?'#7c3aed':'var(--text2)'}">${totForecast>0?fmt(totForecast):'—'}</div>
+          <div style="font-size:10px;color:var(--text2)">${forecastAnno.length} preventivi</div>
+        </div>
+      </div>
+      ${totActual>0||totForecast>0?`<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:600;margin-top:6px;padding-top:5px;border-top:1px solid var(--border)">
+        <span style="color:var(--text2)">Totale ${anno}</span>
+        <span style="color:#0891b2">${fmt(totActual+totForecast)}</span>
+      </div>`:''}
+    </div>
+
+    <div class="fc-row"><span style="color:var(--text2);font-size:12px">Storico consuntivato</span><span style="font-size:12px;font-weight:600">${fmt(totaleStorico)}</span></div>
+    <div class="fc-row"><span style="color:var(--text2);font-size:12px">N° interventi tot.</span><span style="font-size:12px">${speseF.length}</span></div>
+    ${ultimaSpesa ? `<div class="fc-row"><span style="color:var(--text2);font-size:12px">Ultimo intervento</span><span style="font-size:12px">${ultimaSpesa.data}</span></div>` : ''}
 
     ${canEdit ? `<div class="fc-actions">
       <button class="btn btn-secondary btn-sm" data-edit-fornitore="${f.id}" style="flex:1">✏️ Modifica</button>
