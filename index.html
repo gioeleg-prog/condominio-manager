@@ -1429,6 +1429,62 @@ window.avviaMigrazioneClick = async function() {
   }
 };
 
+
+// ===========================
+// BACKUP / RESTORE
+// ===========================
+window.esportaDati = function() {
+  const backup = {
+    version: 2,
+    timestamp: new Date().toISOString(),
+    edificioAttivo: state.edificioAttivo,
+    data: {
+      cm_condomini:      state.condomini,
+      cm_spese:          state.spese,
+      cm_entrate:        state.entrate,
+      cm_fornitori:      state.fornitori,
+      cm_edifici:        state.edifici,
+      cm_edificio_attivo:state.edificioAttivo,
+      cm_categorie:      load('cm_categorie', null),
+    }
+  };
+  const json = JSON.stringify(backup, null, 2);
+  const blob = new Blob([json], {type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'backup-condominio-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  alert('Backup scaricato! Conserva il file JSON in un posto sicuro.');
+};
+
+window.importaDati = function(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const backup = JSON.parse(e.target.result);
+      if (!backup.data) { alert('File backup non valido.'); return; }
+      if (!confirm('Importare il backup del ' + (backup.timestamp||'data sconosciuta') + '?\n\nQuesta operazione SOVRASCRIVE tutti i dati attuali.')) return;
+      const d = backup.data;
+      // Salva su Firebase
+      if (d.cm_condomini)       { state.condomini  = d.cm_condomini;       save('cm_condomini',  d.cm_condomini); }
+      if (d.cm_spese)           { state.spese      = d.cm_spese;           save('cm_spese',      d.cm_spese); }
+      if (d.cm_entrate)         { state.entrate    = d.cm_entrate;         save('cm_entrate',    d.cm_entrate); }
+      if (d.cm_fornitori)       { state.fornitori  = d.cm_fornitori;       save('cm_fornitori',  d.cm_fornitori); }
+      if (d.cm_edifici)         { state.edifici    = d.cm_edifici;         save('cm_edifici',    d.cm_edifici); }
+      if (d.cm_categorie)       { save('cm_categorie', d.cm_categorie); }
+      if (d.cm_edificio_attivo) { state.edificioAttivo = d.cm_edificio_attivo; save('cm_edificio_attivo', d.cm_edificio_attivo); }
+      setState({page:'dashboard'});
+      alert('✅ Dati ripristinati con successo!');
+    } catch(err) {
+      alert('Errore durante il ripristino: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+};
+
 function renderApp() {
   const {user, page, sidebarOpen} = state;
   const isAdmin = canUserSeeImpostazioni(user);
@@ -3780,6 +3836,31 @@ function renderImpostazioni() {
         <div id="migra-ok" style="display:none;margin-top:.75rem" class="alert alert-success"></div>
       </div>`;
     })()}
+    ` : ''}
+
+    <!-- BACKUP / RESTORE -->
+    ${isSuperAdmin(state.user) ? `
+    <div class="section-divider"><h3>💾 Backup e ripristino dati</h3></div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem">
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap;align-items:flex-start">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:600;margin-bottom:.25rem">📥 Esporta backup</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:.75rem">Scarica tutti i dati in un file JSON. Salvalo in un posto sicuro.</div>
+          <button class="btn btn-primary" onclick="esportaDati()">💾 Scarica backup JSON</button>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:600;margin-bottom:.25rem">📤 Importa backup</div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:.75rem">Ripristina i dati da un file JSON precedentemente esportato.</div>
+          <label class="btn btn-secondary" style="cursor:pointer">
+            📂 Seleziona file backup
+            <input type="file" accept=".json" style="display:none" onchange="importaDati(this.files[0])">
+          </label>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--amber);margin-top:.75rem;padding:.5rem .75rem;background:#fffbeb;border-radius:var(--radius-sm)">
+        ⚠️ Fai un backup prima di ogni aggiornamento del file o operazione di reset. Il backup include spese, versamenti, condomini, fornitori ed edifici.
+      </div>
+    </div>
     ` : ''}
 
     <!-- FIRESTORE INFO -->
