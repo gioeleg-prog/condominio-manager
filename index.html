@@ -147,11 +147,22 @@
   .table-wrap th.col-data, .table-wrap td.col-data { width: 92px; white-space:nowrap; }
   .table-wrap th.col-stato, .table-wrap td.col-stato { width: 95px; white-space:nowrap; }
   /* Celle testo: non forzare wrap */
-  .table-wrap td { white-space: nowrap; }
-  .table-wrap td.col-title { white-space: normal; min-width: 140px; max-width: 220px; }
+  .table-wrap td { white-space: nowrap; font-size:13px; }
+  .table-wrap th { font-size:12px; padding:8px 10px; }
+  .table-wrap td { padding:8px 10px; }
+  .table-wrap td.col-title { white-space: normal; min-width: 130px; max-width: 200px; }
+  /* Colonne più compatte su schermi larghi */
+  @media (min-width: 1100px) {
+    .table-wrap th.col-azioni, .table-wrap td.col-azioni { width: 76px; }
+    .table-wrap th.col-data,   .table-wrap td.col-data   { width: 90px; }
+    .table-wrap th.col-stato,  .table-wrap td.col-stato  { width: 95px; }
+    .table-wrap th.col-quota,  .table-wrap td.col-quota  { width: 75px; }
+    .table-wrap th.col-allegati,.table-wrap td.col-allegati { width: 65px; }
+  }
   /* Su schermi larghi: niente scrollbar */
-  @media (min-width: 1280px) {
+  @media (min-width: 1100px) {
     .table-wrap { overflow-x: visible; }
+    .table-wrap table { width: 100%; }
   }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th { padding: 10px 12px; background: var(--surface2); font-weight: 600; text-align: left; font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -2531,8 +2542,8 @@ function renderSpese() {
           <span style="font-size:9px;background:#cffafe;color:#0891b2;border-radius:3px;padding:1px 5px;font-weight:700">PROIEZIONE</span>
           Quota / cond. full
         </div>
-        <div class="stat-value" style="color:#0891b2">${fmt(totPrev/nAttiviSpese)}</div>
-        <div class="stat-sub">Actual + forecast</div>
+        <div class="stat-value" style="color:#0891b2">${fmt((totCons + (totPrev - totPrevChiuse)) / nAttiviSpese)}</div>
+        <div class="stat-sub">Actual + ${nSpeseAperte} spese aperte</div>
       </div>
 
     </div>
@@ -2565,7 +2576,7 @@ function renderSpese() {
       </div>
     </div>
 
-    <div class="card">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:.5rem">
       ${renderSpeseMobileCards(items, canEdit)}
       <div class="table-wrap">
         ${items.length===0?`<div class="empty">${svgEmpty()}<p>Nessuna spesa trovata</p></div>`:
