@@ -932,6 +932,8 @@ let state = {
   modal: null,
   filterCat: 'all',
   filterTipo: 'all',
+  filterStato: 'all',
+  filterFornitore: 'all',
   filterAnno: new Date().getFullYear(),
   sortCol: 'data',   // colonna di ordinamento spese
   sortDir: 'desc',   // 'asc' | 'desc'
@@ -2595,6 +2597,9 @@ function renderSpese() {
   if (state.filterCat !== 'all') items = items.filter(s=>s.categoria===state.filterCat);
   if (state.filterTipo !== 'all') items = items.filter(s=>s.tipoSpesa===state.filterTipo);
   if (state.searchQ) items = items.filter(s=>s.titolo.toLowerCase().includes(state.searchQ.toLowerCase())||s.descrizione?.toLowerCase().includes(state.searchQ.toLowerCase()));
+  if (state.filterStato === 'definitiva')   items = items.filter(s=>parseFloat(s.consuntivo||0)>0);
+  if (state.filterStato === 'previsionale') items = items.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
+  if (state.filterFornitore !== 'all')      items = items.filter(s=>String(s.fornitoreId)===state.filterFornitore);
 
   // ── Ordinamento ──────────────────────────────────────────────────────────
   const col = state.sortCol || 'data';
@@ -2708,23 +2713,47 @@ function renderSpese() {
       <span style="color:var(--text2)">${speseChiuse.length} spese · prev. ${fmt(totPrevChiuse)} → cons. ${fmt(totConsChiuse)}</span>
     </div>`:''}
 
-    <div class="spese-filters">
-      <input type="text" class="spese-filter-search" placeholder="🔍 Cerca per titolo…" id="search-spese" value="${esc(state.searchQ)}">
-      <div class="spese-filter-row">
-        <select class="spese-filter-sel" id="filter-anno-spese">
-          <option value="0">Tutti gli anni</option>
-          ${anni.map(a=>`<option value="${a}" ${a===state.filterAnno?'selected':''}>${a}</option>`).join('')}
-        </select>
-        <select class="spese-filter-sel" id="filter-tipo-spese">
-          <option value="all">Tutti i tipi</option>
-          <option value="ordinaria" ${state.filterTipo==='ordinaria'?'selected':''}>Ordinarie</option>
-          <option value="straordinaria" ${state.filterTipo==='straordinaria'?'selected':''}>Straordinarie</option>
-        </select>
-        <select class="spese-filter-sel" id="filter-cat-spese">
-          <option value="all">Tutte le categorie</option>
-          ${getCategorie().filter(c=>c.tipo!=='entrata').map(c=>`<option value="${c.id}" ${c.id===state.filterCat?'selected':''}>${c.label}</option>`).join('')}
-        </select>
-      </div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;align-items:center">
+      <!-- Ricerca: max metà schermo -->
+      <input type="text" class="spese-filter-search" placeholder="🔍 Cerca…" id="search-spese"
+        value="${esc(state.searchQ)}" style="flex:0 1 220px;min-width:120px;max-width:280px">
+
+      <!-- Anno -->
+      <select class="spese-filter-sel" id="filter-anno-spese" style="flex:0 1 90px;min-width:70px">
+        <option value="0">Tutti</option>
+        ${anni.map(a=>`<option value="${a}" ${a===state.filterAnno?'selected':''}>${a}</option>`).join('')}
+      </select>
+
+      <!-- Tipo -->
+      <select class="spese-filter-sel" id="filter-tipo-spese" style="flex:0 1 110px;min-width:90px">
+        <option value="all">Tutti tipi</option>
+        <option value="ordinaria"     ${state.filterTipo==='ordinaria'?'selected':''}>Ordinaria</option>
+        <option value="straordinaria" ${state.filterTipo==='straordinaria'?'selected':''}>Straord.</option>
+      </select>
+
+      <!-- Stato (nuovo) -->
+      <select class="spese-filter-sel" id="filter-stato-spese" style="flex:0 1 120px;min-width:100px">
+        <option value="all">Tutti stati</option>
+        <option value="definitiva"   ${state.filterStato==='definitiva'?'selected':''}>✅ Definitiva</option>
+        <option value="previsionale" ${state.filterStato==='previsionale'?'selected':''}>🔮 Previsionale</option>
+      </select>
+
+      <!-- Categoria -->
+      <select class="spese-filter-sel" id="filter-cat-spese" style="flex:0 1 140px;min-width:110px">
+        <option value="all">Tutte cat.</option>
+        ${getCategorie().filter(c=>c.tipo!=='entrata').map(c=>`<option value="${c.id}" ${c.id===state.filterCat?'selected':''}>${c.icon||''} ${c.label}</option>`).join('')}
+      </select>
+
+      <!-- Fornitore (nuovo) -->
+      <select class="spese-filter-sel" id="filter-fornitore-spese" style="flex:0 1 130px;min-width:100px">
+        <option value="all">Tutti forn.</option>
+        ${(state.fornitori||[]).filter(f=>!f.disabled&&(!f.edificioId||f.edificioId===state.edificioAttivo)).map(f=>`<option value="${f.id}" ${String(f.id)===state.filterFornitore?'selected':''}>${esc(f.nome)}</option>`).join('')}
+      </select>
+
+      <!-- Reset filtri (appare se c'è qualche filtro attivo) -->
+      ${state.filterTipo!=='all'||state.filterCat!=='all'||state.filterStato!=='all'||state.filterFornitore!=='all'||state.searchQ?
+        `<button class="btn btn-secondary btn-sm" id="btn-reset-filtri" title="Azzera filtri" style="white-space:nowrap;padding:7px 10px">✕ Reset</button>`:''
+      }
     </div>
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:.5rem">
@@ -5303,6 +5332,13 @@ function bindPageActions() {
   if (fts) fts.onchange = e => setState({filterTipo: e.target.value});
   const fcs = document.getElementById('filter-cat-spese');
   if (fcs) fcs.onchange = e => setState({filterCat: e.target.value});
+  if (fcs) fcs.onchange = e => setState({filterCat: e.target.value});
+  const fss = document.getElementById('filter-stato-spese');
+  if (fss) fss.onchange = e => setState({filterStato: e.target.value});
+  const ffs = document.getElementById('filter-fornitore-spese');
+  if (ffs) ffs.onchange = e => setState({filterFornitore: e.target.value});
+  const bRF = document.getElementById('btn-reset-filtri');
+  if (bRF) bRF.onclick = () => setState({filterTipo:'all',filterCat:'all',filterStato:'all',filterFornitore:'all',searchQ:''});
 
   // Entrate filters
   const se = document.getElementById('search-entrate');
