@@ -115,9 +115,10 @@
   .user-info .role { font-size: 11px; color: var(--text2); }
   .logout-btn { background: none; border: none; cursor: pointer; color: var(--text2); padding: 4px; border-radius: 4px; }
   .logout-btn:hover { color: var(--red); }
-  .main { flex: 1; margin-left: 240px; min-height: 100vh; overflow-x: hidden; }
+  .main { flex: 1; margin-left: 240px; min-height: 100vh; overflow-x: auto; }
   .topbar { display: none; }
-  .page { padding: 1.5rem 2rem; max-width: 1100px; }
+  .page { padding: 1.5rem 2rem; max-width: 1400px; }
+  .page.page-full-width { max-width: none; }
   .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: .75rem; }
   .page-title { font-size: 1.4rem; font-weight: 700; }
   .page-sub { font-size: 14px; color: var(--text2); margin-top: 2px; }
@@ -1148,6 +1149,12 @@ function render() {
   const app = document.getElementById('app');
   if (!state.user) { app.innerHTML = renderLogin(); bindLogin(); return; }
   app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
+  app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
+  // Applica classe per pagine a piena larghezza
+  const _pageEl = document.querySelector('.page');
+  if (_pageEl) {
+    _pageEl.classList.toggle('page-full-width', ['spese'].includes(state.page));
+  }
   bindApp();
 }
 
@@ -2006,20 +2013,17 @@ const CATEGORIE_FORNITORE = [
 
 function renderFornitori() {
   const canEdit = canUserEdit(state.user);
-  const myEdForn = getUserEdificio(state.user);
   // Mostra fornitori dell'edificio attivo + quelli senza edificioId (da migrare)
   const fornitori = (state.fornitori || []).filter(f => !f.edificioId || f.edificioId === state.edificioAttivo);
-  const anno = new Date().getFullYear();
+  const anno = state.filterAnno || new Date().getFullYear();
 
-  // Stats
+  // Stats — strict per edificio
   const totFornitoriAttivi = fornitori.filter(f=>!f.disabled).length;
-  const _speseForn = isSuperAdmin(state.user) ? state.spese : state.spese.filter(s=>!s.edificioId||s.edificioId===getUserEdificio(state.user));
-  const speseTotali = _speseForn.reduce((a,s)=>{
-    if (s.fornitoreId) return a + parseFloat(s.consuntivo||s.preventivo||0);
-    return a;
-  }, 0);
-  const speseAnno = _speseForn.filter(s=>new Date(s.data).getFullYear()===anno)
-    .reduce((a,s)=>{ if(s.fornitoreId) return a+parseFloat(s.consuntivo||s.preventivo||0); return a; }, 0);
+  const _speseForn = state.spese.filter(s=>s.edificioId===state.edificioAttivo);
+  const _speseFornAnno = _speseForn.filter(s=>new Date(s.data).getFullYear()===anno && s.fornitoreId);
+  const speseAnnoActual  = _speseFornAnno.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const speseAnnoForecast= _speseFornAnno.filter(s=>!parseFloat(s.consuntivo||0)).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
+  const speseTotali = _speseForn.filter(s=>s.fornitoreId).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
 
   return `
   <div>
@@ -2028,11 +2032,25 @@ function renderFornitori() {
       ${canEdit ? `<button class="btn btn-primary" id="btn-nuovo-fornitore">+ Nuovo fornitore</button>` : ''}
     </div>
 
+    <!-- Filtro anno -->
+    <div style="margin-bottom:1rem">
+      <select class="spese-filter-sel" onchange="setState({filterAnno:this.value?parseInt(this.value):0})" style="max-width:160px">
+        <option value="">Tutti gli anni</option>
+        ${getAnni().map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
+      </select>
+    </div>
+
     <div class="stats-grid" style="margin-bottom:1.5rem">
       <div class="stat-card stat-blue"><div class="stat-label">Fornitori attivi</div><div class="stat-value">${totFornitoriAttivi}</div></div>
-      <div class="stat-card stat-red"><div class="stat-label">Spese con fornitore ${anno}</div><div class="stat-value">${fmt(speseAnno)}</div></div>
-      <div class="stat-card"><div class="stat-label">Totale storico</div><div class="stat-value">${fmt(speseTotali)}</div></div>
-      <div class="stat-card"><div class="stat-label">Categorie usate</div><div class="stat-value">${new Set(fornitori.map(f=>f.categoria)).size}</div></div>
+      <div class="stat-card stat-red">
+        <div style="font-size:9px;font-weight:700;color:var(--red);letter-spacing:.06em">ACTUAL ${anno}</div>
+        <div class="stat-value">${fmt(speseAnnoActual)}</div>
+      </div>
+      <div class="stat-card" style="border-top:3px solid #7c3aed">
+        <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:.06em">FORECAST ${anno}</div>
+        <div class="stat-value" style="color:#7c3aed">${speseAnnoForecast>0?fmt(speseAnnoForecast):'—'}</div>
+      </div>
+      <div class="stat-card"><div class="stat-label">Storico consuntivato</div><div class="stat-value">${fmt(speseTotali)}</div></div>
     </div>
 
     ${fornitori.filter(f=>!f.disabled).length === 0 ? `
@@ -2056,9 +2074,9 @@ function renderFornitoreCard(f, canEdit, archived=false) {
   const _edForn = f.edificioId || getUserEdificio(state.user);
   const _allSpeseF = state.spese.filter(s=>!s.edificioId||s.edificioId===_edForn);
   const speseF = _allSpeseF.filter(s=>s.fornitoreId===f.id).sort((a,b)=>new Date(b.data)-new Date(a.data));
-  const anno = new Date().getFullYear();
+  const anno = state.filterAnno || new Date().getFullYear();
 
-  // Separa actual da forecast
+  // Separa actual da forecast — filtrato per anno selezionato
   const speseFAnno   = speseF.filter(s=>new Date(s.data).getFullYear()===anno);
   const actualAnno   = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)>0);
   const forecastAnno = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
