@@ -2485,15 +2485,15 @@ function renderDashboard() {
         ${ultimeSpese.length===0?'<div class="empty" style="padding:1rem"><p>Nessuna spesa</p></div>':
         `<table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:var(--surface2)">
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--text2);text-align:left;white-space:nowrap">DATA</th>
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--text2);text-align:left">TITOLO</th>
-            <th style="padding:5px 4px;font-size:10px;font-weight:600;color:var(--text2);text-align:center;white-space:nowrap">TIPO</th>
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--text2);text-align:right;white-space:nowrap">IMPORTO</th>
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--text2);width:82px">DATA</th>
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--text2)">TITOLO</th>
+            <th style="padding:5px 6px;font-size:10px;font-weight:600;color:var(--text2);width:40px;text-align:center">TIPO</th>
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--text2);width:82px;text-align:right">€</th>
           </tr></thead>
           <tbody>
           ${ultimeSpese.map(s=>`<tr style="border-top:1px solid var(--border)">
             <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${s.data}</td>
-            <td style="padding:6px 8px;font-size:12px;font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.titolo)}</td>
+            <td style="padding:6px 8px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0;width:100%">${esc(s.titolo)}</td>
             <td style="padding:6px 4px;text-align:center"><span style="font-size:9px;padding:2px 5px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'#ede9fe':'#dbeafe'};color:${s.tipoSpesa==='straordinaria'?'#7c3aed':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'Str.':'Ord.'}</span></td>
             <td style="padding:6px 8px;font-size:12px;font-weight:700;color:var(--red);text-align:right;white-space:nowrap">${fmt(s.consuntivo)}</td>
           </tr>`).join('')}
@@ -2510,17 +2510,17 @@ function renderDashboard() {
         ${ultimeForecast.length===0?'<div class="empty" style="padding:1rem"><p>Nessuna spesa aperta</p></div>':
         `<table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:#f5f3ff">
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed;text-align:left;white-space:nowrap">DATA</th>
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed;text-align:left">TITOLO</th>
-            <th style="padding:5px 4px;font-size:10px;font-weight:600;color:#7c3aed;text-align:center;white-space:nowrap">TIPO</th>
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed;text-align:right;white-space:nowrap">IMPORTO</th>
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed;width:82px">DATA</th>
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed">TITOLO</th>
+            <th style="padding:5px 6px;font-size:10px;font-weight:600;color:#7c3aed;width:40px;text-align:center">TIPO</th>
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed;width:82px;text-align:right">€</th>
           </tr></thead>
           <tbody>
           ${ultimeForecast.map(s=>`<tr style="border-top:1px solid #e9d5ff;background:#faf5ff">
-            <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${s.data}</td>
-            <td style="padding:6px 8px;font-size:12px;font-weight:500;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.titolo)}</td>
-            <td style="padding:6px 4px;text-align:center"><span style="font-size:9px;padding:2px 5px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'#ede9fe':'#dbeafe'};color:${s.tipoSpesa==='straordinaria'?'#7c3aed':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'Str.':'Ord.'}</span></td>
-            <td style="padding:6px 8px;font-size:12px;font-weight:700;color:#7c3aed;text-align:right;white-space:nowrap">${fmt(s.preventivo)}</td>
+            <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap;width:82px">${s.data}</td>
+            <td style="padding:6px 8px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0;width:100%">${esc(s.titolo)}</td>
+            <td style="padding:6px 6px;text-align:center;width:40px"><span style="font-size:9px;padding:2px 4px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'#ede9fe':'#dbeafe'};color:${s.tipoSpesa==='straordinaria'?'#7c3aed':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'S':'O'}</span></td>
+            <td style="padding:6px 8px;font-size:12px;font-weight:700;color:#7c3aed;text-align:right;white-space:nowrap;width:82px">${fmt(s.preventivo)}</td>
           </tr>`).join('')}
           </tbody>
         </table>`}
