@@ -6848,117 +6848,116 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 //  INIT — Avvio app con Firebase
 // ═══════════════════════════════════════════════════════
 async function initApp() {
-  // Mostra schermata di caricamento
   document.getElementById('app').innerHTML = renderLoading();
 
-  // Aspetta che Firebase SDK sia pronto
+  // 1. Aspetta Firebase SDK
   if (!window._fbReady) {
     await new Promise(resolve => {
       document.addEventListener('fb-ready', resolve, {once: true});
-      setTimeout(resolve, 5000); // timeout fallback 5s
+      setTimeout(resolve, 5000);
     });
   }
 
-  // Carica UID superAdmin da Firestore (nessun dato hardcoded nel codice)
+  if (!window._fb) {
+    console.warn('Firebase non disponibile — modalità offline');
+    render();
+    return;
+  }
+
+  const { auth, db, doc, getDoc, onAuthStateChanged } = window._fb;
+
+  // 2. Carica SUPER_ADMIN_UID da Firestore
   try {
-    const { db, doc, getDoc } = window._fb;
     const cfgSnap = await getDoc(doc(db, 'appdata', 'cm_config'));
     if (cfgSnap.exists()) {
       const cfgVal = cfgSnap.data().value;
       const cfg = cfgVal ? JSON.parse(cfgVal) : cfgSnap.data();
-      SUPER_ADMIN_UID = cfg.superAdminUid || cfg.value?.superAdminUid || null;
-      console.log('SuperAdmin UID caricato:', SUPER_ADMIN_UID ? '✅' : '❌ non trovato');
+      SUPER_ADMIN_UID = cfg.superAdminUid || null;
+      console.log('SuperAdmin UID:', SUPER_ADMIN_UID ? '✅ caricato' : '❌ non trovato');
     }
-  } catch(e) { console.warn('cm_config non trovato:', e.message); }
+  } catch(e) { console.warn('cm_config:', e.message); }
 
-  // Carica tutti i dati da Firestore
-  if (window._fb) {
-    await fbLoadAll();
+  // 3. Carica TUTTI i dati da Firestore PRIMA di registrare onAuthStateChanged
+  // Così quando onAuthStateChanged scatta, state.condomini è già popolato
+  await fbLoadAll();
+  const savedCondomini  = load('cm_condomini',  null);
+  const savedSpese      = load('cm_spese',      null);
+  const savedEntrate    = load('cm_entrate',    null);
+  const savedFornitori  = load('cm_fornitori',  null);
+  const savedEdifici    = load('cm_edifici',    null);
+  const savedEdAttivo   = load('cm_edificio_attivo', null);
+  const savedCategorie  = load('cm_categorie',  null);
+  if (savedCondomini)  state.condomini      = savedCondomini;
+  if (savedSpese)      state.spese          = savedSpese;
+  if (savedEntrate)    state.entrate        = savedEntrate;
+  if (savedFornitori)  state.fornitori      = savedFornitori;
+  if (savedEdifici && savedEdifici.length > 0) state.edifici = savedEdifici;
+  if (savedEdAttivo)   state.edificioAttivo = savedEdAttivo;
+  if (savedCategorie)  state.categorie      = savedCategorie;
 
-    // Leggi dati dalla cache (appena popolata da Firestore)
-    const savedCondomini = load('cm_condomini', null);
-    const savedSpese     = load('cm_spese', null);
-    const savedEntrate   = load('cm_entrate', null);
-    const savedCategorie = load('cm_categorie', null);
+  // 4. ORA registra onAuthStateChanged — i dati sono già pronti
+  onAuthStateChanged(auth, async (firebaseUser) => {
+    if (firebaseUser) {
+      const isSuperAdminUser = SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID;
 
-    if (savedCondomini) state.condomini = savedCondomini;
-    if (savedSpese)     state.spese     = savedSpese;
-    if (savedEntrate)   state.entrate   = savedEntrate;
-    const savedFornitori = load('cm_fornitori', null);
-    if (savedFornitori) state.fornitori = savedFornitori;
-    const savedEdifici = load('cm_edifici', null);
-    if (savedEdifici) state.edifici = savedEdifici;
-    const savedEdAttivo = load('cm_edificio_attivo', null);
-    if (savedEdAttivo) state.edificioAttivo = savedEdAttivo;
+      // Cerca profilo per UID (sicuro) poi per email (fallback)
+      let profile = state.condomini.find(c => c.uid === firebaseUser.uid)
+                 || state.condomini.find(c => c.email && c.email.toLowerCase() === firebaseUser.email.toLowerCase());
 
-    // Dopo il caricamento: imposta filterAnno all'anno con più dati se quello corrente è vuoto
-    const currYear = new Date().getFullYear();
-    const hasDataCurrYear = state.spese.some(s=>new Date(s.data).getFullYear()===currYear)
-                         || state.entrate.some(e=>new Date(e.data).getFullYear()===currYear);
-    if (!hasDataCurrYear && state.spese.length > 0) {
-      // Usa l'anno più recente con dati
-      const anniConDati = [...new Set([
-        ...state.spese.map(s=>new Date(s.data).getFullYear()),
-        ...state.entrate.map(e=>new Date(e.data).getFullYear())
-      ])].sort((a,b)=>b-a);
-      if (anniConDati.length > 0) state.filterAnno = anniConDati[0];
-    }
-    // categorie: usa quelle salvate o default
-
-    // Ascolta cambiamenti auth
-    const { auth, onAuthStateChanged } = window._fb;
-    onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // Trova profilo tramite UID (sicuro) o email (fallback)
-        const isSuperAdminUser = SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID;
-        let profile = state.condomini.find(c => c.uid === firebaseUser.uid)
-                   || state.condomini.find(c => c.email === firebaseUser.email);
-
-        // Se è il superAdmin crea profilo dinamico (non in state.condomini)
-        if (!profile && isSuperAdminUser) {
-          profile = {
-            id: 0,
-            nome: firebaseUser.displayName || 'Super Admin',
-            email: firebaseUser.email,
-            uid: firebaseUser.uid,
-            appartamento: 'Admin',
-            superAdmin: true,
-            isAdmin: true,
-            canEdit: true,
-            color: '#1B2A4A',
-          };
-        }
-
-        if (!profile) {
-          // Utente Firebase autenticato ma senza profilo app — race condition o utente non configurato
-          render();
-          return;
-        }
-        if (profile.disabled) {
-          await window._fb.signOut(auth);
-          state.user = null;
-          render();
-          return;
-        }
-
-        const wasLoggedOut = !state.user;
-        state.user = profile;
-        if (!isSuperAdmin(profile) && profile.edificioId) {
-          state.edificioAttivo = profile.edificioId;
-          save('cm_edificio_attivo', profile.edificioId);
-        }
-        if (wasLoggedOut) state.page = 'dashboard';
-      } else {
-        state.user = null;
+      // SuperAdmin: crea profilo dinamico se non in state.condomini
+      if (!profile && isSuperAdminUser) {
+        profile = {
+          id: 0,
+          nome: firebaseUser.displayName || 'Super Admin',
+          email: firebaseUser.email,
+          uid: firebaseUser.uid,
+          appartamento: 'Admin',
+          superAdmin: true,
+          isAdmin: true,
+          canEdit: true,
+          color: '#1B2A4A',
+        };
       }
-      render();
-    });
-  } else {
-    // Firebase non disponibile — modalità offline con localStorage
-    console.warn('Firebase non disponibile, uso localStorage');
+
+      if (!profile) {
+        // Utente Firebase valido ma nessun profilo trovato
+        // Fai logout per evitare stati inconsistenti
+        console.warn('Utente Firebase senza profilo app:', firebaseUser.email);
+        await window._fb.signOut(auth);
+        state.user = null;
+        render();
+        return;
+      }
+
+      if (profile.disabled) {
+        await window._fb.signOut(auth);
+        state.user = null;
+        render();
+        return;
+      }
+
+      const wasLoggedOut = !state.user;
+      state.user = profile;
+      // Aggiorna UID nel profilo se trovato per email (prima sincronizzazione)
+      if (!profile.uid && profile.id !== 0) {
+        const condomini = state.condomini.map(c =>
+          c.id === profile.id ? {...c, uid: firebaseUser.uid} : c
+        );
+        state.condomini = condomini;
+        save('cm_condomini', condomini);
+      }
+      if (!isSuperAdmin(profile) && profile.edificioId) {
+        state.edificioAttivo = profile.edificioId;
+        save('cm_edificio_attivo', profile.edificioId);
+      }
+      if (wasLoggedOut) state.page = 'dashboard';
+    } else {
+      state.user = null;
+    }
     render();
-  }
+  });
 }
+
 
 function renderLoading() {
   return `<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#5A6E8A">
