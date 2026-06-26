@@ -841,11 +841,22 @@ async function fbLoadAll() {
   if (!window._fb) return;
   try {
     const { db, collection, getDocs } = window._fb;
-    const snap = await getDocs(collection(db, 'appdata'));
+    // Timeout 8s per evitare blocchi infiniti
+    const snapPromise = getDocs(collection(db, 'appdata'));
+    const snapTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000));
+    const snap = await Promise.race([snapPromise, snapTimeout]);
     snap.forEach(d => {
-      try { _cache[d.id] = JSON.parse(d.data().value); } catch {}
+      try {
+        if (d.data().value) _cache[d.id] = JSON.parse(d.data().value);
+      } catch {}
     });
-  } catch(e) { console.warn('fbLoadAll error', e); }
+  } catch(e) {
+    if (e.message === 'timeout') {
+      console.warn('fbLoadAll: timeout — uso dati in cache locale');
+    } else {
+      console.warn('fbLoadAll error:', e.message);
+    }
+  }
 }
 
 // ===========================
@@ -6850,7 +6861,7 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 async function initApp() {
   document.getElementById('app').innerHTML = renderLoading();
 
-  // 1. Aspetta Firebase SDK
+  // 1. Aspetta Firebase SDK (max 5s)
   if (!window._fbReady) {
     await new Promise(resolve => {
       document.addEventListener('fb-ready', resolve, {once: true});
@@ -6859,27 +6870,39 @@ async function initApp() {
   }
 
   if (!window._fb) {
-    console.warn('Firebase non disponibile — modalità offline');
+    console.warn('Firebase non disponibile');
     render();
     return;
   }
 
   const { auth, db, doc, getDoc, onAuthStateChanged } = window._fb;
 
-  // 2. Carica SUPER_ADMIN_UID da Firestore
+  // 2. Carica SUPER_ADMIN_UID da Firestore con timeout 5s
+  // cm_config ha il campo superAdminUid direttamente (non come JSON)
   try {
-    const cfgSnap = await getDoc(doc(db, 'appdata', 'cm_config'));
-    if (cfgSnap.exists()) {
-      const cfgVal = cfgSnap.data().value;
-      const cfg = cfgVal ? JSON.parse(cfgVal) : cfgSnap.data();
-      SUPER_ADMIN_UID = cfg.superAdminUid || null;
-      console.log('SuperAdmin UID:', SUPER_ADMIN_UID ? '✅ caricato' : '❌ non trovato');
+    const cfgPromise = getDoc(doc(db, 'appdata', 'cm_config'));
+    const cfgTimeout = new Promise(r => setTimeout(() => r(null), 5000));
+    const cfgSnap = await Promise.race([cfgPromise, cfgTimeout]);
+    if (cfgSnap && cfgSnap.exists()) {
+      const data = cfgSnap.data();
+      // Supporta sia campo diretto che campo value JSON
+      if (data.superAdminUid) {
+        SUPER_ADMIN_UID = data.superAdminUid;
+      } else if (data.value) {
+        try { SUPER_ADMIN_UID = JSON.parse(data.value).superAdminUid || null; } catch {}
+      }
+      console.log('SuperAdmin UID:', SUPER_ADMIN_UID ? '✅' : '❌ non trovato');
+    } else {
+      console.warn('cm_config timeout o non trovato');
     }
-  } catch(e) { console.warn('cm_config:', e.message); }
+  } catch(e) { console.warn('cm_config error:', e.message); }
 
-  // 3. Carica TUTTI i dati da Firestore PRIMA di registrare onAuthStateChanged
-  // Così quando onAuthStateChanged scatta, state.condomini è già popolato
-  await fbLoadAll();
+  // 3. Carica dati Firestore con timeout 8s
+  try {
+    const loadPromise = fbLoadAll();
+    const loadTimeout = new Promise(r => setTimeout(r, 8000));
+    await Promise.race([loadPromise, loadTimeout]);
+  } catch(e) { console.warn('fbLoadAll error:', e.message); }
   const savedCondomini  = load('cm_condomini',  null);
   const savedSpese      = load('cm_spese',      null);
   const savedEntrate    = load('cm_entrate',    null);
