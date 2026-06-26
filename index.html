@@ -762,10 +762,9 @@
     updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail
   };
   window._fbReady = true;
-  // Notifica che Firebase è pronto — initApp gestisce il resto
-  if (typeof window._fbReadyResolve === 'function') {
-    window._fbReadyResolve();
-  }
+  // Chiama initApp() ora che Firebase è pronto
+  // Il modulo esegue DOPO il main script, quindi initApp è già definita
+  initApp();
 </script>
 
 </head>
@@ -6870,20 +6869,11 @@ async function initApp() {
   // state.user è null → render() mostra la schermata di login
   render();
 
-  // STEP 2: Aspetta Firebase in background (max 8s)
-  if (!window._fbReady) {
-    await new Promise(resolve => {
-      window._fbReadyResolve = resolve;
-      setTimeout(resolve, 8000); // fallback timeout
-    });
-  }
-
+  // STEP 2: Firebase è già pronto (siamo stati chiamati dal modulo)
   if (!window._fb) {
-    // Firebase non disponibile — resta sul login, mostra errore
     console.warn('Firebase non disponibile');
     return;
   }
-
   const { auth, db, doc, getDoc, onAuthStateChanged } = window._fb;
 
   // STEP 3: Carica SUPER_ADMIN_UID (non bloccante — max 4s)
@@ -6996,8 +6986,8 @@ function renderLoading() {
 // Aggiorna logout per usare Firebase signOut
 const _origBindApp = bindApp;
 
-// Avvia l'app — initApp mostra subito il login, Firebase carica in background
-initApp();
+// initApp() viene chiamata dal modulo Firebase quando è pronto
+// NON chiamare qui — il modulo type="module" esegue sempre dopo questo script
 </script>
 </body>
 </html>
