@@ -732,7 +732,7 @@
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
   import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider }
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
   // ═══════════════════════════════════════════
@@ -759,7 +759,7 @@
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     onSnapshot, query, orderBy, serverTimestamp,
     signInWithEmailAndPassword, signOut, onAuthStateChanged,
-    updatePassword, reauthenticateWithCredential, EmailAuthProvider
+    updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail
   };
   window._fbReady = true;
   document.dispatchEvent(new Event('fb-ready'));
@@ -779,7 +779,8 @@ const CONDOMINI_DEFAULT = [
   {id:5, nome:'Paolo Esposito', appartamento:'Int. 5', email:'paolo@example.com', canEdit:false, color:COLORS[4]},
   {id:6, nome:'Stefania Mancini', appartamento:'Int. 6', email:'stefania@example.com', canEdit:false, color:COLORS[5]},
 ];
-const ADMIN = {id:0, nome:'Gioele Gagliardi', appartamento:'Admin', email:'gioele.g@gmail.com', username:'admin', canEdit:true, isAdmin:true, superAdmin:true, color:'#1B2A4A'};
+// SuperAdmin: nessun dato hardcoded — identificato da UID Firebase in cm_config
+let SUPER_ADMIN_UID = null;
 // ⚠️ superAdmin:true → unico super-amministratore globale, vede tutti i condomini
 
 const CATEGORIE_DEFAULT = [
@@ -851,112 +852,11 @@ async function fbLoadAll() {
 // PASSWORD MANAGEMENT — Firebase Auth
 // ===========================
 // Le password sono gestite da Firebase Authentication.
-// getUserPassword e setUserPassword rimangono come stub
-// per compatibilità con il codice di validazione UI;
-// il login reale usa signInWithEmailAndPassword.
-const DEFAULT_PW = '1234';
-
-function getPasswords() { return load('cm_passwords', {}); }
-
-function getUserPassword(userId) {
-  // fallback locale (usato solo in modalità offline/test)
-  const pws = getPasswords();
-  return pws[String(userId)] || DEFAULT_PW;
-}
-
-function setUserPassword(userId, newPw) {
-  // Aggiorna anche la cache locale per coerenza UI
-  const pws = getPasswords();
-  pws[String(userId)] = newPw;
-  save('cm_passwords', pws);
-  // L'aggiornamento reale su Firebase Auth avviene in fbChangePassword()
-}
-
-// Cambia password dell'utente corrente su Firebase Auth
-async function fbChangePassword(currentPw, newPw) {
-  const { auth, reauthenticateWithCredential, EmailAuthProvider, updatePassword } = window._fb;
-  const user = auth.currentUser;
-  if (!user) throw new Error('Nessun utente autenticato');
-  const cred = EmailAuthProvider.credential(user.email, currentPw);
-  await reauthenticateWithCredential(user, cred);
-  await updatePassword(user, newPw);
-}
-
-// Imposta password utente da admin (richiede funzione cloud — per ora salva solo localmente)
-async function fbAdminSetPassword(userId, newPw) {
-  // In produzione userebbe Firebase Admin SDK via Cloud Function.
-  // Per ora salva nella cache locale e mostra istruzioni.
-  setUserPassword(userId, newPw);
-}
-
-function validatePassword(pw) {
-  const errors = [];
-  if (!pw || pw.length < 8) errors.push('almeno 8 caratteri');
-  if (!/[A-Z]/.test(pw)) errors.push('almeno una lettera maiuscola');
-  if (!/[0-9]/.test(pw)) errors.push('almeno un numero');
-  return errors;
-}
-
-function generateResetToken(userId) {
-  const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  const tokens = load('cm_reset_tokens', {});
-  tokens[String(userId)] = { token, expires: Date.now() + 30 * 60 * 1000 }; // 30min
-  save('cm_reset_tokens', tokens);
-  return token;
-}
-
-function validateResetToken(userId, token) {
-  const tokens = load('cm_reset_tokens', {});
-  const entry = tokens[String(userId)];
-  if (!entry) return false;
-  if (entry.token !== token) return false;
-  if (Date.now() > entry.expires) return false;
-  return true;
-}
-
-function consumeResetToken(userId) {
-  const tokens = load('cm_reset_tokens', {});
-  delete tokens[String(userId)];
-  save('cm_reset_tokens', tokens);
-}
-
-let state = {
-  page: 'dashboard',
-  user: null,
-  edifici: load('cm_edifici', [{id:1, nome:'Via Neri da Rimini 20', indirizzo:'Via Neri da Rimini 20, 47921 Rimini (RN)', colore:'#2563EB', note:''}]),
-  edificioAttivo: load('cm_edificio_attivo', 1),
-  condomini: load('cm_condomini', CONDOMINI_DEFAULT),
-  spese: load('cm_spese', []),
-  fornitori: load('cm_fornitori', []),
-  entrate: load('cm_entrate', []),
-  modal: null,
-  filterCat: 'all',
-  filterTipo: 'all',
-  filterStato: 'all',
-  filterFornitore: 'all',
-  filterAnno: new Date().getFullYear(),
-  sortCol: 'data',   // colonna di ordinamento spese
-  sortDir: 'desc',   // 'asc' | 'desc'
-  speseSelezionate: new Set(), // ids selezionate per eliminazione massiva
-  tab: 'spese',
-  searchQ: '',
-  sidebarOpen: false,
-  viewer: null,
-  pendingFiles: [],
-  loginPage: null,
-  wizardStep: 1,
-  wizardData: {},
-  bilancioTab: 'overview',
-  bilancioCondId: null,  // id condomino selezionato per dettaglio
-  loginEmail: '',
-  loginStep: 1,
-};
-
-function setState(patch) {
-  Object.assign(state, patch);
-  render();
-}
-
+// Password gestite interamente da Firebase Authentication
+// Queste funzioni sono stub vuoti — non salvano né leggono password locali
+function getPasswords() { return {}; }
+function getUserPassword() { return null; }
+function setUserPassword() { /* no-op: usa Firebase Auth */ }
 
 // ===========================
 // MIGRAZIONE DATI — edificioId
@@ -1032,7 +932,11 @@ function getEntrateEdificio() {
 //   canEdit         → Modifica — aggiunge/modifica dati del suo edificio
 //   default (lettura) → solo consultazione del suo edificio
 
-function isSuperAdmin(u) { return !!(u?.superAdmin); }
+function isSuperAdmin(u) {
+  if (!u) return false;
+  // Controlla sia il flag superAdmin (per profilo dinamico admin) che l'UID Firebase
+  return !!(u.superAdmin) || !!(SUPER_ADMIN_UID && u.uid === SUPER_ADMIN_UID);
+}
 function isAdminEdificio(u) { return !!(u?.isAdmin && !u?.superAdmin); }
 function canUserEdit(u) { return !!(u?.superAdmin || u?.isAdmin || u?.canEdit); }
 function canUserAdmin(u) { return !!(u?.superAdmin || u?.isAdmin); }
@@ -1184,11 +1088,11 @@ function renderLogin() {
       <p class="sub" style="margin-bottom:1.25rem">Inserisci le tue credenziali. Solo tu puoi vedere il tuo condominio.</p>
 
       <div class="field">
-        <label>Username o Email</label>
-        <input type="text" id="inp-login"
-          placeholder="Es. mario.rossi oppure mario@email.it"
-          autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
-        <p class="hint">Il tuo username ti è stato fornito dall'amministratore.</p>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="inp-login"
+          placeholder="La tua email di accesso"
+          autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
       </div>
       <div class="field">
         <label>Password</label>
@@ -1289,7 +1193,24 @@ function bindLogin() {
 
 
   const bf = document.getElementById('btn-forgot');
-  if (bf) bf.onclick = () => setState({loginPage:'forgot'});
+  if (bf) bf.onclick = async () => {
+    const email = (document.getElementById('inp-login')?.value || '').trim();
+    if (!email) { showLoginErr('Inserisci la tua email prima di cliccare "Password dimenticata?"'); return; }
+    try {
+      const { auth, sendPasswordResetEmail } = window._fb;
+      await sendPasswordResetEmail(auth, email);
+      showLoginErr('');
+      // Mostra messaggio di conferma
+      const errEl = document.getElementById('login-err');
+      if (errEl) {
+        errEl.style.color = 'var(--green)';
+        errEl.style.display = 'block';
+        errEl.textContent = '✅ Email di reset inviata! Controlla la tua casella di posta.';
+      }
+    } catch(e) {
+      showLoginErr('Errore: ' + (e.code === 'auth/user-not-found' ? 'Email non trovata' : e.message));
+    }
+  };
   const bb = document.getElementById('btn-back-login');
   if (bb) bb.onclick = () => setState({loginPage:null});
   const bb2 = document.getElementById('btn-back-login2');
@@ -1339,7 +1260,7 @@ function bindLogin() {
       if (errs.length>0) { errEl.textContent='Password non valida: ' + errs.join(', '); errEl.style.display='block'; return; }
       if (v1 !== v2) { errEl.textContent='Le password non coincidono'; errEl.style.display='block'; return; }
       if (!validateResetToken(uid, token)) { errEl.textContent='Link scaduto. Richiedine uno nuovo.'; errEl.style.display='block'; return; }
-      setUserPassword(uid, v1);
+      // Password gestita da Firebase Auth — usa il pulsante "Invia email reset" 
       consumeResetToken(uid);
       window.location.hash = '';
       setState({loginPage:null});
@@ -1363,12 +1284,10 @@ function bindLogin() {
 
 // Trova profilo per username O email (case-insensitive)
 function findProfileByLogin(q) {
+  // Cerca solo per email — username locale non più usato
   q = (q||'').trim().toLowerCase();
-  const all = [ADMIN, ...state.condomini.filter(c=>!c.disabled)];
-  return all.find(u =>
-    (u.username && u.username.toLowerCase() === q) ||
-    (u.email    && u.email.toLowerCase()    === q)
-  ) || null;
+  return state.condomini.filter(c=>!c.disabled)
+    .find(u => u.email && u.email.toLowerCase() === q) || null;
 }
 
 async function doLogin() {
@@ -1381,25 +1300,11 @@ async function doLogin() {
   if (btn) { btn.disabled = true; btn.textContent = 'Accesso in corso…'; }
 
   try {
-    const profile = findProfileByLogin(loginInput);
-    if (!profile) throw new Error('Utente non trovato. Verifica username o email.');
-    if (!profile.email) throw new Error("Nessuna email configurata. Contatta l'amministratore.");
-
-    if (window._fb) {
-      const { auth, signInWithEmailAndPassword } = window._fb;
-      await signInWithEmailAndPassword(auth, profile.email, pw);
-      // onAuthStateChanged completerà il login
-    } else {
-      // Fallback offline
-      const expectedPw = getUserPassword(String(profile.id));
-      if (pw !== expectedPw) throw new Error('Password errata');
-      let newEd = state.edificioAttivo;
-      if (!isSuperAdmin(profile) && profile.edificioId) {
-        newEd = profile.edificioId;
-        save('cm_edificio_attivo', newEd);
-      }
-      setState({user:profile, page:'dashboard', sidebarOpen:false, loginPage:null, loginStep:1, loginEmail:'', edificioAttivo:newEd});
-    }
+    if (!window._fb) throw new Error('Firebase non disponibile. Ricarica la pagina.');
+    const { auth, signInWithEmailAndPassword } = window._fb;
+    // Login diretto con email — Firebase gestisce tutto, nessuna password locale
+    await signInWithEmailAndPassword(auth, loginInput, pw);
+    // onAuthStateChanged completerà il login e caricherà il profilo tramite UID
   } catch(e) {
     console.error('Login error:', e.code, e.message);
     const msg = e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential'
@@ -4792,6 +4697,7 @@ function renderModalChangePw() {
 }
 
 function renderModalAdminResetPw(cond) {
+  const hasEmail = !!(cond.email);
   return `
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
@@ -4801,43 +4707,22 @@ function renderModalAdminResetPw(cond) {
       </div>
       <div class="modal-body">
         <div style="display:flex;align-items:center;gap:10px;padding:.75rem;background:var(--surface2);border-radius:var(--radius-sm);margin-bottom:1rem">
-          <div class="avatar" style="${avatarStyle(cond.color)}">${initials(cond.nome)}</div>
-          <div>
-            <div style="font-weight:600">${esc(cond.nome)}</div>
-            <div style="font-size:12px;color:var(--text2)">${esc(cond.email||'')} · ${cond.appartamento}</div>
-          </div>
+          <div class="avatar" style="${avatarStyle(cond.color)};width:40px;height:40px">${initials(cond.nome)}</div>
+          <div><div style="font-weight:600">${esc(cond.nome)}</div>
+          <div style="font-size:12px;color:var(--text2)">${cond.email||'Nessuna email configurata'}</div></div>
         </div>
-        <div class="tab-bar" style="margin-bottom:1.25rem">
-          <div class="tab active" id="tab-admin-manual" style="cursor:pointer">Imposta password</div>
-          <div class="tab" id="tab-admin-link" style="cursor:pointer">Genera link reset</div>
+        ${hasEmail ? `
+        <div class="alert alert-info" style="font-size:13px;margin-bottom:1rem">
+          📧 Verrà inviata una email di reset a <strong>${esc(cond.email)}</strong>.<br>
+          Il condomino potrà impostare una nuova password tramite il link nell'email.
         </div>
-        <div id="panel-manual">
-          <div class="field">
-            <label>Nuova password *</label>
-            <input type="password" id="ar-pw1" placeholder="Nuova password">
-            <p class="hint">Almeno 8 caratteri · almeno una maiuscola · almeno un numero</p>
-          </div>
-          <div class="field">
-            <label>Conferma password *</label>
-            <input type="password" id="ar-pw2" placeholder="Ripeti la password">
-          </div>
-          <div id="ar-rules" style="font-size:12px;min-height:18px;margin-bottom:.5rem"></div>
-          <div id="ar-err" class="alert alert-warning" style="display:none"></div>
-          <div id="ar-ok" class="alert alert-success" style="display:none"></div>
-        </div>
-        <div id="panel-link" style="display:none">
-          <p style="font-size:14px;color:var(--text2);margin-bottom:1rem">Genera un link monouso (valido 30 minuti) da inviare al condomino per impostare la propria password.</p>
-          <div id="ar-link-box" style="display:none">
-            <div class="alert alert-success" id="ar-link-msg"></div>
-            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:11px;word-break:break-all;font-family:monospace;margin-top:.5rem" id="ar-link-text"></div>
-            <button id="btn-ar-copy" class="btn btn-secondary btn-sm" style="margin-top:.5rem;width:100%">📋 Copia link</button>
-          </div>
-          <button class="btn btn-secondary" id="btn-ar-genlink" style="width:100%">🔗 Genera link di reset</button>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" id="modal-cancel">Chiudi</button>
-        <button class="btn btn-primary" id="btn-ar-save" data-uid="${cond.id}">✅ Imposta password</button>
+        <div id="reset-pw-msg" style="display:none" class="alert alert-success"></div>
+        <button class="btn btn-primary" style="width:100%" id="btn-send-reset-email">
+          📨 Invia email di reset password
+        </button>` : `
+        <div class="alert alert-warning" style="font-size:13px">
+          ⚠️ Questo condomino non ha un'email configurata. Aggiorna il suo profilo con un'email valida prima di procedere.
+        </div>`}
       </div>
     </div>
   </div>`;
@@ -5707,6 +5592,28 @@ Sposta o elimina prima tutti i dati associati.`);
     };
   });
 
+  // Bind btn-send-reset-email nel modal reset pw
+  const bSendReset = document.getElementById('btn-send-reset-email');
+  if (bSendReset) bSendReset.onclick = async () => {
+    const cond = state.modal?.data;
+    if (!cond?.email) return;
+    bSendReset.disabled = true;
+    bSendReset.textContent = '⏳ Invio in corso…';
+    try {
+      const { auth, sendPasswordResetEmail } = window._fb;
+      await sendPasswordResetEmail(auth, cond.email);
+      const msgEl = document.getElementById('reset-pw-msg');
+      if (msgEl) { msgEl.textContent = '✅ Email inviata a ' + cond.email; msgEl.style.display='block'; }
+      bSendReset.textContent = '✅ Email inviata';
+    } catch(e) {
+      bSendReset.disabled = false;
+      bSendReset.textContent = '📨 Riprova';
+      alert('Errore: ' + (e.code==='auth/user-not-found'
+        ? 'Nessun account Firebase con questa email. Aggiungila prima in Firebase Console → Authentication.'
+        : e.message));
+    }
+  };
+
   // Admin change own password
   const bAdminOwnPw = document.getElementById('btn-admin-change-own-pw');
   if (bAdminOwnPw) bAdminOwnPw.onclick = () => setState({modal:{type:'change-pw'}});
@@ -5762,7 +5669,7 @@ Sposta o elimina prima tutti i dati associati.`);
     save('cm_entrate',    []);
     save('cm_fornitori',  []);
     save('cm_condomini',  CONDOMINI_DEFAULT);
-    save('cm_passwords',  {});  // pulisci anche le password offline
+    // cm_passwords non più usato — password gestite da Firebase Auth
     setState({spese:[], entrate:[], fornitori:[], condomini:CONDOMINI_DEFAULT});
     alert('✅ Reset completato. Puoi ricominciare da zero.');
   };
@@ -6296,7 +6203,7 @@ function bindModal() {
     const errs = validatePassword(v1);
     if (errs.length>0) { errEl.textContent='Password non valida: '+errs.join(', '); errEl.style.display='block'; return; }
     if (v1 !== v2) { errEl.textContent='Le password non coincidono'; errEl.style.display='block'; return; }
-    setUserPassword(uid, v1);
+    // Password gestita da Firebase Auth — usa il pulsante "Invia email reset" 
     okEl.textContent='✅ Password impostata con successo per questo utente!';
     okEl.style.display='block';
     setTimeout(()=>setState({modal:null}), 1500);
@@ -6952,6 +6859,18 @@ async function initApp() {
     });
   }
 
+  // Carica UID superAdmin da Firestore (nessun dato hardcoded nel codice)
+  try {
+    const { db, doc, getDoc } = window._fb;
+    const cfgSnap = await getDoc(doc(db, 'appdata', 'cm_config'));
+    if (cfgSnap.exists()) {
+      const cfgVal = cfgSnap.data().value;
+      const cfg = cfgVal ? JSON.parse(cfgVal) : cfgSnap.data();
+      SUPER_ADMIN_UID = cfg.superAdminUid || cfg.value?.superAdminUid || null;
+      console.log('SuperAdmin UID caricato:', SUPER_ADMIN_UID ? '✅' : '❌ non trovato');
+    }
+  } catch(e) { console.warn('cm_config non trovato:', e.message); }
+
   // Carica tutti i dati da Firestore
   if (window._fb) {
     await fbLoadAll();
@@ -6990,12 +6909,28 @@ async function initApp() {
     const { auth, onAuthStateChanged } = window._fb;
     onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const allUsers = [ADMIN, ...state.condomini];
-        const profile  = allUsers.find(u => u.email === firebaseUser.email);
+        // Trova profilo tramite UID (sicuro) o email (fallback)
+        const isSuperAdminUser = SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID;
+        let profile = state.condomini.find(c => c.uid === firebaseUser.uid)
+                   || state.condomini.find(c => c.email === firebaseUser.email);
+
+        // Se è il superAdmin crea profilo dinamico (non in state.condomini)
+        if (!profile && isSuperAdminUser) {
+          profile = {
+            id: 0,
+            nome: firebaseUser.displayName || 'Super Admin',
+            email: firebaseUser.email,
+            uid: firebaseUser.uid,
+            appartamento: 'Admin',
+            superAdmin: true,
+            isAdmin: true,
+            canEdit: true,
+            color: '#1B2A4A',
+          };
+        }
 
         if (!profile) {
-          // Email autenticata ma nessun profilo corrispondente (es. dati non ancora caricati)
-          // Non fare logout: potrebbe essere una race condition al boot.
+          // Utente Firebase autenticato ma senza profilo app — race condition o utente non configurato
           render();
           return;
         }
@@ -7006,7 +6941,6 @@ async function initApp() {
           return;
         }
 
-        // Login completato
         const wasLoggedOut = !state.user;
         state.user = profile;
         if (!isSuperAdmin(profile) && profile.edificioId) {
