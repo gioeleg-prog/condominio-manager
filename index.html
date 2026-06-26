@@ -762,13 +762,9 @@
     updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail
   };
   window._fbReady = true;
-  // Chiama initApp direttamente — elimina race condition con addEventListener
-  if (typeof initApp === 'function') {
-    initApp();
-  } else {
-    // initApp non ancora definita (script normale non ancora eseguito)
-    // Usa MutationObserver o polling
-    document.dispatchEvent(new Event('fb-ready'));
+  // Notifica che Firebase è pronto — initApp gestisce il resto
+  if (typeof window._fbReadyResolve === 'function') {
+    window._fbReadyResolve();
   }
 </script>
 
@@ -6866,72 +6862,72 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 //  INIT — Avvio app con Firebase
 // ═══════════════════════════════════════════════════════
 async function initApp() {
-  // Evita doppia esecuzione (può essere chiamata sia dal modulo che dal fallback)
+  // Guard: evita doppia esecuzione
   if (window._initAppRunning) return;
   window._initAppRunning = true;
 
-  document.getElementById('app').innerHTML = renderLoading();
+  // STEP 1: Mostra subito il login — nessuna attesa
+  // state.user è null → render() mostra la schermata di login
+  render();
 
-  // Firebase è già pronto quando arriviamo qui (chiamati dal modulo)
+  // STEP 2: Aspetta Firebase in background (max 8s)
+  if (!window._fbReady) {
+    await new Promise(resolve => {
+      window._fbReadyResolve = resolve;
+      setTimeout(resolve, 8000); // fallback timeout
+    });
+  }
+
   if (!window._fb) {
+    // Firebase non disponibile — resta sul login, mostra errore
     console.warn('Firebase non disponibile');
-    render();
     return;
   }
 
   const { auth, db, doc, getDoc, onAuthStateChanged } = window._fb;
 
-  // 2. Carica SUPER_ADMIN_UID da Firestore con timeout 5s
-  // cm_config ha il campo superAdminUid direttamente (non come JSON)
+  // STEP 3: Carica SUPER_ADMIN_UID (non bloccante — max 4s)
   try {
-    const cfgPromise = getDoc(doc(db, 'appdata', 'cm_config'));
-    const cfgTimeout = new Promise(r => setTimeout(() => r(null), 5000));
-    const cfgSnap = await Promise.race([cfgPromise, cfgTimeout]);
+    const cfgSnap = await Promise.race([
+      getDoc(doc(db, 'appdata', 'cm_config')),
+      new Promise(r => setTimeout(() => r(null), 4000))
+    ]);
     if (cfgSnap && cfgSnap.exists()) {
       const data = cfgSnap.data();
-      // Supporta sia campo diretto che campo value JSON
-      if (data.superAdminUid) {
-        SUPER_ADMIN_UID = data.superAdminUid;
-      } else if (data.value) {
-        try { SUPER_ADMIN_UID = JSON.parse(data.value).superAdminUid || null; } catch {}
-      }
-      console.log('SuperAdmin UID:', SUPER_ADMIN_UID ? '✅' : '❌ non trovato');
-    } else {
-      console.warn('cm_config timeout o non trovato');
+      SUPER_ADMIN_UID = data.superAdminUid
+        || (data.value ? JSON.parse(data.value).superAdminUid : null)
+        || null;
     }
-  } catch(e) { console.warn('cm_config error:', e.message); }
+  } catch(e) { console.warn('cm_config:', e.message); }
 
-  // 3. Carica dati Firestore con timeout 8s
+  // STEP 4: Carica dati Firestore (non bloccante — max 6s)
   try {
-    const loadPromise = fbLoadAll();
-    const loadTimeout = new Promise(r => setTimeout(r, 8000));
-    await Promise.race([loadPromise, loadTimeout]);
-  } catch(e) { console.warn('fbLoadAll error:', e.message); }
-  const savedCondomini  = load('cm_condomini',  null);
-  const savedSpese      = load('cm_spese',      null);
-  const savedEntrate    = load('cm_entrate',    null);
-  const savedFornitori  = load('cm_fornitori',  null);
-  const savedEdifici    = load('cm_edifici',    null);
-  const savedEdAttivo   = load('cm_edificio_attivo', null);
-  const savedCategorie  = load('cm_categorie',  null);
-  if (savedCondomini)  state.condomini      = savedCondomini;
-  if (savedSpese)      state.spese          = savedSpese;
-  if (savedEntrate)    state.entrate        = savedEntrate;
-  if (savedFornitori)  state.fornitori      = savedFornitori;
-  if (savedEdifici && savedEdifici.length > 0) state.edifici = savedEdifici;
-  if (savedEdAttivo)   state.edificioAttivo = savedEdAttivo;
-  if (savedCategorie)  state.categorie      = savedCategorie;
+    await Promise.race([fbLoadAll(), new Promise(r => setTimeout(r, 6000))]);
+    const load_map = {
+      condomini: 'cm_condomini', spese: 'cm_spese',
+      entrate: 'cm_entrate', fornitori: 'cm_fornitori',
+    };
+    for (const [key, doc_id] of Object.entries(load_map)) {
+      const val = load(doc_id, null);
+      if (val) state[key] = val;
+    }
+    const savedEdifici = load('cm_edifici', null);
+    if (savedEdifici && savedEdifici.length > 0) state.edifici = savedEdifici;
+    const savedEdAttivo = load('cm_edificio_attivo', null);
+    if (savedEdAttivo) state.edificioAttivo = savedEdAttivo;
+  } catch(e) { console.warn('fbLoadAll:', e.message); }
 
-  // 4. ORA registra onAuthStateChanged — i dati sono già pronti
+  // STEP 5: Registra onAuthStateChanged
+  // A questo punto i dati sono caricati — se l'utente era già loggato
+  // onAuthStateChanged scatta subito e trova il profilo
   onAuthStateChanged(auth, async (firebaseUser) => {
     if (firebaseUser) {
       const isSuperAdminUser = SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID;
 
-      // Cerca profilo per UID (sicuro) poi per email (fallback)
       let profile = state.condomini.find(c => c.uid === firebaseUser.uid)
-                 || state.condomini.find(c => c.email && c.email.toLowerCase() === firebaseUser.email.toLowerCase());
+                 || state.condomini.find(c => c.email &&
+                    c.email.toLowerCase() === firebaseUser.email.toLowerCase());
 
-      // SuperAdmin: crea profilo dinamico se non in state.condomini
       if (!profile && isSuperAdminUser) {
         profile = {
           id: 0,
@@ -6939,17 +6935,14 @@ async function initApp() {
           email: firebaseUser.email,
           uid: firebaseUser.uid,
           appartamento: 'Admin',
-          superAdmin: true,
-          isAdmin: true,
-          canEdit: true,
+          superAdmin: true, isAdmin: true, canEdit: true,
           color: '#1B2A4A',
         };
       }
 
       if (!profile) {
-        // Utente Firebase valido ma nessun profilo trovato
-        // Fai logout per evitare stati inconsistenti
-        console.warn('Utente Firebase senza profilo app:', firebaseUser.email);
+        // Utente Firebase ma senza profilo app — logout pulito
+        console.warn('Utente senza profilo:', firebaseUser.email);
         await window._fb.signOut(auth);
         state.user = null;
         render();
@@ -6963,16 +6956,18 @@ async function initApp() {
         return;
       }
 
-      const wasLoggedOut = !state.user;
-      state.user = profile;
-      // Aggiorna UID nel profilo se trovato per email (prima sincronizzazione)
+      // Auto-salva UID se trovato per email (prima volta)
       if (!profile.uid && profile.id !== 0) {
-        const condomini = state.condomini.map(c =>
+        const upd = state.condomini.map(c =>
           c.id === profile.id ? {...c, uid: firebaseUser.uid} : c
         );
-        state.condomini = condomini;
-        save('cm_condomini', condomini);
+        state.condomini = upd;
+        save('cm_condomini', upd);
+        profile = {...profile, uid: firebaseUser.uid};
       }
+
+      const wasLoggedOut = !state.user;
+      state.user = profile;
       if (!isSuperAdmin(profile) && profile.edificioId) {
         state.edificioAttivo = profile.edificioId;
         save('cm_edificio_attivo', profile.edificioId);
@@ -7001,13 +6996,8 @@ function renderLoading() {
 // Aggiorna logout per usare Firebase signOut
 const _origBindApp = bindApp;
 
-// Non chiamare initApp() direttamente — viene chiamata dal modulo Firebase
-// dopo che window._fb è pronto, eliminando la race condition
-// Fallback: se Firebase module è già pronto (es. da cache), chiama subito
-if (window._fbReady && window._fb) {
-  initApp();
-}
-// Altrimenti initApp() verrà chiamata dal modulo Firebase (vedi sopra)
+// Avvia l'app — initApp mostra subito il login, Firebase carica in background
+initApp();
 </script>
 </body>
 </html>
