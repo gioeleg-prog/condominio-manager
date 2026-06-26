@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#2563EB">
 
 <!-- Security Headers (XSS, clickjacking, content sniffing) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://www.gstatic.com wss://*.firebaseio.com; frame-src 'self' https://*.firebaseapp.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.gstatic.com https://www.googleapis.com https://apis.google.com https://cdn.firebase.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://www.gstatic.com wss://*.firebaseio.com https://firestore.googleapis.com; frame-src 'self' https://*.firebaseapp.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="SAMEORIGIN">
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -762,9 +762,7 @@
     updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail
   };
   window._fbReady = true;
-  // Chiama initApp() ora che Firebase è pronto
-  // Il modulo esegue DOPO il main script, quindi initApp è già definita
-  initApp();
+  document.dispatchEvent(new Event('fb-ready'));
 </script>
 
 </head>
@@ -1067,7 +1065,6 @@ function newId() {
 function render() {
   const app = document.getElementById('app');
   if (!state.user) { app.innerHTML = renderLogin(); bindLogin(); return; }
-  app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
   app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
   // Applica classe per pagine a piena larghezza
   const _pageEl = document.querySelector('.page');
@@ -6861,15 +6858,18 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 //  INIT — Avvio app con Firebase
 // ═══════════════════════════════════════════════════════
 async function initApp() {
-  // Guard: evita doppia esecuzione
-  if (window._initAppRunning) return;
-  window._initAppRunning = true;
-
   // STEP 1: Mostra subito il login — nessuna attesa
   // state.user è null → render() mostra la schermata di login
   render();
 
-  // STEP 2: Firebase è già pronto (siamo stati chiamati dal modulo)
+  // STEP 2: Aspetta Firebase se non ancora pronto (fallback timeout 10s)
+  if (!window._fb) {
+    await new Promise(resolve => {
+      if (window._fbReady && window._fb) { resolve(); return; }
+      document.addEventListener('fb-ready', resolve, {once: true});
+      setTimeout(resolve, 10000);
+    });
+  }
   if (!window._fb) {
     console.warn('Firebase non disponibile');
     return;
@@ -6986,8 +6986,15 @@ function renderLoading() {
 // Aggiorna logout per usare Firebase signOut
 const _origBindApp = bindApp;
 
-// initApp() viene chiamata dal modulo Firebase quando è pronto
-// NON chiamare qui — il modulo type="module" esegue sempre dopo questo script
-</script>
+
+// BOOT — Pattern originale che funzionava:
+// Il modulo Firebase emette 'fb-ready' quando è pronto
+// Il main script ascolta quell'evento e chiama initApp()
+// Gestisce anche il caso in cui Firebase sia già pronto (cache)
+if (window._fbReady && window._fb) {
+  initApp(); // già pronto
+} else {
+  document.addEventListener('fb-ready', () => initApp(), {once: true});
+}
 </body>
 </html>
