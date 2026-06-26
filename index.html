@@ -762,7 +762,14 @@
     updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail
   };
   window._fbReady = true;
-  document.dispatchEvent(new Event('fb-ready'));
+  // Chiama initApp direttamente — elimina race condition con addEventListener
+  if (typeof initApp === 'function') {
+    initApp();
+  } else {
+    // initApp non ancora definita (script normale non ancora eseguito)
+    // Usa MutationObserver o polling
+    document.dispatchEvent(new Event('fb-ready'));
+  }
 </script>
 
 </head>
@@ -6859,16 +6866,13 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 //  INIT — Avvio app con Firebase
 // ═══════════════════════════════════════════════════════
 async function initApp() {
+  // Evita doppia esecuzione (può essere chiamata sia dal modulo che dal fallback)
+  if (window._initAppRunning) return;
+  window._initAppRunning = true;
+
   document.getElementById('app').innerHTML = renderLoading();
 
-  // 1. Aspetta Firebase SDK (max 5s)
-  if (!window._fbReady) {
-    await new Promise(resolve => {
-      document.addEventListener('fb-ready', resolve, {once: true});
-      setTimeout(resolve, 5000);
-    });
-  }
-
+  // Firebase è già pronto quando arriviamo qui (chiamati dal modulo)
   if (!window._fb) {
     console.warn('Firebase non disponibile');
     render();
@@ -6997,7 +7001,13 @@ function renderLoading() {
 // Aggiorna logout per usare Firebase signOut
 const _origBindApp = bindApp;
 
-initApp();
+// Non chiamare initApp() direttamente — viene chiamata dal modulo Firebase
+// dopo che window._fb è pronto, eliminando la race condition
+// Fallback: se Firebase module è già pronto (es. da cache), chiama subito
+if (window._fbReady && window._fb) {
+  initApp();
+}
+// Altrimenti initApp() verrà chiamata dal modulo Firebase (vedi sopra)
 </script>
 </body>
 </html>
