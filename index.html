@@ -5863,15 +5863,22 @@ function bindModal() {
 
   // Reset password admin
   const bResetAdmin = document.getElementById('btn-save-reset-admin');
-  if (bResetAdmin) bResetAdmin.onclick = () => {
-    const id  = parseInt(bResetAdmin.dataset.id);
-    const pw  = document.getElementById('admin-new-pw')?.value?.trim();
-    const okEl= document.getElementById('reset-admin-ok');
-    if (!pw || pw.length < 4) { alert('Inserisci una password di almeno 4 caratteri'); return; }
-    setUserPassword(String(id), pw);
-    okEl.textContent = '✅ Password offline aggiornata. Comunicala al condomino.';
-    okEl.style.display = 'block';
-    setTimeout(()=>setState({modal:null}), 2000);
+  if (bResetAdmin) bResetAdmin.onclick = async () => {
+    const id   = parseInt(bResetAdmin.dataset.id);
+    const cond = state.condomini.find(c=>c.id===id);
+    const okEl = document.getElementById('reset-admin-ok');
+    if (!cond?.email) { alert('Nessuna email per questo condomino. Aggiornala prima nel profilo.'); return; }
+    try {
+      const { auth, sendPasswordResetEmail } = window._fb;
+      await sendPasswordResetEmail(auth, cond.email);
+      okEl.textContent = '✅ Email di reset inviata a ' + cond.email;
+      okEl.style.display = 'block';
+      setTimeout(()=>setState({modal:null}), 2500);
+    } catch(e) {
+      alert('Errore: ' + (e.code==='auth/user-not-found'
+        ? 'Account non trovato su Firebase. Crealo prima in Firebase Console.'
+        : e.message));
+    }
   };
 
   // Toggle effettivo/previsionale entrata
@@ -6163,7 +6170,7 @@ function bindModal() {
       if (window._fb) {
         await fbChangePassword(cur, n1);
       } else {
-        setUserPassword(String(state.user.id), n1);
+        throw new Error('Firebase non disponibile. Riconnettiti e riprova.');
       }
       okEl.textContent='✅ Password aggiornata con successo!';
       okEl.style.display='block';
@@ -6598,7 +6605,7 @@ function bindWizard() {
       };
       const condomini = [...state.condomini, nuovoUtente];
       save('cm_condomini', condomini);
-      setUserPassword(String(nuovoUtente.id), v1);
+      // Password gestita da Firebase Auth — non salvata localmente
       // Su Firebase: mostra istruzioni per creare l'account Auth
       if (window._fb && nuovoUtente.email) {
         state._pendingFirebaseUser = {email: nuovoUtente.email, password: v1, nome: nuovoUtente.nome};
@@ -6996,5 +7003,6 @@ if (window._fbReady && window._fb) {
 } else {
   document.addEventListener('fb-ready', () => initApp(), {once: true});
 }
+</script>
 </body>
 </html>
