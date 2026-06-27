@@ -1430,6 +1430,14 @@ function showLoginErr(msg) {
 }
 
 // ===========================
+// CAMBIO EDIFICIO ATTIVO
+// ===========================
+function cambiaEdificio(id, closeModal) {
+  save('cm_edificio_attivo', id);
+  setState({edificioAttivo: id, page: 'dashboard', ...(closeModal ? {modal: null} : {})});
+}
+
+// ===========================
 // APP SHELL
 // ===========================
 
@@ -5510,12 +5518,6 @@ function bindPageActions() {
       if (ed) setState({modal:{type:'edificio', data:{...ed}}});
     };
   });
-
-  // Cambio edificio — il filtro per edificioId avviene nel render
-  function cambiaEdificio(id, closeModal) {
-    save('cm_edificio_attivo', id);
-    setState({edificioAttivo:id, page:'dashboard', ...(closeModal ? {modal:null} : {})});
-  }
 
   document.querySelectorAll('[data-attiva-edificio]').forEach(btn => {
     btn.onclick = () => cambiaEdificio(parseInt(btn.dataset.attivaEdificio), false);
