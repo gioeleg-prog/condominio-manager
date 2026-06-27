@@ -7,7 +7,8 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#2563EB">
 
-<!-- Security Headers -->
+<!-- Security Headers (XSS, clickjacking, content sniffing) -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://www.gstatic.com wss://*.firebaseio.com; frame-src 'self' https://*.firebaseapp.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="SAMEORIGIN">
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -731,7 +732,7 @@
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
   import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail }
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
   // ═══════════════════════════════════════════
@@ -758,11 +759,10 @@
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     onSnapshot, query, orderBy, serverTimestamp,
     signInWithEmailAndPassword, signOut, onAuthStateChanged,
-    updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail
+    updatePassword, reauthenticateWithCredential, EmailAuthProvider
   };
   window._fbReady = true;
   document.dispatchEvent(new Event('fb-ready'));
-  initApp(); // chiama direttamente — window._fb è già pronto
 </script>
 
 </head>
@@ -780,7 +780,6 @@ const CONDOMINI_DEFAULT = [
   {id:6, nome:'Stefania Mancini', appartamento:'Int. 6', email:'stefania@example.com', canEdit:false, color:COLORS[5]},
 ];
 const ADMIN = {id:0, nome:'Gioele Gagliardi', appartamento:'Admin', email:'gioele.g@gmail.com', username:'admin', canEdit:true, isAdmin:true, superAdmin:true, color:'#1B2A4A'};
-let SUPER_ADMIN_UID = null; // caricato da Firestore per sicurezza aggiuntiva
 // ⚠️ superAdmin:true → unico super-amministratore globale, vede tutti i condomini
 
 const CATEGORIE_DEFAULT = [
@@ -841,33 +840,123 @@ async function fbLoadAll() {
   if (!window._fb) return;
   try {
     const { db, collection, getDocs } = window._fb;
-    // Timeout 8s per evitare blocchi infiniti
-    const snapPromise = getDocs(collection(db, 'appdata'));
-    const snapTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000));
-    const snap = await Promise.race([snapPromise, snapTimeout]);
+    const snap = await getDocs(collection(db, 'appdata'));
     snap.forEach(d => {
-      try {
-        if (d.data().value) _cache[d.id] = JSON.parse(d.data().value);
-      } catch {}
+      try { _cache[d.id] = JSON.parse(d.data().value); } catch {}
     });
-  } catch(e) {
-    if (e.message === 'timeout') {
-      console.warn('fbLoadAll: timeout — uso dati in cache locale');
-    } else {
-      console.warn('fbLoadAll error:', e.message);
-    }
-  }
+  } catch(e) { console.warn('fbLoadAll error', e); }
 }
 
 // ===========================
 // PASSWORD MANAGEMENT — Firebase Auth
 // ===========================
 // Le password sono gestite da Firebase Authentication.
-// Password gestite interamente da Firebase Authentication
-// Queste funzioni sono stub vuoti — non salvano né leggono password locali
-function getPasswords() { return {}; }
-function getUserPassword() { return null; }
-function setUserPassword() { /* no-op: usa Firebase Auth */ }
+// getUserPassword e setUserPassword rimangono come stub
+// per compatibilità con il codice di validazione UI;
+// il login reale usa signInWithEmailAndPassword.
+const DEFAULT_PW = '1234';
+
+function getPasswords() { return load('cm_passwords', {}); }
+
+function getUserPassword(userId) {
+  // fallback locale (usato solo in modalità offline/test)
+  const pws = getPasswords();
+  return pws[String(userId)] || DEFAULT_PW;
+}
+
+function setUserPassword(userId, newPw) {
+  // Aggiorna anche la cache locale per coerenza UI
+  const pws = getPasswords();
+  pws[String(userId)] = newPw;
+  save('cm_passwords', pws);
+  // L'aggiornamento reale su Firebase Auth avviene in fbChangePassword()
+}
+
+// Cambia password dell'utente corrente su Firebase Auth
+async function fbChangePassword(currentPw, newPw) {
+  const { auth, reauthenticateWithCredential, EmailAuthProvider, updatePassword } = window._fb;
+  const user = auth.currentUser;
+  if (!user) throw new Error('Nessun utente autenticato');
+  const cred = EmailAuthProvider.credential(user.email, currentPw);
+  await reauthenticateWithCredential(user, cred);
+  await updatePassword(user, newPw);
+}
+
+// Imposta password utente da admin (richiede funzione cloud — per ora salva solo localmente)
+async function fbAdminSetPassword(userId, newPw) {
+  // In produzione userebbe Firebase Admin SDK via Cloud Function.
+  // Per ora salva nella cache locale e mostra istruzioni.
+  setUserPassword(userId, newPw);
+}
+
+function validatePassword(pw) {
+  const errors = [];
+  if (!pw || pw.length < 8) errors.push('almeno 8 caratteri');
+  if (!/[A-Z]/.test(pw)) errors.push('almeno una lettera maiuscola');
+  if (!/[0-9]/.test(pw)) errors.push('almeno un numero');
+  return errors;
+}
+
+function generateResetToken(userId) {
+  const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const tokens = load('cm_reset_tokens', {});
+  tokens[String(userId)] = { token, expires: Date.now() + 30 * 60 * 1000 }; // 30min
+  save('cm_reset_tokens', tokens);
+  return token;
+}
+
+function validateResetToken(userId, token) {
+  const tokens = load('cm_reset_tokens', {});
+  const entry = tokens[String(userId)];
+  if (!entry) return false;
+  if (entry.token !== token) return false;
+  if (Date.now() > entry.expires) return false;
+  return true;
+}
+
+function consumeResetToken(userId) {
+  const tokens = load('cm_reset_tokens', {});
+  delete tokens[String(userId)];
+  save('cm_reset_tokens', tokens);
+}
+
+let state = {
+  page: 'dashboard',
+  user: null,
+  edifici: load('cm_edifici', [{id:1, nome:'Via Neri da Rimini 20', indirizzo:'Via Neri da Rimini 20, 47921 Rimini (RN)', colore:'#2563EB', note:''}]),
+  edificioAttivo: load('cm_edificio_attivo', 1),
+  condomini: load('cm_condomini', CONDOMINI_DEFAULT),
+  spese: load('cm_spese', []),
+  fornitori: load('cm_fornitori', []),
+  entrate: load('cm_entrate', []),
+  modal: null,
+  filterCat: 'all',
+  filterTipo: 'all',
+  filterStato: 'all',
+  filterFornitore: 'all',
+  filterAnno: new Date().getFullYear(),
+  sortCol: 'data',   // colonna di ordinamento spese
+  sortDir: 'desc',   // 'asc' | 'desc'
+  speseSelezionate: new Set(), // ids selezionate per eliminazione massiva
+  tab: 'spese',
+  searchQ: '',
+  sidebarOpen: false,
+  viewer: null,
+  pendingFiles: [],
+  loginPage: null,
+  wizardStep: 1,
+  wizardData: {},
+  bilancioTab: 'overview',
+  bilancioCondId: null,  // id condomino selezionato per dettaglio
+  loginEmail: '',
+  loginStep: 1,
+};
+
+function setState(patch) {
+  Object.assign(state, patch);
+  render();
+}
+
 
 // ===========================
 // MIGRAZIONE DATI — edificioId
@@ -1062,6 +1151,7 @@ function render() {
   const app = document.getElementById('app');
   if (!state.user) { app.innerHTML = renderLogin(); bindLogin(); return; }
   app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
+  app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
   // Applica classe per pagine a piena larghezza
   const _pageEl = document.querySelector('.page');
   if (_pageEl) {
@@ -1094,11 +1184,11 @@ function renderLogin() {
       <p class="sub" style="margin-bottom:1.25rem">Inserisci le tue credenziali. Solo tu puoi vedere il tuo condominio.</p>
 
       <div class="field">
-      <div class="field">
-        <label>Email</label>
-        <input type="email" id="inp-login"
-          placeholder="La tua email di accesso"
-          autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
+        <label>Username o Email</label>
+        <input type="text" id="inp-login"
+          placeholder="Es. mario.rossi oppure mario@email.it"
+          autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
+        <p class="hint">Il tuo username ti è stato fornito dall'amministratore.</p>
       </div>
       <div class="field">
         <label>Password</label>
@@ -1199,24 +1289,7 @@ function bindLogin() {
 
 
   const bf = document.getElementById('btn-forgot');
-  if (bf) bf.onclick = async () => {
-    const email = (document.getElementById('inp-login')?.value || '').trim();
-    if (!email) { showLoginErr('Inserisci la tua email prima di cliccare "Password dimenticata?"'); return; }
-    try {
-      const { auth, sendPasswordResetEmail } = window._fb;
-      await sendPasswordResetEmail(auth, email);
-      showLoginErr('');
-      // Mostra messaggio di conferma
-      const errEl = document.getElementById('login-err');
-      if (errEl) {
-        errEl.style.color = 'var(--green)';
-        errEl.style.display = 'block';
-        errEl.textContent = '✅ Email di reset inviata! Controlla la tua casella di posta.';
-      }
-    } catch(e) {
-      showLoginErr('Errore: ' + (e.code === 'auth/user-not-found' ? 'Email non trovata' : e.message));
-    }
-  };
+  if (bf) bf.onclick = () => setState({loginPage:'forgot'});
   const bb = document.getElementById('btn-back-login');
   if (bb) bb.onclick = () => setState({loginPage:null});
   const bb2 = document.getElementById('btn-back-login2');
@@ -1266,7 +1339,7 @@ function bindLogin() {
       if (errs.length>0) { errEl.textContent='Password non valida: ' + errs.join(', '); errEl.style.display='block'; return; }
       if (v1 !== v2) { errEl.textContent='Le password non coincidono'; errEl.style.display='block'; return; }
       if (!validateResetToken(uid, token)) { errEl.textContent='Link scaduto. Richiedine uno nuovo.'; errEl.style.display='block'; return; }
-      // Password gestita da Firebase Auth — usa il pulsante "Invia email reset" 
+      setUserPassword(uid, v1);
       consumeResetToken(uid);
       window.location.hash = '';
       setState({loginPage:null});
@@ -1310,15 +1383,22 @@ async function doLogin() {
   try {
     const profile = findProfileByLogin(loginInput);
     if (!profile) throw new Error('Utente non trovato. Verifica username o email.');
-    if (!profile.email) throw new Error('Nessuna email associata. Contatta l amministratore.');
+    if (!profile.email) throw new Error("Nessuna email configurata. Contatta l'amministratore.");
 
     if (window._fb) {
       const { auth, signInWithEmailAndPassword } = window._fb;
       await signInWithEmailAndPassword(auth, profile.email, pw);
       // onAuthStateChanged completerà il login
     } else {
-      showLoginErr('Firebase non disponibile. Ricarica la pagina.');
-      if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
+      // Fallback offline
+      const expectedPw = getUserPassword(String(profile.id));
+      if (pw !== expectedPw) throw new Error('Password errata');
+      let newEd = state.edificioAttivo;
+      if (!isSuperAdmin(profile) && profile.edificioId) {
+        newEd = profile.edificioId;
+        save('cm_edificio_attivo', newEd);
+      }
+      setState({user:profile, page:'dashboard', sidebarOpen:false, loginPage:null, loginStep:1, loginEmail:'', edificioAttivo:newEd});
     }
   } catch(e) {
     console.error('Login error:', e.code, e.message);
@@ -4712,7 +4792,6 @@ function renderModalChangePw() {
 }
 
 function renderModalAdminResetPw(cond) {
-  const hasEmail = !!(cond.email);
   return `
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
@@ -4722,22 +4801,43 @@ function renderModalAdminResetPw(cond) {
       </div>
       <div class="modal-body">
         <div style="display:flex;align-items:center;gap:10px;padding:.75rem;background:var(--surface2);border-radius:var(--radius-sm);margin-bottom:1rem">
-          <div class="avatar" style="${avatarStyle(cond.color)};width:40px;height:40px">${initials(cond.nome)}</div>
-          <div><div style="font-weight:600">${esc(cond.nome)}</div>
-          <div style="font-size:12px;color:var(--text2)">${cond.email||'Nessuna email configurata'}</div></div>
+          <div class="avatar" style="${avatarStyle(cond.color)}">${initials(cond.nome)}</div>
+          <div>
+            <div style="font-weight:600">${esc(cond.nome)}</div>
+            <div style="font-size:12px;color:var(--text2)">${esc(cond.email||'')} · ${cond.appartamento}</div>
+          </div>
         </div>
-        ${hasEmail ? `
-        <div class="alert alert-info" style="font-size:13px;margin-bottom:1rem">
-          📧 Verrà inviata una email di reset a <strong>${esc(cond.email)}</strong>.<br>
-          Il condomino potrà impostare una nuova password tramite il link nell'email.
+        <div class="tab-bar" style="margin-bottom:1.25rem">
+          <div class="tab active" id="tab-admin-manual" style="cursor:pointer">Imposta password</div>
+          <div class="tab" id="tab-admin-link" style="cursor:pointer">Genera link reset</div>
         </div>
-        <div id="reset-pw-msg" style="display:none" class="alert alert-success"></div>
-        <button class="btn btn-primary" style="width:100%" id="btn-send-reset-email">
-          📨 Invia email di reset password
-        </button>` : `
-        <div class="alert alert-warning" style="font-size:13px">
-          ⚠️ Questo condomino non ha un'email configurata. Aggiorna il suo profilo con un'email valida prima di procedere.
-        </div>`}
+        <div id="panel-manual">
+          <div class="field">
+            <label>Nuova password *</label>
+            <input type="password" id="ar-pw1" placeholder="Nuova password">
+            <p class="hint">Almeno 8 caratteri · almeno una maiuscola · almeno un numero</p>
+          </div>
+          <div class="field">
+            <label>Conferma password *</label>
+            <input type="password" id="ar-pw2" placeholder="Ripeti la password">
+          </div>
+          <div id="ar-rules" style="font-size:12px;min-height:18px;margin-bottom:.5rem"></div>
+          <div id="ar-err" class="alert alert-warning" style="display:none"></div>
+          <div id="ar-ok" class="alert alert-success" style="display:none"></div>
+        </div>
+        <div id="panel-link" style="display:none">
+          <p style="font-size:14px;color:var(--text2);margin-bottom:1rem">Genera un link monouso (valido 30 minuti) da inviare al condomino per impostare la propria password.</p>
+          <div id="ar-link-box" style="display:none">
+            <div class="alert alert-success" id="ar-link-msg"></div>
+            <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-size:11px;word-break:break-all;font-family:monospace;margin-top:.5rem" id="ar-link-text"></div>
+            <button id="btn-ar-copy" class="btn btn-secondary btn-sm" style="margin-top:.5rem;width:100%">📋 Copia link</button>
+          </div>
+          <button class="btn btn-secondary" id="btn-ar-genlink" style="width:100%">🔗 Genera link di reset</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel">Chiudi</button>
+        <button class="btn btn-primary" id="btn-ar-save" data-uid="${cond.id}">✅ Imposta password</button>
       </div>
     </div>
   </div>`;
@@ -5607,28 +5707,6 @@ Sposta o elimina prima tutti i dati associati.`);
     };
   });
 
-  // Bind btn-send-reset-email nel modal reset pw
-  const bSendReset = document.getElementById('btn-send-reset-email');
-  if (bSendReset) bSendReset.onclick = async () => {
-    const cond = state.modal?.data;
-    if (!cond?.email) return;
-    bSendReset.disabled = true;
-    bSendReset.textContent = '⏳ Invio in corso…';
-    try {
-      const { auth, sendPasswordResetEmail } = window._fb;
-      await sendPasswordResetEmail(auth, cond.email);
-      const msgEl = document.getElementById('reset-pw-msg');
-      if (msgEl) { msgEl.textContent = '✅ Email inviata a ' + cond.email; msgEl.style.display='block'; }
-      bSendReset.textContent = '✅ Email inviata';
-    } catch(e) {
-      bSendReset.disabled = false;
-      bSendReset.textContent = '📨 Riprova';
-      alert('Errore: ' + (e.code==='auth/user-not-found'
-        ? 'Nessun account Firebase con questa email. Aggiungila prima in Firebase Console → Authentication.'
-        : e.message));
-    }
-  };
-
   // Admin change own password
   const bAdminOwnPw = document.getElementById('btn-admin-change-own-pw');
   if (bAdminOwnPw) bAdminOwnPw.onclick = () => setState({modal:{type:'change-pw'}});
@@ -5684,7 +5762,7 @@ Sposta o elimina prima tutti i dati associati.`);
     save('cm_entrate',    []);
     save('cm_fornitori',  []);
     save('cm_condomini',  CONDOMINI_DEFAULT);
-    // cm_passwords non più usato — password gestite da Firebase Auth
+    save('cm_passwords',  {});  // pulisci anche le password offline
     setState({spese:[], entrate:[], fornitori:[], condomini:CONDOMINI_DEFAULT});
     alert('✅ Reset completato. Puoi ricominciare da zero.');
   };
@@ -5868,22 +5946,15 @@ function bindModal() {
 
   // Reset password admin
   const bResetAdmin = document.getElementById('btn-save-reset-admin');
-  if (bResetAdmin) bResetAdmin.onclick = async () => {
-    const id   = parseInt(bResetAdmin.dataset.id);
-    const cond = state.condomini.find(c=>c.id===id);
-    const okEl = document.getElementById('reset-admin-ok');
-    if (!cond?.email) { alert('Nessuna email per questo condomino. Aggiornala prima nel profilo.'); return; }
-    try {
-      const { auth, sendPasswordResetEmail } = window._fb;
-      await sendPasswordResetEmail(auth, cond.email);
-      okEl.textContent = '✅ Email di reset inviata a ' + cond.email;
-      okEl.style.display = 'block';
-      setTimeout(()=>setState({modal:null}), 2500);
-    } catch(e) {
-      alert('Errore: ' + (e.code==='auth/user-not-found'
-        ? 'Account non trovato su Firebase. Crealo prima in Firebase Console.'
-        : e.message));
-    }
+  if (bResetAdmin) bResetAdmin.onclick = () => {
+    const id  = parseInt(bResetAdmin.dataset.id);
+    const pw  = document.getElementById('admin-new-pw')?.value?.trim();
+    const okEl= document.getElementById('reset-admin-ok');
+    if (!pw || pw.length < 4) { alert('Inserisci una password di almeno 4 caratteri'); return; }
+    setUserPassword(String(id), pw);
+    okEl.textContent = '✅ Password offline aggiornata. Comunicala al condomino.';
+    okEl.style.display = 'block';
+    setTimeout(()=>setState({modal:null}), 2000);
   };
 
   // Toggle effettivo/previsionale entrata
@@ -6175,7 +6246,7 @@ function bindModal() {
       if (window._fb) {
         await fbChangePassword(cur, n1);
       } else {
-        throw new Error('Firebase non disponibile. Riconnettiti e riprova.');
+        setUserPassword(String(state.user.id), n1);
       }
       okEl.textContent='✅ Password aggiornata con successo!';
       okEl.style.display='block';
@@ -6225,7 +6296,7 @@ function bindModal() {
     const errs = validatePassword(v1);
     if (errs.length>0) { errEl.textContent='Password non valida: '+errs.join(', '); errEl.style.display='block'; return; }
     if (v1 !== v2) { errEl.textContent='Le password non coincidono'; errEl.style.display='block'; return; }
-    // Password gestita da Firebase Auth — usa il pulsante "Invia email reset" 
+    setUserPassword(uid, v1);
     okEl.textContent='✅ Password impostata con successo per questo utente!';
     okEl.style.display='block';
     setTimeout(()=>setState({modal:null}), 1500);
@@ -6610,7 +6681,7 @@ function bindWizard() {
       };
       const condomini = [...state.condomini, nuovoUtente];
       save('cm_condomini', condomini);
-      // Password gestita da Firebase Auth — non salvata localmente
+      setUserPassword(String(nuovoUtente.id), v1);
       // Su Firebase: mostra istruzioni per creare l'account Auth
       if (window._fb && nuovoUtente.email) {
         state._pendingFirebaseUser = {email: nuovoUtente.email, password: v1, nome: nuovoUtente.nome};
@@ -6870,61 +6941,90 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 //  INIT — Avvio app con Firebase
 // ═══════════════════════════════════════════════════════
 async function initApp() {
-  // Firebase è già pronto quando arriviamo qui:
-  // il modulo lo chiama DOPO aver fatto dispatchEvent,
-  // oppure il fallback lo chiama se window._fbReady era già true.
-
-  // 1. Mostra subito login
+  // Mostra login subito — non aspetta Firebase
   render();
 
-  if (!window._fb) {
-    console.warn('Firebase non disponibile');
-    return;
+  // Aspetta che Firebase SDK sia pronto (in background)
+  if (!window._fbReady) {
+    await new Promise(resolve => {
+      document.addEventListener('fb-ready', resolve, {once: true});
+      setTimeout(resolve, 5000); // timeout fallback 5s
+    });
   }
 
-  // 2. Carica dati Firestore
-  await fbLoadAll();
-  const savedCondomini = load('cm_condomini', null);  if (savedCondomini) state.condomini = savedCondomini;
-  const savedSpese     = load('cm_spese', null);      if (savedSpese)     state.spese     = savedSpese;
-  const savedEntrate   = load('cm_entrate', null);    if (savedEntrate)   state.entrate   = savedEntrate;
-  const savedFornitori = load('cm_fornitori', null);  if (savedFornitori) state.fornitori = savedFornitori;
-  const savedEdifici   = load('cm_edifici', null);    if (savedEdifici && savedEdifici.length > 0) state.edifici = savedEdifici;
-  const savedEdAttivo  = load('cm_edificio_attivo', null); if (savedEdAttivo) state.edificioAttivo = savedEdAttivo;
+  // Carica tutti i dati da Firestore
+  if (window._fb) {
+    await fbLoadAll();
 
-  // 3. Carica SUPER_ADMIN_UID (opzionale, non bloccante)
-  try {
-    const { db, doc, getDoc } = window._fb;
-    const snap = await getDoc(doc(db, 'appdata', 'cm_config'));
-    if (snap.exists()) SUPER_ADMIN_UID = snap.data().superAdminUid || null;
-  } catch(e) {}
+    // Leggi dati dalla cache (appena popolata da Firestore)
+    const savedCondomini = load('cm_condomini', null);
+    const savedSpese     = load('cm_spese', null);
+    const savedEntrate   = load('cm_entrate', null);
+    const savedCategorie = load('cm_categorie', null);
 
-  // 4. Registra onAuthStateChanged — i dati sono già caricati
-  const { auth, onAuthStateChanged } = window._fb;
-  onAuthStateChanged(auth, async (firebaseUser) => {
-    if (firebaseUser) {
-      const allUsers = [ADMIN, ...state.condomini];
-      const profile  = allUsers.find(u => u.email === firebaseUser.email);
+    if (savedCondomini) state.condomini = savedCondomini;
+    if (savedSpese)     state.spese     = savedSpese;
+    if (savedEntrate)   state.entrate   = savedEntrate;
+    const savedFornitori = load('cm_fornitori', null);
+    if (savedFornitori) state.fornitori = savedFornitori;
+    const savedEdifici = load('cm_edifici', null);
+    if (savedEdifici) state.edifici = savedEdifici;
+    const savedEdAttivo = load('cm_edificio_attivo', null);
+    if (savedEdAttivo) state.edificioAttivo = savedEdAttivo;
 
-      if (!profile) { render(); return; }
-      if (profile.disabled) {
-        await window._fb.signOut(auth);
-        state.user = null; render(); return;
-      }
-
-      const wasLoggedOut = !state.user;
-      state.user = profile;
-      if (!isSuperAdmin(profile) && profile.edificioId) {
-        state.edificioAttivo = profile.edificioId;
-        save('cm_edificio_attivo', profile.edificioId);
-      }
-      if (wasLoggedOut) state.page = 'dashboard';
-    } else {
-      state.user = null;
+    // Dopo il caricamento: imposta filterAnno all'anno con più dati se quello corrente è vuoto
+    const currYear = new Date().getFullYear();
+    const hasDataCurrYear = state.spese.some(s=>new Date(s.data).getFullYear()===currYear)
+                         || state.entrate.some(e=>new Date(e.data).getFullYear()===currYear);
+    if (!hasDataCurrYear && state.spese.length > 0) {
+      // Usa l'anno più recente con dati
+      const anniConDati = [...new Set([
+        ...state.spese.map(s=>new Date(s.data).getFullYear()),
+        ...state.entrate.map(e=>new Date(e.data).getFullYear())
+      ])].sort((a,b)=>b-a);
+      if (anniConDati.length > 0) state.filterAnno = anniConDati[0];
     }
-    render();
-  });
-}
+    // categorie: usa quelle salvate o default
 
+    // Ascolta cambiamenti auth
+    const { auth, onAuthStateChanged } = window._fb;
+    onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const allUsers = [ADMIN, ...state.condomini];
+        const profile  = allUsers.find(u => u.email === firebaseUser.email);
+
+        if (!profile) {
+          // Email autenticata ma nessun profilo corrispondente (es. dati non ancora caricati)
+          // Non fare logout: potrebbe essere una race condition al boot.
+          render();
+          return;
+        }
+        if (profile.disabled) {
+          await window._fb.signOut(auth);
+          state.user = null;
+          render();
+          return;
+        }
+
+        // Login completato
+        const wasLoggedOut = !state.user;
+        state.user = profile;
+        if (!isSuperAdmin(profile) && profile.edificioId) {
+          state.edificioAttivo = profile.edificioId;
+          save('cm_edificio_attivo', profile.edificioId);
+        }
+        if (wasLoggedOut) state.page = 'dashboard';
+      } else {
+        state.user = null;
+      }
+      render();
+    });
+  } else {
+    // Firebase non disponibile — modalità offline con localStorage
+    console.warn('Firebase non disponibile, uso localStorage');
+    render();
+  }
+}
 
 function renderLoading() {
   return `<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#5A6E8A">
@@ -6941,9 +7041,7 @@ function renderLoading() {
 // Aggiorna logout per usare Firebase signOut
 const _origBindApp = bindApp;
 
-
-// initApp() viene chiamata dal modulo Firebase (sopra)
-// quando window._fb è già pronto — nessuna race condition
+initApp();
 </script>
 </body>
 </html>
