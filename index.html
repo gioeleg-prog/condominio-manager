@@ -1057,6 +1057,230 @@ function newId() {
 
 // ===========================
 // RENDER ENGINE
+let state = {
+  page: 'dashboard',
+  user: null,
+  edifici: load('cm_edifici', [{id:1, nome:'Via Neri da Rimini 20', indirizzo:'Via Neri da Rimini 20, 47921 Rimini (RN)', colore:'#2563EB', note:''}]),
+  edificioAttivo: load('cm_edificio_attivo', 1),
+  condomini: load('cm_condomini', CONDOMINI_DEFAULT),
+  spese: load('cm_spese', []),
+  fornitori: load('cm_fornitori', []),
+  entrate: load('cm_entrate', []),
+  modal: null,
+  filterCat: 'all',
+  filterTipo: 'all',
+  filterStato: 'all',
+  filterFornitore: 'all',
+  filterAnno: new Date().getFullYear(),
+  sortCol: 'data',   // colonna di ordinamento spese
+  sortDir: 'desc',   // 'asc' | 'desc'
+  speseSelezionate: new Set(), // ids selezionate per eliminazione massiva
+  tab: 'spese',
+  searchQ: '',
+  sidebarOpen: false,
+  viewer: null,
+  pendingFiles: [],
+  loginPage: null,
+  wizardStep: 1,
+  wizardData: {},
+  bilancioTab: 'overview',
+  bilancioCondId: null,  // id condomino selezionato per dettaglio
+  loginEmail: '',
+  loginStep: 1,
+};
+
+function setState(patch) {
+  Object.assign(state, patch);
+  render();
+}
+
+
+// ===========================
+// MIGRAZIONE DATI — edificioId
+// ===========================
+// Assegna edificioId ai record storici che ne sono privi.
+// Va chiamata MANUALMENTE dal super admin dalla pagina impostazioni.
+// Usa l'edificio con id più basso (il primo creato) come default sicuro.
+function getMigrationStats() {
+  const firstEdId = Math.min(...state.edifici.map(e=>e.id));
+  const condSenza   = state.condomini.filter(c=>!c.edificioId && !c.superAdmin).length;
+  const speseSenza  = state.spese.filter(s=>!s.edificioId).length;
+  const entSenza    = state.entrate.filter(e=>!e.edificioId).length;
+  const fornSenza   = state.fornitori.filter(f=>!f.edificioId).length;
+  return { firstEdId, condSenza, speseSenza, entSenza, fornSenza,
+    totale: condSenza + speseSenza + entSenza + fornSenza };
+}
+
+async function eseguiMigrazioneEdificioId(targetEdId) {
+  const stats = getMigrationStats();
+  if (stats.totale === 0) return { ok: true, migrati: 0 };
+
+  const condomini = state.condomini.map(c =>
+    (!c.edificioId && !c.superAdmin) ? {...c, edificioId: targetEdId} : c
+  );
+  const spese = state.spese.map(s =>
+    (!s.edificioId) ? {...s, edificioId: targetEdId} : s
+  );
+  const entrate = state.entrate.map(e =>
+    (!e.edificioId) ? {...e, edificioId: targetEdId} : e
+  );
+  const fornitori = state.fornitori.map(f =>
+    (!f.edificioId) ? {...f, edificioId: targetEdId} : f
+  );
+
+  save('cm_condomini', condomini);
+  save('cm_spese',     spese);
+  save('cm_entrate',   entrate);
+  save('cm_fornitori', fornitori);
+
+  setState({ condomini, spese, entrate, fornitori });
+  return { ok: true, migrati: stats.totale };
+}
+
+// ===========================
+// EDIFICIO HELPERS
+// ===========================
+function getEdificio() {
+  const ed = state.edifici.find(e=>e.id===state.edificioAttivo);
+  return ed || state.edifici[0] || {id:1, nome:'—', indirizzo:'', colore:'#2563EB'};
+}
+
+// Filtra condomini per edificio attivo
+function getCondominiEdificio() {
+  return state.condomini.filter(c => !c.edificioId || c.edificioId === state.edificioAttivo);
+}
+
+// Filtra spese per edificio attivo
+function getSpeseEdificio() {
+  return state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
+}
+
+// Filtra entrate per edificio attivo
+function getEntrateEdificio() {
+  return state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo);
+}
+
+// ===========================
+// ROLE HELPERS — SISTEMA MULTI-CONDOMINIO
+// ===========================
+// Quattro ruoli:
+//   superAdmin      → Gioele — globale, vede TUTTO, gestisce tutti gli edifici
+//   isAdmin         → Amm. edificio — vede/gestisce solo il SUO edificio
+//   canEdit         → Modifica — aggiunge/modifica dati del suo edificio
+//   default (lettura) → solo consultazione del suo edificio
+
+function isSuperAdmin(u) { return !!(u?.superAdmin); }
+function isAdminEdificio(u) { return !!(u?.isAdmin && !u?.superAdmin); }
+function canUserEdit(u) { return !!(u?.superAdmin || u?.isAdmin || u?.canEdit); }
+function canUserAdmin(u) { return !!(u?.superAdmin || u?.isAdmin); }
+function canUserSeeImpostazioni(u) { return !!(u?.superAdmin || u?.isAdmin); }
+
+// Edificio a cui l'utente appartiene (superAdmin → edificioAttivo)
+function getUserEdificio(u) {
+  if (isSuperAdmin(u)) return state.edificioAttivo;
+  return u?.edificioId || state.edificioAttivo;
+}
+
+// Filtra condomini visibili all'utente corrente
+function getCondominiVisibili() {
+  if (isSuperAdmin(state.user)) return state.condomini;
+  const edId = getUserEdificio(state.user);
+  return state.condomini.filter(c => !c.edificioId || c.edificioId === edId);
+}
+
+// Filtra spese visibili all'utente corrente
+function getSpeseVisibili() {
+  if (isSuperAdmin(state.user)) return state.spese;
+  const edId = getUserEdificio(state.user);
+  return state.spese.filter(s => !s.edificioId || s.edificioId === edId);
+}
+
+// Filtra entrate visibili all'utente corrente
+function getEntrateVisibili() {
+  if (isSuperAdmin(state.user)) return state.entrate;
+  const edId = getUserEdificio(state.user);
+  return state.entrate.filter(e => !e.edificioId || e.edificioId === edId);
+}
+
+function getRuolo(u) {
+  if (u.superAdmin) return 'superadmin';
+  if (u.isAdmin) return 'adminedificio';
+  if (u.canEdit) return 'modifica';
+  return 'lettura';
+}
+function getRuoloLabel(u) {
+  if (u.superAdmin) return 'Super Admin';
+  if (u.isAdmin) return 'Amm. Edificio';
+  if (u.canEdit) return 'Modifica';
+  return 'Lettura';
+}
+function getRuoloBadgeClass(u) {
+  if (u.superAdmin) return 'badge-purple';
+  if (u.isAdmin) return 'badge-blue';
+  if (u.canEdit) return 'badge-green';
+  return 'badge-gray';
+}
+
+function renderQuotaCell(spesa) {
+  const user = state.user;
+  const importoRef = parseFloat(spesa.consuntivo||spesa.preventivo||0);
+  if (!importoRef) return '<span style="color:var(--text2);font-size:12px">—</span>';
+
+  if (user.isAdmin) {
+    // Admin: mostra mini breakdown per tutti
+    if (!spesa.split || spesa.split.length === 0) {
+      const eq = importoRef / state.condomini.length;
+      return `<div style="font-size:12px;color:var(--text2)">${fmt(eq)} <span style="opacity:.6">× ${state.condomini.length}</span></div>`;
+    }
+    const total = spesa.split.reduce((a,s)=>a+(s.perc||0),0);
+    const nCondCheck = state.condomini.filter(c=>c.edificioId===(spesa.edificioId||state.edificioAttivo)&&!c.disabled&&!c.superAdmin).length || 1;
+    const isEqual = spesa.split.every(s=>Math.abs((s.perc||0)-(100/nCondCheck))<0.1);
+    if (isEqual) {
+      return `<div style="font-size:12px;color:var(--text2)">${fmt(importoRef/state.condomini.length)} <span style="opacity:.6">× 6</span></div>`;
+    }
+    return `<div style="font-size:11px;color:var(--text2)">Split personalizzato</div>`;
+  }
+
+  // Utente: mostra la propria quota
+  if (!spesa.split || spesa.split.length === 0) {
+    return `<span style="font-weight:600;color:var(--accent)">${fmt(importoRef/state.condomini.length)}</span>`;
+  }
+  const mySplit = spesa.split.find(s=>s.id===user.id);
+  if (!mySplit) return `<span style="font-weight:600;color:var(--accent)">${fmt(importoRef/state.condomini.length)}</span>`;
+  const myEuro = (mySplit.perc||0)/100*importoRef;
+  return `<div>
+    <div style="font-weight:600;color:var(--accent)">${fmt(myEuro)}</div>
+    <div style="font-size:11px;color:var(--text2)">${(mySplit.perc||0).toFixed(1)}%</div>
+  </div>`;
+}
+
+function renderAllegatiChip(spesa) {
+  const allegati = spesa.allegati || [];
+  if (allegati.length === 0) return '<span style="color:var(--text2);font-size:12px">—</span>';
+  return `<div style="display:flex;flex-wrap:wrap;gap:4px">
+    ${allegati.map(a => {
+      const safe = JSON.stringify({id:a.id}).replace(/'/g,'&#39;');
+      return `<button class="attach-chip" data-view-allegato='${safe}' title="${esc(a.nome)}">${fileEmoji(a.mime)} <span>${esc(a.nome.length>14?a.nome.slice(0,12)+'…':a.nome)}</span></button>`;
+    }).join('')}
+  </div>`;
+}
+
+function fmt(n) {
+  return '€ ' + Number(n||0).toLocaleString('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtN(n) {
+  return Number(n||0).toLocaleString('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function initials(nome) {
+  return nome.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+}
+function avatarStyle(color) {
+  return `background:${color}22;color:${color};`;
+}
+function newId() {
+  return Date.now() + Math.floor(Math.random()*1000);
+}
+
 // ===========================
 function render() {
   const app = document.getElementById('app');
