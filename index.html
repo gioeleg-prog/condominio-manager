@@ -1053,22 +1053,19 @@ function getUserEdificio(u) {
 
 // Filtra condomini visibili all'utente corrente
 function getCondominiVisibili() {
-  if (isSuperAdmin(state.user)) return state.condomini;
-  const edId = getUserEdificio(state.user);
+  const edId = isSuperAdmin(state.user) ? state.edificioAttivo : getUserEdificio(state.user);
   return state.condomini.filter(c => !c.edificioId || c.edificioId === edId);
 }
 
 // Filtra spese visibili all'utente corrente
 function getSpeseVisibili() {
-  if (isSuperAdmin(state.user)) return state.spese;
-  const edId = getUserEdificio(state.user);
+  const edId = isSuperAdmin(state.user) ? state.edificioAttivo : getUserEdificio(state.user);
   return state.spese.filter(s => !s.edificioId || s.edificioId === edId);
 }
 
 // Filtra entrate visibili all'utente corrente
 function getEntrateVisibili() {
-  if (isSuperAdmin(state.user)) return state.entrate;
-  const edId = getUserEdificio(state.user);
+  const edId = isSuperAdmin(state.user) ? state.edificioAttivo : getUserEdificio(state.user);
   return state.entrate.filter(e => !e.edificioId || e.edificioId === edId);
 }
 
@@ -5514,22 +5511,18 @@ function bindPageActions() {
     };
   });
 
+  // Cambio edificio — il filtro per edificioId avviene nel render
+  function cambiaEdificio(id, closeModal) {
+    save('cm_edificio_attivo', id);
+    setState({edificioAttivo:id, page:'dashboard', ...(closeModal ? {modal:null} : {})});
+  }
+
   document.querySelectorAll('[data-attiva-edificio]').forEach(btn => {
-    btn.onclick = () => {
-      const id = parseInt(btn.dataset.attivaEdificio);
-      save('cm_edificio_attivo', id);
-      // Cambia solo l'edificio attivo — gli utenti rimangono nel loro edificio
-      // I filtri visibilità (getSpeseVisibili ecc.) si applicano al volo basandosi su edificioId
-      setState({edificioAttivo:id, page:'dashboard'});
-    };
+    btn.onclick = () => cambiaEdificio(parseInt(btn.dataset.attivaEdificio), false);
   });
 
   document.querySelectorAll('[data-sel-edificio]').forEach(btn => {
-    btn.onclick = () => {
-      const id = parseInt(btn.dataset.selEdificio);
-      save('cm_edificio_attivo', id);
-      setState({edificioAttivo:id, modal:null, page:'dashboard'});
-    };
+    btn.onclick = () => cambiaEdificio(parseInt(btn.dataset.selEdificio), true);
   });
 
   document.querySelectorAll('[data-del-edificio]').forEach(btn => {
