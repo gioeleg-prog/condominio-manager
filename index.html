@@ -1432,9 +1432,24 @@ function showLoginErr(msg) {
 // ===========================
 // CAMBIO EDIFICIO ATTIVO
 // ===========================
-function cambiaEdificio(id, closeModal) {
+async function cambiaEdificio(id, closeModal) {
   save('cm_edificio_attivo', id);
-  setState({edificioAttivo: id, page: 'dashboard', ...(closeModal ? {modal: null} : {})});
+  // Aggiorna subito lo stato visivo
+  state.edificioAttivo = id;
+  if (closeModal) state.modal = null;
+  render();
+  // Ricarica dati freschi da Firestore — garantisce dati corretti per nuovo edificio
+  if (window._fb) {
+    await fbLoadAll();
+    const _c = load('cm_condomini', null);  if (_c) state.condomini  = _c;
+    const _s = load('cm_spese', null);      if (_s) state.spese      = _s;
+    const _e = load('cm_entrate', null);    if (_e) state.entrate    = _e;
+    const _f = load('cm_fornitori', null);  if (_f) state.fornitori  = _f;
+    const _ed= load('cm_edifici', null);    if (_ed && _ed.length) state.edifici = _ed;
+  }
+  // Se veniva dal modal switcher → vai a dashboard; altrimenti resta nella pagina corrente
+  const targetPage = closeModal ? 'dashboard' : state.page;
+  setState({edificioAttivo: id, page: targetPage, ...(closeModal ? {modal: null} : {})});
 }
 
 // ===========================
@@ -1530,7 +1545,7 @@ function renderApp() {
     {id:'entrate', label:'Entrate / Quote', icon:svgEntrate()},
     {id:'bilancio', label:'Bilancio', icon:svgBilancio()},
     {id:'fornitori', label:'Fornitori', icon:svgFornitori()},
-    {id:'condomini', label:'Condomini', icon:svgCondomini()},
+    ...(canUserAdmin(user) ? [{id:'condomini', label:'Condomini', icon:svgCondomini()}] : []),
     ...(isAdmin ? [{id:'impostazioni', label:'Impostazioni', icon:svgSettings()}] : []),
   ];
   return `
@@ -1651,7 +1666,7 @@ function renderApp() {
           {id:'entrate',   label:'Entrate', icon:svgEntrate()},
           {id:'bilancio',  label:'Bilancio',icon:svgBilancio()},
           {id:'fornitori', label:'Fornitori', icon:svgFornitori()},
-          {id:'condomini', label:'Persone', icon:svgCondomini()},
+          ...(canUserAdmin(user) ? [{id:'condomini', label:'Persone', icon:svgCondomini()}] : []),
           ...(canUserSeeImpostazioni(user) ? [{id:'impostazioni', label:'Impost.', icon:svgSettings()}] : []),
         ].map(l=>`<button class="bnav-item ${page===l.id?'active':''}" data-page="${l.id}">
           ${l.icon}<span>${l.label}</span>
@@ -3766,6 +3781,10 @@ function renderBilancio() {
 // CONDOMINI
 // ===========================
 function renderCondomini() {
+  // Solo admin e superAdmin possono accedere
+  if (!canUserAdmin(state.user)) {
+    return '<div class="page"><div class="empty"><p>Accesso non autorizzato.</p></div></div>';
+  }
   const canEdit = canUserAdmin(state.user);
   const myEdId3 = getUserEdificio(state.user);
   // STRICT: solo condomini dell'edificio attivo (superAdmin vede quelli dell'edificio selezionato)
@@ -5520,7 +5539,13 @@ function bindPageActions() {
   });
 
   document.querySelectorAll('[data-attiva-edificio]').forEach(btn => {
-    btn.onclick = () => cambiaEdificio(parseInt(btn.dataset.attivaEdificio), false);
+    btn.onclick = async () => {
+      const id = parseInt(btn.dataset.attivaEdificio);
+      btn.disabled = true;
+      btn.textContent = '⏳ Attivazione…';
+      await cambiaEdificio(id, false);
+      // Dopo cambiaEdificio setState porta a dashboard — ok
+    };
   });
 
   document.querySelectorAll('[data-sel-edificio]').forEach(btn => {
