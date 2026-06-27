@@ -762,6 +762,7 @@
   };
   window._fbReady = true;
   document.dispatchEvent(new Event('fb-ready'));
+  initApp(); // chiama direttamente — window._fb è già pronto
 </script>
 
 </head>
@@ -778,8 +779,8 @@ const CONDOMINI_DEFAULT = [
   {id:5, nome:'Paolo Esposito', appartamento:'Int. 5', email:'paolo@example.com', canEdit:false, color:COLORS[4]},
   {id:6, nome:'Stefania Mancini', appartamento:'Int. 6', email:'stefania@example.com', canEdit:false, color:COLORS[5]},
 ];
-// SuperAdmin: nessun dato hardcoded — identificato da UID Firebase in cm_config
-let SUPER_ADMIN_UID = null;
+const ADMIN = {id:0, nome:'Gioele Gagliardi', appartamento:'Admin', email:'gioele.g@gmail.com', username:'admin', canEdit:true, isAdmin:true, superAdmin:true, color:'#1B2A4A'};
+let SUPER_ADMIN_UID = null; // caricato da Firestore per sicurezza aggiuntiva
 // ⚠️ superAdmin:true → unico super-amministratore globale, vede tutti i condomini
 
 const CATEGORIE_DEFAULT = [
@@ -942,11 +943,7 @@ function getEntrateEdificio() {
 //   canEdit         → Modifica — aggiunge/modifica dati del suo edificio
 //   default (lettura) → solo consultazione del suo edificio
 
-function isSuperAdmin(u) {
-  if (!u) return false;
-  // Controlla sia il flag superAdmin (per profilo dinamico admin) che l'UID Firebase
-  return !!(u.superAdmin) || !!(SUPER_ADMIN_UID && u.uid === SUPER_ADMIN_UID);
-}
+function isSuperAdmin(u) { return !!(u?.superAdmin); }
 function isAdminEdificio(u) { return !!(u?.isAdmin && !u?.superAdmin); }
 function canUserEdit(u) { return !!(u?.superAdmin || u?.isAdmin || u?.canEdit); }
 function canUserAdmin(u) { return !!(u?.superAdmin || u?.isAdmin); }
@@ -1293,10 +1290,12 @@ function bindLogin() {
 
 // Trova profilo per username O email (case-insensitive)
 function findProfileByLogin(q) {
-  // Cerca solo per email — username locale non più usato
   q = (q||'').trim().toLowerCase();
-  return state.condomini.filter(c=>!c.disabled)
-    .find(u => u.email && u.email.toLowerCase() === q) || null;
+  const all = [ADMIN, ...state.condomini.filter(c=>!c.disabled)];
+  return all.find(u =>
+    (u.username && u.username.toLowerCase() === q) ||
+    (u.email    && u.email.toLowerCase()    === q)
+  ) || null;
 }
 
 async function doLogin() {
@@ -1309,11 +1308,18 @@ async function doLogin() {
   if (btn) { btn.disabled = true; btn.textContent = 'Accesso in corso…'; }
 
   try {
-    if (!window._fb) throw new Error('Firebase non disponibile. Ricarica la pagina.');
-    const { auth, signInWithEmailAndPassword } = window._fb;
-    // Login diretto con email — Firebase gestisce tutto, nessuna password locale
-    await signInWithEmailAndPassword(auth, loginInput, pw);
-    // onAuthStateChanged completerà il login e caricherà il profilo tramite UID
+    const profile = findProfileByLogin(loginInput);
+    if (!profile) throw new Error('Utente non trovato. Verifica username o email.');
+    if (!profile.email) throw new Error('Nessuna email associata. Contatta l amministratore.');
+
+    if (window._fb) {
+      const { auth, signInWithEmailAndPassword } = window._fb;
+      await signInWithEmailAndPassword(auth, profile.email, pw);
+      // onAuthStateChanged completerà il login
+    } else {
+      showLoginErr('Firebase non disponibile. Ricarica la pagina.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
+    }
   } catch(e) {
     console.error('Login error:', e.code, e.message);
     const msg = e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential'
@@ -6864,102 +6870,45 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 //  INIT — Avvio app con Firebase
 // ═══════════════════════════════════════════════════════
 async function initApp() {
-  // STEP 1: Mostra subito il login — nessuna attesa
-  // state.user è null → render() mostra la schermata di login
+  // Firebase è già pronto quando arriviamo qui:
+  // il modulo lo chiama DOPO aver fatto dispatchEvent,
+  // oppure il fallback lo chiama se window._fbReady era già true.
+
+  // 1. Mostra subito login
   render();
 
-  // STEP 2: Aspetta Firebase se non ancora pronto (fallback timeout 10s)
-  if (!window._fb) {
-    await new Promise(resolve => {
-      if (window._fbReady && window._fb) { resolve(); return; }
-      document.addEventListener('fb-ready', resolve, {once: true});
-      setTimeout(resolve, 10000);
-    });
-  }
   if (!window._fb) {
     console.warn('Firebase non disponibile');
     return;
   }
-  const { auth, db, doc, getDoc, onAuthStateChanged } = window._fb;
 
-  // STEP 3: Carica SUPER_ADMIN_UID (non bloccante — max 4s)
+  // 2. Carica dati Firestore
+  await fbLoadAll();
+  const savedCondomini = load('cm_condomini', null);  if (savedCondomini) state.condomini = savedCondomini;
+  const savedSpese     = load('cm_spese', null);      if (savedSpese)     state.spese     = savedSpese;
+  const savedEntrate   = load('cm_entrate', null);    if (savedEntrate)   state.entrate   = savedEntrate;
+  const savedFornitori = load('cm_fornitori', null);  if (savedFornitori) state.fornitori = savedFornitori;
+  const savedEdifici   = load('cm_edifici', null);    if (savedEdifici && savedEdifici.length > 0) state.edifici = savedEdifici;
+  const savedEdAttivo  = load('cm_edificio_attivo', null); if (savedEdAttivo) state.edificioAttivo = savedEdAttivo;
+
+  // 3. Carica SUPER_ADMIN_UID (opzionale, non bloccante)
   try {
-    const cfgSnap = await Promise.race([
-      getDoc(doc(db, 'appdata', 'cm_config')),
-      new Promise(r => setTimeout(() => r(null), 4000))
-    ]);
-    if (cfgSnap && cfgSnap.exists()) {
-      const data = cfgSnap.data();
-      SUPER_ADMIN_UID = data.superAdminUid
-        || (data.value ? JSON.parse(data.value).superAdminUid : null)
-        || null;
-    }
-  } catch(e) { console.warn('cm_config:', e.message); }
+    const { db, doc, getDoc } = window._fb;
+    const snap = await getDoc(doc(db, 'appdata', 'cm_config'));
+    if (snap.exists()) SUPER_ADMIN_UID = snap.data().superAdminUid || null;
+  } catch(e) {}
 
-  // STEP 4: Carica dati Firestore (non bloccante — max 6s)
-  try {
-    await Promise.race([fbLoadAll(), new Promise(r => setTimeout(r, 6000))]);
-    const load_map = {
-      condomini: 'cm_condomini', spese: 'cm_spese',
-      entrate: 'cm_entrate', fornitori: 'cm_fornitori',
-    };
-    for (const [key, doc_id] of Object.entries(load_map)) {
-      const val = load(doc_id, null);
-      if (val) state[key] = val;
-    }
-    const savedEdifici = load('cm_edifici', null);
-    if (savedEdifici && savedEdifici.length > 0) state.edifici = savedEdifici;
-    const savedEdAttivo = load('cm_edificio_attivo', null);
-    if (savedEdAttivo) state.edificioAttivo = savedEdAttivo;
-  } catch(e) { console.warn('fbLoadAll:', e.message); }
-
-  // STEP 5: Registra onAuthStateChanged
-  // A questo punto i dati sono caricati — se l'utente era già loggato
-  // onAuthStateChanged scatta subito e trova il profilo
+  // 4. Registra onAuthStateChanged — i dati sono già caricati
+  const { auth, onAuthStateChanged } = window._fb;
   onAuthStateChanged(auth, async (firebaseUser) => {
     if (firebaseUser) {
-      const isSuperAdminUser = SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID;
+      const allUsers = [ADMIN, ...state.condomini];
+      const profile  = allUsers.find(u => u.email === firebaseUser.email);
 
-      let profile = state.condomini.find(c => c.uid === firebaseUser.uid)
-                 || state.condomini.find(c => c.email &&
-                    c.email.toLowerCase() === firebaseUser.email.toLowerCase());
-
-      if (!profile && isSuperAdminUser) {
-        profile = {
-          id: 0,
-          nome: firebaseUser.displayName || 'Super Admin',
-          email: firebaseUser.email,
-          uid: firebaseUser.uid,
-          appartamento: 'Admin',
-          superAdmin: true, isAdmin: true, canEdit: true,
-          color: '#1B2A4A',
-        };
-      }
-
-      if (!profile) {
-        // Utente Firebase ma senza profilo app — logout pulito
-        console.warn('Utente senza profilo:', firebaseUser.email);
-        await window._fb.signOut(auth);
-        state.user = null;
-        render();
-        return;
-      }
-
+      if (!profile) { render(); return; }
       if (profile.disabled) {
         await window._fb.signOut(auth);
-        state.user = null;
-        render();
-        return;
-      }
-
-      // Auto-salva UID se trovato per email (prima volta)
-      if (!profile.uid && profile.id !== 0) {
-        const upd = state.condomini.map(c =>
-          c.id === profile.id ? {...c, uid: firebaseUser.uid} : c
-        );
-        state.condomini = upd;
-        save('cm_condomini', upd);
-        profile = {...profile, uid: firebaseUser.uid};
+        state.user = null; render(); return;
       }
 
       const wasLoggedOut = !state.user;
@@ -6993,15 +6942,8 @@ function renderLoading() {
 const _origBindApp = bindApp;
 
 
-// BOOT — Pattern originale che funzionava:
-// Il modulo Firebase emette 'fb-ready' quando è pronto
-// Il main script ascolta quell'evento e chiama initApp()
-// Gestisce anche il caso in cui Firebase sia già pronto (cache)
-if (window._fbReady && window._fb) {
-  initApp(); // già pronto
-} else {
-  document.addEventListener('fb-ready', () => initApp(), {once: true});
-}
+// initApp() viene chiamata dal modulo Firebase (sopra)
+// quando window._fb è già pronto — nessuna race condition
 </script>
 </body>
 </html>
