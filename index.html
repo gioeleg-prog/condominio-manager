@@ -780,7 +780,8 @@ const CONDOMINI_DEFAULT = [
   {id:5, nome:'Paolo Esposito', appartamento:'Int. 5', email:'paolo@example.com', canEdit:false, color:COLORS[4]},
   {id:6, nome:'Stefania Mancini', appartamento:'Int. 6', email:'stefania@example.com', canEdit:false, color:COLORS[5]},
 ];
-let SUPER_ADMIN_UID = null; // caricato da Firestore cm_config
+let SUPER_ADMIN_UID   = null; // caricato da Firestore cm_config
+let SUPER_ADMIN_EMAIL = null; // fallback email per riconoscere superAdmin
 const ADMIN = null; // rimosso — superAdmin identificato da UID Firebase
 // ⚠️ superAdmin:true → unico super-amministratore globale, vede tutti i condomini
 
@@ -2257,8 +2258,8 @@ function renderDashboard() {
   const anni     = getAnni();
 
   // Spese e entrate anno selezionato
-  const _allSpese   = isSuperAdmin(state.user) ? state.spese   : state.spese.filter(s=>!s.edificioId||s.edificioId===getUserEdificio(state.user));
-  const _allEntrate = isSuperAdmin(state.user) ? state.entrate : state.entrate.filter(e=>!e.edificioId||e.edificioId===getUserEdificio(state.user));
+  const _allSpese   = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
+  const _allEntrate = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo);
   // Se anno non valido (0), usa anno corrente per la dashboard
   const annoEff = anno || new Date().getFullYear();
   const spese   = _allSpese.filter(s => new Date(s.data).getFullYear() === annoEff);
@@ -2620,7 +2621,7 @@ function renderDashboard() {
 function renderSpese() {
   const canEdit = canUserEdit(state.user);
   const myEdId = getUserEdificio(state.user);
-  let items = isSuperAdmin(state.user) ? state.spese : state.spese.filter(s=>s.edificioId===state.edificioAttivo);
+  let items = state.spese.filter(s => s.edificioId === state.edificioAttivo);
   if (state.filterAnno) items = items.filter(s=>new Date(s.data).getFullYear()===state.filterAnno);
   if (state.filterCat !== 'all') items = items.filter(s=>s.categoria===state.filterCat);
   if (state.filterTipo !== 'all') items = items.filter(s=>s.tipoSpesa===state.filterTipo);
@@ -2852,7 +2853,7 @@ function renderSpese() {
 function renderEntrate() {
   const canEdit = canUserEdit(state.user);
   const myEdId2 = getUserEdificio(state.user);
-  let items = isSuperAdmin(state.user) ? state.entrate : state.entrate.filter(e=>e.edificioId===state.edificioAttivo);
+  let items = state.entrate.filter(e => e.edificioId === state.edificioAttivo);
   if (state.filterAnno) items = items.filter(e=>new Date(e.data).getFullYear()===state.filterAnno);
   if (state.searchQ) items = items.filter(e=>{
     const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:''};
@@ -2867,7 +2868,7 @@ function renderEntrate() {
     return {...c, totale:tot};
   });
   // ── Calcoli quota per condomino con split reali ──────────────────────────
-  const _allSpeseEnt = isSuperAdmin(state.user) ? state.spese : state.spese.filter(s=>!s.edificioId||s.edificioId===myEdId2);
+  const _allSpeseEnt = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
   const speseAnno = _allSpeseEnt.filter(s=>!state.filterAnno||new Date(s.data).getFullYear()===state.filterAnno);
   const nAttiviEnt = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).length || 1;
 
@@ -2939,10 +2940,10 @@ function renderEntrate() {
             // Riporto anni precedenti per questo condomino
             const annoSel       = state.filterAnno || new Date().getFullYear();
             const myEdId2l      = getUserEdificio(state.user);
-            const versatiPrec   = (isSuperAdmin(state.user)?state.entrate:state.entrate.filter(e=>!e.edificioId||e.edificioId===myEdId2l))
+            const versatiPrec   = (state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo))
               .filter(e=>e.condominoId===c.id && !e.previsionale && new Date(e.data).getFullYear()<annoSel)
               .reduce((a,e)=>a+parseFloat(e.importo||0),0);
-            const spesePrecQuota= (isSuperAdmin(state.user)?state.spese:state.spese.filter(s=>!s.edificioId||s.edificioId===myEdId2l))
+            const spesePrecQuota= (state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo))
               .filter(s=>new Date(s.data).getFullYear()<annoSel && parseFloat(s.consuntivo||0)>0)
               .reduce((acc,s)=>{
                 const ref=parseFloat(s.consuntivo||0);
@@ -3803,7 +3804,7 @@ function renderCondomini() {
 
     <div class="condomini-grid">
       ${attivi.map(c=>{
-        const _mySpese = isSuperAdmin(state.user) ? state.spese : state.spese.filter(s=>!s.edificioId||s.edificioId===getUserEdificio(state.user));
+        const _mySpese = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
         const totVersato = state.entrate.filter(e=>e.condominoId===c.id && !e.previsionale && new Date(e.data).getFullYear()===anno).reduce((a,e)=>a+parseFloat(e.importo||0),0);
         const nSpese     = _mySpese.filter(s=>new Date(s.data).getFullYear()===anno).length;
         const edName     = (state.edifici.find(e=>e.id===(c.edificioId||state.edificioAttivo))||{nome:'—'}).nome;
@@ -3879,9 +3880,7 @@ function renderImpostazioni() {
     <div class="stats-grid" style="margin-bottom:1.5rem">
       ${(()=>{
         const myEd = getUserEdificio(state.user);
-        const visibili = isSuperAdmin(state.user)
-          ? state.condomini
-          : state.condomini.filter(c=>!c.edificioId||c.edificioId===myEd);
+        const visibili = state.condomini.filter(c => !c.edificioId || c.edificioId === state.edificioAttivo);
         const attivi = visibili.filter(c=>!c.disabled);
         const adminCount = attivi.filter(c=>c.isAdmin).length + (isSuperAdmin(state.user)?1:0);
         const modifica = attivi.filter(c=>c.canEdit&&!c.isAdmin).length;
@@ -3927,8 +3926,8 @@ function renderImpostazioni() {
       👁️ Stai gestendo il condominio <strong>${(state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome}</strong>. Vedi e gestisci solo i condomini di questo edificio.
     </div>` : ''}
     <div class="utenti-grid" style="padding:0;margin-bottom:1.5rem">
-      ${(isSuperAdmin(state.user) ? state.condomini : state.condomini.filter(c=>!c.edificioId||c.edificioId===state.edificioAttivo)).filter(c=>!c.disabled).map(c => {
-        const _entImp = isSuperAdmin(state.user)?state.entrate:state.entrate.filter(e=>!e.edificioId||e.edificioId===state.edificioAttivo); const versato = _entImp.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+      ${(state.condomini.filter(c => !c.edificioId || c.edificioId === state.edificioAttivo)).filter(c=>!c.disabled).map(c => {
+        const _entImp = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo); const versato = _entImp.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
         return `<div class="utente-card">
           <div class="uc-head">
             <div class="avatar-lg" style="${avatarStyle(c.color)}">${initials(c.nome)}</div>
@@ -3969,7 +3968,7 @@ function renderImpostazioni() {
     </div>
 
     <!-- UTENTI DISABILITATI / STORICO -->
-    ${(()=>{ const _vis=isSuperAdmin(state.user)?state.condomini:state.condomini.filter(c=>!c.edificioId||c.edificioId===state.edificioAttivo); return _vis.filter(c=>c.disabled).length > 0 ? `
+    ${(()=>{ const _vis=state.condomini.filter(c => !c.edificioId || c.edificioId === state.edificioAttivo); return _vis.filter(c=>c.disabled).length > 0 ? `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
       <div class="section-divider" style="flex:1"><h3>📦 Archivio storico — utenti disabilitati</h3></div>
     </div>
@@ -3978,8 +3977,8 @@ function renderImpostazioni() {
     </div>
     <div class="utenti-grid" style="padding:0;margin-bottom:1.5rem">
       ${_vis.filter(c=>c.disabled).map(c => {
-        const _entImpD = isSuperAdmin(state.user)?state.entrate:state.entrate.filter(e=>!e.edificioId||e.edificioId===state.edificioAttivo); const versato = _entImpD.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-        const _speseImpD = isSuperAdmin(state.user)?state.spese:state.spese.filter(s=>!s.edificioId||s.edificioId===state.edificioAttivo); const nSpese = _speseImpD.filter(s=>s.split?.some(x=>x.id===c.id)).length;
+        const _entImpD = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo); const versato = _entImpD.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+        const _speseImpD = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo); const nSpese = _speseImpD.filter(s=>s.split?.some(x=>x.id===c.id)).length;
         const disabledOn = c.disabledOn ? new Date(c.disabledOn).toLocaleDateString('it-IT') : '—';
         return `<div class="utente-card disabled">
           <div class="disabled-banner">⏸ Disabilitato il ${disabledOn}${c.disabledNote ? ' · ' + esc(c.disabledNote) : ''}</div>
@@ -4056,7 +4055,7 @@ function renderImpostazioni() {
           </div>
           <div class="cat-grid">
             ${items.map(c => {
-              const _catSpese = isSuperAdmin(state.user) ? state.spese : state.spese.filter(s=>!s.edificioId||s.edificioId===getUserEdificio(state.user));
+              const _catSpese = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
           const usata = _catSpese.filter(s=>s.categoria===c.id).length;
               return `<div class="cat-card">
                 <div class="cat-icon ${g.iconCls}">${c.icon||'📦'}</div>
@@ -5094,7 +5093,7 @@ function renderModalSpesa(d) {
 function renderModalEntrata(d) {
   const isPrevisionale = d?.previsionale || false;
   const isEdit = !!d?.id;
-  const condominiList = (isSuperAdmin(state.user)?state.condomini:state.condomini.filter(c=>c.edificioId===state.edificioAttivo)).filter(c=>!c.disabled && !c.superAdmin);
+  const condominiList = (state.condomini.filter(c => c.edificioId === state.edificioAttivo)).filter(c=>!c.disabled && !c.superAdmin);
   const catOptions = getCategorie().filter(c=>c.tipo==='entrata'||c.tipo==='ordinaria').map(c=>`<option value="${c.id}" ${c.id===d?.categoria?'selected':''}>${c.label}</option>`).join('');
 
   return `
@@ -5431,9 +5430,7 @@ function bindPageActions() {
     const annoSel = state.filterAnno || new Date().getFullYear();
     const piano   = calcolaPianoRate(annoSel);
     if (!piano.rate.length) { alert('Nessuna rata da creare.'); return; }
-    const condominiAttivi = (isSuperAdmin(state.user)
-      ? state.condomini
-      : state.condomini.filter(c=>c.edificioId===state.edificioAttivo)
+    const condominiAttivi = (state.condomini.filter(c=>c.edificioId===state.edificioAttivo)
     ).filter(c=>!c.disabled && !c.superAdmin);
     const n = piano.rate.length * condominiAttivi.length;
     const msgConf = 'Creare ' + n + ' versamenti previsionali?\n\n' +
@@ -5808,9 +5805,9 @@ Sposta o elimina prima tutti i dati associati.`);
 // ===========================
 function calcolaPianoRate(anno, nRate=3) {
   const myEdId = getUserEdificio(state.user);
-  const speseAnno = (isSuperAdmin(state.user) ? state.spese : state.spese.filter(s=>s.edificioId===state.edificioAttivo))
+  const speseAnno = (state.spese.filter(s => s.edificioId === state.edificioAttivo))
     .filter(s=>new Date(s.data).getFullYear()===anno);
-  const entrateAnno = (isSuperAdmin(state.user) ? state.entrate : state.entrate.filter(e=>!e.edificioId||e.edificioId===myEdId))
+  const entrateAnno = (state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo))
     .filter(e=>new Date(e.data).getFullYear()===anno && !e.previsionale);
   const nAttivi = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).length || 1;
 
@@ -5895,7 +5892,7 @@ function renderPianoRateBox(annoSel, canEdit) {
       const oggi = new Date();
       const firstRata = new Date(piano.rate[0].data);
       const myEdId2 = state.edificioAttivo;
-      const allSpese = isSuperAdmin(state.user)?state.spese:state.spese.filter(s=>s.edificioId===myEdId2);
+      const allSpese = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
       const speseAntecedenti = allSpese
         .filter(s=>parseFloat(s.consuntivo||0)===0&&parseFloat(s.preventivo||0)>0)
         .filter(s=>{ const d=new Date(s.data); return d>oggi&&d<firstRata; });
@@ -6899,8 +6896,8 @@ function esc(s) {
 function getAnni() {
   const anni = new Set();
   const myEdId = getUserEdificio(state.user);
-  const filtSpese   = isSuperAdmin(state.user) ? state.spese   : state.spese.filter(s=>s.edificioId===state.edificioAttivo);
-  const filtEntrate = isSuperAdmin(state.user) ? state.entrate : state.entrate.filter(e=>!e.edificioId||e.edificioId===myEdId);
+  const filtSpese   = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
+  const filtEntrate = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo);
   filtSpese.forEach(s => anni.add(new Date(s.data).getFullYear()));
   filtEntrate.forEach(e => anni.add(new Date(e.data).getFullYear()));
   const currYear = new Date().getFullYear();
@@ -6921,12 +6918,8 @@ function getAnniConTutti() {
 // Calcola il saldo cumulativo fino alla fine dell'anno precedente (riporto)
 function getSaldoRiporto(annoTarget) {
   const all = [ADMIN, ...state.condomini];
-  const spesePrec  = isSuperAdmin(state.user)
-    ? state.spese.filter(s=>new Date(s.data).getFullYear() < annoTarget)
-    : state.spese.filter(s=>(!s.edificioId||s.edificioId===getUserEdificio(state.user)) && new Date(s.data).getFullYear() < annoTarget);
-  const entratePrec = isSuperAdmin(state.user)
-    ? state.entrate.filter(e=>!e.previsionale && new Date(e.data).getFullYear() < annoTarget)
-    : state.entrate.filter(e=>(!e.edificioId||e.edificioId===getUserEdificio(state.user)) && !e.previsionale && new Date(e.data).getFullYear() < annoTarget);
+  const spesePrec  =     state.spese.filter(s=>!s.edificioId||s.edificioId===state.edificioAttivo).filter(s=>new Date(s.data).getFullYear() < annoTarget)
+  const entratePrec =     state.entrate.filter(e=>(!e.edificioId||e.edificioId===state.edificioAttivo)&&!e.previsionale&&new Date(e.data).getFullYear()<annoTarget)
   const totSpesePrec   = spesePrec.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
   const totEntratePrec = entratePrec.reduce((a,e)=>a+parseFloat(e.importo||0),0);
   return totEntratePrec - totSpesePrec; // saldo riportato dagli anni precedenti
@@ -7014,11 +7007,18 @@ async function initApp() {
     }
     // categorie: usa quelle salvate o default
 
-    // Carica SUPER_ADMIN_UID da Firestore
+    // Carica SUPER_ADMIN_UID e SUPER_ADMIN_EMAIL da Firestore
+    // Con timeout generoso per mobile
     try {
       const { db, doc, getDoc } = window._fb;
-      const snap = await getDoc(doc(db, 'appdata', 'cm_config'));
-      if (snap.exists()) SUPER_ADMIN_UID = snap.data().superAdminUid || null;
+      const cfgPromise = getDoc(doc(db, 'appdata', 'cm_config'));
+      const cfgTimeout = new Promise(r => setTimeout(() => r(null), 8000));
+      const snap = await Promise.race([cfgPromise, cfgTimeout]);
+      if (snap && snap.exists && snap.exists()) {
+        const d = snap.data();
+        SUPER_ADMIN_UID   = d.superAdminUid   || null;
+        SUPER_ADMIN_EMAIL = d.superAdminEmail || null;
+      }
     } catch(e) { console.warn('cm_config:', e.message); }
 
     // Ascolta cambiamenti auth
@@ -7028,12 +7028,36 @@ async function initApp() {
         let profile = state.condomini.find(u => u.uid === firebaseUser.uid)
                    || state.condomini.find(u => u.email && u.email.toLowerCase() === firebaseUser.email.toLowerCase());
 
-        if (!profile && SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID) {
+        // SuperAdmin: riconosci per UID O per email (fallback se UID non ancora caricato)
+        const isSA = (SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID)
+                  || (SUPER_ADMIN_EMAIL && firebaseUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase());
+
+        if (!profile && isSA) {
           profile = { id:0, uid:firebaseUser.uid, nome:firebaseUser.displayName||'Super Admin',
             email:firebaseUser.email, appartamento:'Admin',
             superAdmin:true, isAdmin:true, canEdit:true, color:'#1B2A4A' };
         }
 
+        if (!profile) {
+          // Ultimo tentativo: ricarica cm_config se non era disponibile al boot
+          if (!SUPER_ADMIN_UID && !SUPER_ADMIN_EMAIL) {
+            try {
+              const { db, doc, getDoc } = window._fb;
+              const snap2 = await getDoc(doc(db, 'appdata', 'cm_config'));
+              if (snap2 && snap2.exists && snap2.exists()) {
+                SUPER_ADMIN_UID   = snap2.data().superAdminUid   || null;
+                SUPER_ADMIN_EMAIL = snap2.data().superAdminEmail || null;
+              }
+            } catch(e2) {}
+            const isSA2 = (SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID)
+                       || (SUPER_ADMIN_EMAIL && firebaseUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase());
+            if (isSA2) {
+              profile = { id:0, uid:firebaseUser.uid, nome:firebaseUser.displayName||'Super Admin',
+                email:firebaseUser.email, appartamento:'Admin',
+                superAdmin:true, isAdmin:true, canEdit:true, color:'#1B2A4A' };
+            }
+          }
+        }
         if (!profile) {
           await window._fb.signOut(auth);
           state.user = null; render();
