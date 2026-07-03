@@ -2,6 +2,9 @@
 <html lang="it">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -857,23 +860,11 @@ async function fbLoadAll() {
 // getUserPassword e setUserPassword rimangono come stub
 // per compatibilità con il codice di validazione UI;
 // il login reale usa signInWithEmailAndPassword.
-const DEFAULT_PW = '1234';
-
-function getPasswords() { return load('cm_passwords', {}); }
-
-function getUserPassword(userId) {
-  // fallback locale (usato solo in modalità offline/test)
-  const pws = getPasswords();
-  return pws[String(userId)] || DEFAULT_PW;
-}
-
-function setUserPassword(userId, newPw) {
-  // Aggiorna anche la cache locale per coerenza UI
-  const pws = getPasswords();
-  pws[String(userId)] = newPw;
-  save('cm_passwords', pws);
-  // L'aggiornamento reale su Firebase Auth avviene in fbChangePassword()
-}
+// ═══ PASSWORD: gestite ESCLUSIVAMENTE da Firebase Auth ═══
+// Nessuna password salvata in chiaro — né locale né Firestore.
+function getPasswords()    { return {}; }
+function getUserPassword() { return null; }
+function setUserPassword() { /* no-op: le password vivono solo su Firebase Auth */ }
 
 // Cambia password dell'utente corrente su Firebase Auth
 async function fbChangePassword(currentPw, newPw) {
@@ -885,11 +876,10 @@ async function fbChangePassword(currentPw, newPw) {
   await updatePassword(user, newPw);
 }
 
-// Imposta password utente da admin (richiede funzione cloud — per ora salva solo localmente)
+// Reset password utente da admin: Firebase invia email di reset
 async function fbAdminSetPassword(userId, newPw) {
-  // In produzione userebbe Firebase Admin SDK via Cloud Function.
-  // Per ora salva nella cache locale e mostra istruzioni.
-  setUserPassword(userId, newPw);
+  // Le password non possono essere impostate direttamente dal client.
+  // Usa il pulsante "Invia email di reset" nel profilo del condomino.
 }
 
 function validatePassword(pw) {
@@ -1355,8 +1345,11 @@ function bindLogin() {
       if (errs.length>0) { errEl.textContent='Password non valida: ' + errs.join(', '); errEl.style.display='block'; return; }
       if (v1 !== v2) { errEl.textContent='Le password non coincidono'; errEl.style.display='block'; return; }
       if (!validateResetToken(uid, token)) { errEl.textContent='Link scaduto. Richiedine uno nuovo.'; errEl.style.display='block'; return; }
-      setUserPassword(uid, v1);
-      consumeResetToken(uid);
+      // I link di reset locali non sono più supportati — solo email Firebase
+      errEl.textContent = 'Questo tipo di link non è più valido. Usa "Password dimenticata?" nella pagina di login per ricevere una email di reset.';
+      errEl.style.display = 'block';
+      return;
+      // legacy: consumeResetToken(uid);
       window.location.hash = '';
       setState({loginPage:null});
       setTimeout(()=>{
@@ -5787,7 +5780,7 @@ Sposta o elimina prima tutti i dati associati.`);
     save('cm_entrate',    []);
     save('cm_fornitori',  []);
     save('cm_condomini',  CONDOMINI_DEFAULT);
-    save('cm_passwords',  {});  // pulisci anche le password offline
+    // cm_passwords non più usato — password solo su Firebase Auth
     setState({spese:[], entrate:[], fornitori:[], condomini:CONDOMINI_DEFAULT});
     alert('✅ Reset completato. Puoi ricominciare da zero.');
   };
@@ -5971,15 +5964,23 @@ function bindModal() {
 
   // Reset password admin
   const bResetAdmin = document.getElementById('btn-save-reset-admin');
-  if (bResetAdmin) bResetAdmin.onclick = () => {
-    const id  = parseInt(bResetAdmin.dataset.id);
-    const pw  = document.getElementById('admin-new-pw')?.value?.trim();
-    const okEl= document.getElementById('reset-admin-ok');
-    if (!pw || pw.length < 4) { alert('Inserisci una password di almeno 4 caratteri'); return; }
-    setUserPassword(String(id), pw);
-    okEl.textContent = '✅ Password offline aggiornata. Comunicala al condomino.';
-    okEl.style.display = 'block';
-    setTimeout(()=>setState({modal:null}), 2000);
+  if (bResetAdmin) bResetAdmin.onclick = async () => {
+    const id   = parseInt(bResetAdmin.dataset.id);
+    const okEl = document.getElementById('reset-admin-ok');
+    const cond = state.condomini.find(c => c.id === id);
+    if (!cond?.email) { alert('Nessuna email configurata per questo condomino. Aggiornala prima nel profilo.'); return; }
+    if (!window._fb) { alert('Connessione a Firebase richiesta.'); return; }
+    try {
+      const { auth, sendPasswordResetEmail } = window._fb;
+      await sendPasswordResetEmail(auth, cond.email);
+      okEl.textContent = '✅ Email di reset inviata a ' + cond.email;
+      okEl.style.display = 'block';
+      setTimeout(()=>setState({modal:null}), 2500);
+    } catch(e) {
+      alert(e.code === 'auth/user-not-found'
+        ? 'Nessun account Firebase con questa email. Crealo prima in Firebase Console → Authentication.'
+        : 'Errore: ' + e.message);
+    }
   };
 
   // Toggle effettivo/previsionale entrata
@@ -6268,11 +6269,8 @@ function bindModal() {
     if (errs.length>0) { errEl.textContent='Password non valida: '+errs.join(', '); errEl.style.display='block'; return; }
     if (n1 !== n2) { errEl.textContent='Le password non coincidono'; errEl.style.display='block'; return; }
     try {
-      if (window._fb) {
-        await fbChangePassword(cur, n1);
-      } else {
-        setUserPassword(String(state.user.id), n1);
-      }
+      if (!window._fb) throw new Error('Connessione a Firebase richiesta per cambiare la password.');
+      await fbChangePassword(cur, n1);
       okEl.textContent='✅ Password aggiornata con successo!';
       okEl.style.display='block';
       setTimeout(()=>setState({modal:null}), 1500);
@@ -6311,7 +6309,7 @@ function bindModal() {
       ? '<span style="color:var(--green)">✅ Password valida</span>'
       : errs.map(e=>`<span style="color:var(--red)">✗ ${e}</span>`).join(' &nbsp;');
   };
-  if (btnArSave) btnArSave.onclick = () => {
+  if (btnArSave) btnArSave.onclick = async () => {
     const uid = btnArSave.dataset.uid;
     const v1 = document.getElementById('ar-pw1').value;
     const v2 = document.getElementById('ar-pw2').value;
@@ -6321,10 +6319,20 @@ function bindModal() {
     const errs = validatePassword(v1);
     if (errs.length>0) { errEl.textContent='Password non valida: '+errs.join(', '); errEl.style.display='block'; return; }
     if (v1 !== v2) { errEl.textContent='Le password non coincidono'; errEl.style.display='block'; return; }
-    setUserPassword(uid, v1);
-    okEl.textContent='✅ Password impostata con successo per questo utente!';
-    okEl.style.display='block';
-    setTimeout(()=>setState({modal:null}), 1500);
+    // Le password non si impostano manualmente — Firebase invia email di reset
+    const condTarget = state.condomini.find(c => String(c.id) === String(uid));
+    if (!condTarget?.email) { errEl.textContent='Nessuna email configurata per questo utente.'; errEl.style.display='block'; return; }
+    if (!window._fb) { errEl.textContent='Connessione a Firebase richiesta.'; errEl.style.display='block'; return; }
+    try {
+      const { auth, sendPasswordResetEmail } = window._fb;
+      await sendPasswordResetEmail(auth, condTarget.email);
+      okEl.textContent='✅ Email di reset inviata a ' + condTarget.email;
+      okEl.style.display='block';
+      setTimeout(()=>setState({modal:null}), 2500);
+    } catch(e) {
+      errEl.textContent = e.code==='auth/user-not-found' ? 'Account Firebase non trovato per questa email.' : e.message;
+      errEl.style.display='block';
+    }
   };
   const btnArGen = document.getElementById('btn-ar-genlink');
   if (btnArGen) btnArGen.onclick = () => {
