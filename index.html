@@ -1895,13 +1895,28 @@ function renderFornitori() {
   const fornitori = (state.fornitori || []).filter(f => !f.edificioId || f.edificioId === state.edificioAttivo);
   const anno = state.filterAnno || new Date().getFullYear();
 
-  // Stats — strict per edificio
+  // Stats — coerenti con le altre pagine (stessa base di getSpeseVisibili,
+  // include anche eventuali spese storiche non ancora migrate su questo edificio)
   const totFornitoriAttivi = fornitori.filter(f=>!f.disabled).length;
-  const _speseForn = state.spese.filter(s=>s.edificioId===state.edificioAttivo);
-  const _speseFornAnno = _speseForn.filter(s=>new Date(s.data).getFullYear()===anno && s.fornitoreId);
-  const speseAnnoActual  = _speseFornAnno.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-  const speseAnnoForecast= _speseFornAnno.filter(s=>!parseFloat(s.consuntivo||0)).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-  const speseTotali = _speseForn.filter(s=>s.fornitoreId).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const _speseEd     = getSpeseVisibili();
+  const _speseEdAnno = _speseEd.filter(s=>new Date(s.data).getFullYear()===anno);
+
+  // Con fornitore
+  const _conFornAnno = _speseEdAnno.filter(s=>s.fornitoreId);
+  const speseAnnoActual   = _conFornAnno.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const speseAnnoForecast = _conFornAnno.filter(s=>!parseFloat(s.consuntivo||0)).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
+  const speseTotali       = _speseEd.filter(s=>s.fornitoreId && parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+
+  // Senza fornitore — stesse metriche, per riconciliare col resto dell'app
+  const _senzaFornAnno = _speseEdAnno.filter(s=>!s.fornitoreId);
+  const senzaAnnoActual   = _senzaFornAnno.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const senzaAnnoForecast = _senzaFornAnno.filter(s=>!parseFloat(s.consuntivo||0)).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
+  const senzaTotali       = _speseEd.filter(s=>!s.fornitoreId && parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+
+  // Totali combinati (con + senza fornitore) — questi devono coincidere con Dashboard/Bilancio
+  const totaleAnnoActual   = speseAnnoActual + senzaAnnoActual;
+  const totaleAnnoForecast = speseAnnoForecast + senzaAnnoForecast;
+  const totaleStoricoAll   = speseTotali + senzaTotali;
 
   return `
   <div>
@@ -1938,21 +1953,27 @@ function renderFornitori() {
       <div class="stat-card stat-red" style="flex:2;min-width:160px">
         <div style="font-size:9px;font-weight:700;color:var(--red);letter-spacing:.06em;margin-bottom:4px">✅ ACTUAL ${anno}</div>
         <div style="font-size:1.8rem;font-weight:800;color:var(--red);line-height:1.1">${fmt(speseAnnoActual)}</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:4px">spese consuntivate con fornitore</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:4px">con fornitore</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">+ ${fmt(senzaAnnoActual)} senza fornitore</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-top:5px;padding-top:5px;border-top:1px dashed var(--border)">Totale: ${fmt(totaleAnnoActual)}</div>
       </div>
 
       <!-- Forecast anno -->
       <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid #7c3aed">
         <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:.06em;margin-bottom:4px">🔮 FORECAST ${anno}</div>
         <div style="font-size:1.8rem;font-weight:800;color:${speseAnnoForecast>0?'#7c3aed':'var(--text2)'};line-height:1.1">${speseAnnoForecast>0?fmt(speseAnnoForecast):'—'}</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:4px">preventivi aperti con fornitore</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:4px">con fornitore</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">+ ${fmt(senzaAnnoForecast)} senza fornitore</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-top:5px;padding-top:5px;border-top:1px dashed var(--border)">Totale: ${fmt(totaleAnnoForecast)}</div>
       </div>
 
       <!-- Storico -->
       <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid #0891b2">
         <div style="font-size:9px;font-weight:700;color:#0891b2;letter-spacing:.06em;margin-bottom:4px">📊 STORICO</div>
         <div style="font-size:1.8rem;font-weight:800;color:#0891b2;line-height:1.1">${fmt(speseTotali)}</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:4px">totale consuntivato tutti gli anni</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:4px">con fornitore</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">+ ${fmt(senzaTotali)} senza fornitore</div>
+        <div style="font-size:12px;font-weight:700;color:var(--text);margin-top:5px;padding-top:5px;border-top:1px dashed var(--border)">Totale: ${fmt(totaleStoricoAll)}</div>
       </div>
 
     </div>
