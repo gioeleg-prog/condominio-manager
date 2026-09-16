@@ -1847,6 +1847,7 @@ function renderEntrateMobileCards(items, canEdit) {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <div class="emc-amount">${fmt(e.importo)}</div>
+          ${e.importoPrevisto!=null && Math.abs(parseFloat(e.importoPrevisto)-parseFloat(e.importo))>=0.01 ? `<div style="font-size:10px;color:var(--text2)">previsto ${fmt(e.importoPrevisto)}</div>` : ''}
           ${e.previsionale && canEdit ? `<button class="btn-valida" data-valida-entrata="${e.id}">✅ Valida</button>` : ''}
           ${canEdit ? `<button class="allegato-btn" data-edit-entrata="${e.id}" style="font-size:13px" title="Modifica">✏️</button>` : ''}
           ${canEdit ? `<button class="allegato-btn danger" data-del-entrata="${e.id}" style="font-size:13px" title="Elimina">🗑</button>` : ''}
@@ -2885,8 +2886,6 @@ function renderEntrate() {
       </div>
     </div>
 
-    ${renderPianoRateBox(state.filterAnno || new Date().getFullYear(), canEdit)}
-
     <!-- DETTAGLIO SPESE FORECAST PRO-CAPITE -->
     ${(()=>{
       const speseAperte = speseAnno.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
@@ -2930,6 +2929,8 @@ function renderEntrate() {
         '</tr></tbody></table></div></div>';
     })()}
 
+    ${renderPianoRateBox(state.filterAnno || new Date().getFullYear(), canEdit)}
+
     <div class="card">
       <div class="card-header"><h3>Tutti i versamenti</h3><strong style="color:var(--green)">${fmt(totale)}</strong></div>
       ${renderEntrateMobileCards(items, canEdit)}
@@ -2959,7 +2960,10 @@ function renderEntrate() {
               </div></td>
               <td style="font-size:13px">${esc(e.descrizione||'—')}</td>
               <td><span class="badge badge-green" style="font-size:10px">${cat.label}</span></td>
-              <td class="${e.previsionale?'':'amount-pos'}" style="font-weight:700;color:${e.previsionale?'#92400e':'var(--green)'}">${fmt(e.importo)}</td>
+              <td class="${e.previsionale?'':'amount-pos'}" style="font-weight:700;color:${e.previsionale?'#92400e':'var(--green)'}">
+                ${fmt(e.importo)}
+                ${e.importoPrevisto!=null && Math.abs(parseFloat(e.importoPrevisto)-parseFloat(e.importo))>=0.01 ? `<div style="font-size:10px;font-weight:400;color:var(--text2)">previsto ${fmt(e.importoPrevisto)}</div>` : ''}
+              </td>
               <td>${e.previsionale
                 ? `<span class="prev-badge">🔮 Prev.</span>`
                 : `<span class="badge badge-green" style="font-size:10px">✓ Effettivo</span>`}
@@ -5240,41 +5244,85 @@ function bindPageActions() {
   if (bConfermaPiano) bConfermaPiano.onclick = () => {
     const annoSel = state.filterAnno || new Date().getFullYear();
     const piano   = calcolaPianoRate(annoSel);
-    if (!piano.rate.length) { alert('Nessuna rata da creare.'); setState({ pianoRateConferma: null }); return; }
     const edId = getUserEdificio(state.user);
 
-    // Proposte precedenti di QUESTO piano, ancora in sospeso (non validate) per l'anno selezionato:
-    // verranno sostituite. I versamenti già validati (previsionale:false) non rientrano qui e non
-    // vengono mai toccati, anche se erano stati generati in origine dal piano rate.
+    // Proposte pendenti (non validate) di QUESTO piano per l'anno selezionato: quando la
+    // combinazione rata+condomino esiste ancora nel nuovo piano, il record viene AGGIORNATO
+    // sul posto (stesso id) invece di essere cancellato e ricreato — così eventuali riferimenti
+    // o note aggiunte a mano restano intatti. Viene rimosso solo ciò che non esiste più nel nuovo
+    // piano (es. perché il numero di rate necessarie è cambiato).
     const vecchieProposte = state.entrate.filter(e =>
       (!e.edificioId || e.edificioId === edId) && e.previsionale && e.pianoRataAuto && e.pianoAnno === annoSel
     );
-    const idsDaRimuovere = new Set(vecchieProposte.map(e=>e.id));
-    let entrate = state.entrate.filter(e => !idsDaRimuovere.has(e.id));
+    const vecchieByKey = new Map(vecchieProposte.map(e => [e.pianoRataN + ':' + e.condominoId, e]));
 
-    const nuoviVers = [];
-    let seq = 0;
+    // Combinazioni rata+condomino GIÀ VALIDATE (pagamento reale arrivato): per queste non si crea
+    // né si aggiorna nulla — restano un dato storico stabile anche se il piano ricalcolato cambia,
+    // altrimenti rischieremmo di proporre di nuovo una rata già pagata.
+    const validatiByKey = new Set(
+      state.entrate
+        .filter(e => (!e.edificioId || e.edificioId === edId) && !e.previsionale && e.pianoRataAuto && e.pianoAnno === annoSel)
+        .map(e => e.pianoRataN + ':' + e.condominoId)
+    );
+    const usedKeys = new Set();
+
+    let entrate = [...state.entrate];
+    let creati = 0, aggiornati = 0, saltati = 0;
+
     for (const r of piano.rate) {
       for (const c of r.perCondomino) {
-        seq++;
-        nuoviVers.push({
-          id: newId() + seq, // offset per evitare collisioni di id quando si creano molti record nello stesso istante
-          condominoId: c.id,
-          importo: String(c.importo),
-          data: r.data,
-          descrizione: 'Piano rate ' + annoSel + ' - Rata ' + r.n + ' (' + r.mese + ')',
-          categoria: 'quote',
-          edificioId: edId,
-          previsionale: true,
-          pianoRataAuto: true,
-          pianoAnno: annoSel,
-        });
+        const key = r.n + ':' + c.id;
+        usedKeys.add(key);
+        if (validatiByKey.has(key)) { saltati++; continue; } // già pagata: non toccare, non duplicare
+        const esistente = vecchieByKey.get(key);
+        const descrizione = 'Piano rate ' + annoSel + ' - Rata ' + r.n + ' (' + r.mese + ')';
+        if (esistente) {
+          // stesso id: aggiorno solo i valori che il ricalcolo può aver cambiato.
+          // importoPrevisto tiene traccia dell'ultima proposta calcolata — utile da confrontare
+          // con importo se in futuro viene validato con un importo diverso da quello proposto.
+          entrate = entrate.map(e => e.id === esistente.id
+            ? { ...e, importo: String(c.importo), importoPrevisto: String(c.importo), data: r.data, descrizione }
+            : e);
+          aggiornati++;
+        } else {
+          entrate.push({
+            id: newId() + creati + aggiornati, // offset per evitare collisioni quando si creano più record nello stesso istante
+            condominoId: c.id,
+            importo: String(c.importo),
+            importoPrevisto: String(c.importo),
+            data: r.data,
+            descrizione,
+            categoria: 'quote',
+            edificioId: edId,
+            previsionale: true,
+            pianoRataAuto: true,
+            pianoAnno: annoSel,
+            pianoRataN: r.n,
+          });
+          creati++;
+        }
       }
     }
-    entrate = [...entrate, ...nuoviVers];
+
+    // Proposte pendenti che non fanno più parte del piano ricalcolato (rate/condomini cambiati):
+    // queste sì vanno rimosse, non ha senso lasciarle in sospeso.
+    const daRimuovere = vecchieProposte.filter(e => !usedKeys.has(e.pianoRataN + ':' + e.condominoId));
+    if (daRimuovere.length) {
+      const idsRimuovi = new Set(daRimuovere.map(e=>e.id));
+      entrate = entrate.filter(e => !idsRimuovi.has(e.id));
+    }
+
     save('cm_entrate', entrate);
     setState({ entrate, pianoRateConferma: null });
-    alert('Creati ' + nuoviVers.length + ' versamenti previsionali per il ' + annoSel + '. Validali dalla lista quando arrivano i pagamenti.');
+
+    const parti = [];
+    if (creati) parti.push(creati + ' creati');
+    if (aggiornati) parti.push(aggiornati + ' aggiornati');
+    if (daRimuovere.length) parti.push(daRimuovere.length + ' rimossi perché non più necessari');
+    if (saltati) parti.push(saltati + ' già pagati, lasciati invariati');
+    alert(parti.length
+      ? 'Piano rate ' + annoSel + ': ' + parti.join(', ') + '. Valida i versamenti quando arrivano i pagamenti.'
+      : 'Nessuna modifica: il piano era già aggiornato.');
   };
 
   // Valida entrata previsionale → effettiva
@@ -5629,6 +5677,20 @@ Sposta o elimina prima tutti i dati associati.`);
 // un cuscinetto di sicurezza anche se qualche condomino paga in ritardo.
 // La 1a rata è sempre il 1° gennaio dell'anno; se quella data è già passata
 // (piano generato a metà anno corrente) si usa oggi al suo posto (vedi forzataOggi).
+// Formatta una data in AAAA-MM-GG usando i componenti LOCALI (non UTC).
+// IMPORTANTE: NON usare date.toISOString().slice(0,10) su date costruite con
+// new Date(anno,mese,giorno) — toISOString converte in UTC e, con un fuso orario
+// positivo come quello italiano, la data mostrata può slittare indietro di un giorno
+// (es. 30 novembre locale diventa "2026-11-29" in UTC). Questa funzione resta sempre
+// nel fuso locale del dispositivo, coerente con come le date vengono costruite altrove
+// in questa funzione (new Date(anno,mese,giorno), setDate, setMonth sono tutti locali).
+function ymdLocale(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const gg = String(d.getDate()).padStart(2,'0');
+  return y + '-' + m + '-' + gg;
+}
+
 function calcolaPianoRate(anno, nRate = 3) {
   const MARGINE_GIORNI = 15;
   const MIN_GIORNI_TRA_RATE = 30;
@@ -5674,22 +5736,12 @@ function calcolaPianoRate(anno, nRate = 3) {
   const totDaRaccogliere = Math.round(uscite.reduce((a,u)=>a+u.importo,0)*100)/100;
 
   if (totDaRaccogliere <= 0) {
-    return { coperto:true, annoPassato:false, saldoPartenza, totDaRaccogliere:0, rate:[], nAttivi, margineGiorni:MARGINE_GIORNI, forzataOggi, dataRata1 };
+    return { coperto:true, motivoCoperto:'nessuna_spesa', annoPassato:false, saldoPartenza, totDaRaccogliere:0, rate:[], nAttivi, margineGiorni:MARGINE_GIORNI, forzataOggi, dataRata1 };
   }
 
-  // ── 4. Quota di ciascun condomino sul totale da raccogliere (rispetta gli split % definiti sulle spese, stessa logica usata altrove nell'app) ──
-  const quotaCondomino = {};
-  condominiAttivi.forEach(c => quotaCondomino[c.id] = 0);
-  speseAperte.forEach(s => {
-    const ref = parseFloat(s.preventivo||0);
-    if (!ref) return;
-    condominiAttivi.forEach(c => {
-      const split = s.split?.find(x=>x.id===c.id);
-      quotaCondomino[c.id] += split ? (split.perc||0)/100*ref : ref/nAttivi;
-    });
-  });
-
-  // ── 5. Simulatore di cassa: dato un elenco di rate {data, importo}, calcola saldo minimo e prima data di rottura ──
+  // ── 4. Simulatore di cassa: dato un elenco di rate {data, importo}, calcola saldo minimo e prima data di rottura ──
+  // Definito qui (prima del posizionamento delle rate) perché serve subito al punto 5 per capire
+  // se il saldo attuale, DA SOLO, basta già a coprire tutto l'anno senza bisogno di nuove rate.
   function simula(rateArr) {
     const eventi = [
       ...rateArr.map(r => ({ data:r.data, delta: r.importo, entrata:true })),
@@ -5704,7 +5756,31 @@ function calcolaPianoRate(anno, nRate = 3) {
     return { minBal, dataRottura, saldoFinale: bal };
   }
 
-  // ── 6. Posizionamento greedy delle rate: la 1a è fissa, le successive si piazzano
+  // ── 5. Il saldo attuale copre già da solo tutte le spese previsionali dell'anno, senza mai
+  //       andare sotto zero? Allora non serve proporre NESSUNA nuova rata, anche se ci sono
+  //       spese previsionali > 0 (es. saldo 2568€, spese previste 2211€ → coperto). ──
+  const testSenzaRate = simula([]);
+  if (testSenzaRate.minBal >= -0.005) {
+    return {
+      coperto:true, motivoCoperto:'saldo_sufficiente', annoPassato:false,
+      saldoPartenza, totDaRaccogliere, rate:[], nAttivi, margineGiorni:MARGINE_GIORNI,
+      forzataOggi, dataRata1, saldoMinimoPrevisto: Math.round(testSenzaRate.minBal*100)/100,
+    };
+  }
+
+  // ── 6. Quota di ciascun condomino sul totale da raccogliere (rispetta gli split % definiti sulle spese, stessa logica usata altrove nell'app) ──
+  const quotaCondomino = {};
+  condominiAttivi.forEach(c => quotaCondomino[c.id] = 0);
+  speseAperte.forEach(s => {
+    const ref = parseFloat(s.preventivo||0);
+    if (!ref) return;
+    condominiAttivi.forEach(c => {
+      const split = s.split?.find(x=>x.id===c.id);
+      quotaCondomino[c.id] += split ? (split.perc||0)/100*ref : ref/nAttivi;
+    });
+  });
+
+  // ── 7. Posizionamento greedy delle rate: la 1a è fissa, le successive si piazzano
   //       MARGINE_GIORNI prima del primo rischio di rottura previsto ──
   const importoBase = Math.round(totDaRaccogliere / nRate * 100) / 100;
   const rate = [{ n:1, data:new Date(dataRata1), importo:importoBase }];
@@ -5715,25 +5791,25 @@ function calcolaPianoRate(anno, nRate = 3) {
     if (test.dataRottura) {
       prossima = new Date(test.dataRottura);
       prossima.setDate(prossima.getDate() - MARGINE_GIORNI);
-      const minSucc = new Date(rate[rate.length-1].data);
-      minSucc.setDate(minSucc.getDate() + MIN_GIORNI_TRA_RATE);
-      if (prossima < minSucc) prossima = minSucc;
     } else {
       // nessuna criticità prevista con le rate piazzate finora: mantieni comunque
       // una cadenza di fatturazione regolare (più prevedibile per i condomini)
       prossima = new Date(anno, 0, 1);
       prossima.setMonth(Math.round(12 / nRate * (i-1)));
-      if (prossima < rate[rate.length-1].data) {
-        prossima = new Date(rate[rate.length-1].data);
-        prossima.setDate(prossima.getDate() + 90);
-      }
     }
-    const capMax = new Date(anno, 10, 30); // non oltre il 30 novembre: lascia tempo per incassare entro l'anno
-    if (prossima > capMax) prossima = capMax;
+    // Spaziatura minima dalla rata precedente: questa vince SEMPRE, anche sul tetto di
+    // fine anno qui sotto — due rate non devono mai poter cadere sulla stessa data.
+    const minSucc = new Date(rate[rate.length-1].data);
+    minSucc.setDate(minSucc.getDate() + MIN_GIORNI_TRA_RATE);
+    if (prossima < minSucc) prossima = minSucc;
+    // Tetto: non oltre il 30 novembre, per lasciare tempo di incassare entro l'anno —
+    // ma solo se rispettarlo non violerebbe la spaziatura minima appena imposta sopra.
+    const capMax = new Date(anno, 10, 30);
+    if (prossima > capMax) prossima = (minSucc > capMax) ? minSucc : capMax;
     rate.push({ n:i, data:prossima, importo:importoBase });
   }
 
-  // ── 7. Verifica finale + ribilanciamento: se anche con tutte le rate piazzate si rischia
+  // ── 8. Verifica finale + ribilanciamento: se anche con tutte le rate piazzate si rischia
   //       comunque di andare sotto zero (es. spesa enorme molto ravvicinata), rinforza la 1a
   //       rata e riduci le successive, così il totale complessivo resta invariato ──
   let esito = simula(rate);
@@ -5747,7 +5823,7 @@ function calcolaPianoRate(anno, nRate = 3) {
     tentativi++;
   }
 
-  // ── 8. Split per condomino di ciascuna rata, proporzionale alla propria quota totale,
+  // ── 9. Split per condomino di ciascuna rata, proporzionale alla propria quota totale,
   //       con correzione dell'arrotondamento così il totale della rata torna esatto ──
   const meseNomi = ['','Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
   const rateFinali = rate.map(r => {
@@ -5764,7 +5840,7 @@ function calcolaPianoRate(anno, nRate = 3) {
     return {
       n: r.n,
       dataObj: r.data,
-      data: r.data.toISOString().slice(0,10),
+      data: ymdLocale(r.data),
       mese: meseNomi[r.data.getMonth()+1],
       importoTotale: r.importo,
       importoPerCondo: Math.round(r.importo / nAttivi * 100) / 100,
@@ -5772,7 +5848,7 @@ function calcolaPianoRate(anno, nRate = 3) {
     };
   });
 
-  // ── 9. Serie mensile del saldo cumulato (per il grafico) ──
+  // ── 10. Serie mensile del saldo cumulato (per il grafico) ──
   const meseNomiFull = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
   const eventiFinali = [
     ...rate.map(r => ({ data:r.data, delta:r.importo })),
@@ -5810,19 +5886,35 @@ function renderPianoRateBox(annoSel, canEdit) {
 
   if (piano.annoPassato) return '';
 
+  // Proposte già create in precedenza per quest'anno, ancora in sospeso (non validate) —
+  // calcolato qui perché serve sia nel caso "coperto" (per offrire la pulizia) sia in quello normale.
+  const edId0 = state.edificioAttivo;
+  const proposteEsistenti0 = state.entrate.filter(e =>
+    (!e.edificioId || e.edificioId === edId0) && e.previsionale && e.pianoRataAuto && e.pianoAnno === annoSel
+  );
+
   if (piano.coperto) {
-    return '<div class="alert alert-success" style="margin-bottom:1rem;font-size:13px">' +
-      '✅ <strong>Anno ' + annoSel + ' coperto</strong> — nessuna spesa previsionale ancora da finanziare con nuove rate.</div>';
+    const msg = piano.motivoCoperto === 'saldo_sufficiente'
+      ? '✅ <strong>Anno ' + annoSel + ' coperto</strong> — il saldo di cassa attuale (' + fmt(piano.saldoPartenza) + ') copre già da solo le spese previsionali dell\'anno (' + fmt(piano.totDaRaccogliere) + '), restando sempre sopra zero (minimo previsto ' + fmt(piano.saldoMinimoPrevisto) + '). Nessuna nuova rata necessaria per ora.'
+      : '✅ <strong>Anno ' + annoSel + ' coperto</strong> — nessuna spesa previsionale ancora da finanziare con nuove rate.';
+    const inConferma0 = state.pianoRateConferma === annoSel;
+    const pulizia = proposteEsistenti0.length
+      ? (inConferma0
+        ? '<div style="margin-top:.625rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:var(--radius-sm);padding:.75rem 1rem">' +
+          '<div style="font-size:12px;color:#5b21b6;margin-bottom:.625rem">Le ' + proposteEsistenti0.length + ' proposte create in precedenza per il ' + annoSel + ' non sono più necessarie: verranno rimosse (i versamenti già validati come reali non vengono toccati). Nessuna nuova rata verrà creata.</div>' +
+          '<div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+            '<button class="btn btn-primary btn-sm" id="btn-conferma-rate-piano">🗑️ Rimuovi le ' + proposteEsistenti0.length + ' proposte</button>' +
+            '<button class="btn btn-secondary btn-sm" id="btn-annulla-rate-piano">✖️ Annulla</button>' +
+          '</div></div>'
+        : '<div style="margin-top:.625rem;font-size:12px">⚠️ Ci sono ancora ' + proposteEsistenti0.length + ' versamenti previsionali generati in precedenza, non più necessari. <button class="btn btn-secondary btn-sm" id="btn-crea-rate-piano">Rimuovili</button></div>')
+      : '';
+    return '<div class="alert alert-success" style="margin-bottom:1rem;font-size:13px">' + msg + pulizia + '</div>';
   }
   if (piano.rate.length === 0) return '';
 
-  // Proposte già create in precedenza per quest'anno, ancora in sospeso (non validate)
-  const edId = state.edificioAttivo;
-  const proposteEsistenti = state.entrate.filter(e =>
-    (!e.edificioId || e.edificioId === edId) && e.previsionale && e.pianoRataAuto && e.pianoAnno === annoSel
-  );
+  const proposteEsistenti = proposteEsistenti0;
   const btnLabel = proposteEsistenti.length
-    ? '🔁 Rigenera proposta (sostituisce ' + proposteEsistenti.length + ')'
+    ? '🔁 Aggiorna proposta (' + proposteEsistenti.length + ' in sospeso)'
     : '➕ Crea versamenti previsionali';
   const inConferma = state.pianoRateConferma === annoSel;
   const nNuovi = piano.rate.reduce((a,r)=>a+r.perCondomino.length, 0);
@@ -5842,7 +5934,7 @@ function renderPianoRateBox(annoSel, canEdit) {
   }).join('');
 
   const noteOggi = piano.forzataOggi
-    ? '<div style="font-size:11px;color:var(--text2);margin-top:5px">ℹ️ Il 1° gennaio ' + annoSel + ' è già passato: la prima rata è fissata su oggi (' + piano.dataRata1.toISOString().slice(0,10) + ') invece che al 1° gennaio.</div>'
+    ? '<div style="font-size:11px;color:var(--text2);margin-top:5px">ℹ️ Il 1° gennaio ' + annoSel + ' è già passato: la prima rata è fissata su oggi (' + ymdLocale(piano.dataRata1) + ') invece che al 1° gennaio.</div>'
     : '';
 
   const avviso = piano.ancoraInRottura
@@ -5853,15 +5945,15 @@ function renderPianoRateBox(annoSel, canEdit) {
   // clicca esplicitamente Conferma o Annulla, così c'è tutto il tempo di rivedere le rate sopra.
   const pannelloConferma = inConferma
     ? '<div style="margin-top:.875rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:var(--radius-sm);padding:.875rem 1rem">' +
-      '<div style="font-weight:700;color:#5b21b6;margin-bottom:4px">' + (proposteEsistenti.length ? '🔁 Confermi la rigenerazione?' : '➕ Confermi la creazione?') + '</div>' +
+      '<div style="font-weight:700;color:#5b21b6;margin-bottom:4px">' + (proposteEsistenti.length ? '🔁 Confermi l\'aggiornamento?' : '➕ Confermi la creazione?') + '</div>' +
       '<div style="font-size:12px;color:#5b21b6;margin-bottom:.75rem">' +
         (proposteEsistenti.length
-          ? 'Le <strong>' + proposteEsistenti.length + ' proposte</strong> già create (non ancora validate) per il ' + annoSel + ' verranno cancellate e sostituite dalle rate mostrate sopra (' + nNuovi + ' versamenti).'
+          ? 'Le <strong>' + proposteEsistenti.length + ' proposte</strong> già create (non ancora validate) per il ' + annoSel + ' verranno aggiornate agli importi/date mostrati sopra (senza cancellarle e ricrearle). Se qualche rata non serve più, verrà rimossa.'
           : 'Verranno creati <strong>' + nNuovi + ' versamenti</strong> previsionali per il ' + annoSel + ', come mostrato sopra.') +
         ' I versamenti già validati come reali non verranno mai toccati.' +
       '</div>' +
       '<div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
-        '<button class="btn btn-primary btn-sm" id="btn-conferma-rate-piano">✅ Conferma e crea ' + nNuovi + ' versamenti</button>' +
+        '<button class="btn btn-primary btn-sm" id="btn-conferma-rate-piano">✅ ' + (proposteEsistenti.length ? 'Conferma e aggiorna' : 'Conferma e crea ' + nNuovi + ' versamenti') + '</button>' +
         '<button class="btn btn-secondary btn-sm" id="btn-annulla-rate-piano">✖️ Annulla</button>' +
       '</div>' +
     '</div>'
@@ -5886,7 +5978,7 @@ function renderPianoRateBox(annoSel, canEdit) {
     '<div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.5rem">' + rateHtml + '</div>' +
     renderMiniCashflowRateChart(piano, annoSel) +
     avviso +
-    '<div style="font-size:11px;color:var(--text2);margin-top:.75rem">💡 Le date sono calcolate per non far mai scendere la cassa sotto zero, con almeno ' + piano.margineGiorni + ' giorni di margine prima di ogni criticità prevista. Rigenerando, le proposte non ancora validate per questo anno vengono sostituite; i versamenti già validati come reali non vengono mai toccati.</div>' +
+    '<div style="font-size:11px;color:var(--text2);margin-top:.75rem">💡 Le date sono calcolate per non far mai scendere la cassa sotto zero, con almeno ' + piano.margineGiorni + ' giorni di margine prima di ogni criticità prevista. Ricalcolando, le proposte non ancora validate per questo anno vengono aggiornate (non cancellate e ricreate); i versamenti già validati come reali non vengono mai toccati.</div>' +
     pannelloConferma +
     '</div></div>';
 }
