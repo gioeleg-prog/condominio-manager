@@ -2162,13 +2162,21 @@ function renderDashboard() {
   const cashflow = Array.from({length:12}, (_,m) => {
     const speseM   = spese.filter(s=>new Date(s.data).getMonth()===m);
     const entrateM = entrate.filter(e=>new Date(e.data).getMonth()===m);
-    const uscite   = speseM.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0),0);
-    const incassi  = entrateM.reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    // Scomposizione actual (già confermato) vs forecast (ancora aperto/pianificato):
+    // un mese può avere ENTRAMBI — tipicamente il mese corrente, con alcune spese
+    // già consuntivate e altre ancora solo a preventivo con data nello stesso mese.
+    const usciteActual    = speseM.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+    const usciteForecast  = speseM.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
+    const incassiActual   = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const incassiForecast = entrateM.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const uscite   = usciteActual + usciteForecast;
+    const incassi  = incassiActual + incassiForecast;
     const isPast   = annoIsPassato || (annoIsCorrente && m <= meseCurr);
     const isCurrentMonth = annoIsCorrente && m === meseCurr;
     return {
       mese: nomiMesi[m], m,
       uscite, incassi,
+      usciteActual, usciteForecast, incassiActual, incassiForecast,
       isFuture: !isPast,
       isCurrent: isCurrentMonth,
     };
@@ -2349,19 +2357,26 @@ function renderDashboard() {
     <!-- CASHFLOW CHART -->
     <div class="cf-chart">
       <div class="cf-chart-title">📊 Cashflow mensile ${anno}</div>
-      <div class="cf-chart-sub">Barre continue = mesi passati · Barre viola = spese/entrate pianificate (con la loro data reale)</div>
+      <div class="cf-chart-sub">Colore pieno = dati reali confermati · Segmento viola in cima = spese/entrate ancora pianificate nello stesso mese (con la loro data reale)</div>
       <div class="cf-bars">
         ${cfCumul.map((cf,i) => {
-          const hInc = Math.round(cf.incassi/maxCF*100);
-          const hUsc = Math.round(cf.uscite/maxCF*100);
+          const hIncA = Math.round(cf.incassiActual/maxCF*100);
+          const hIncF = Math.round(cf.incassiForecast/maxCF*100);
+          const hUscA = Math.round(cf.usciteActual/maxCF*100);
+          const hUscF = Math.round(cf.usciteForecast/maxCF*100);
           const saldoM = cf.incassi - cf.uscite;
           const saldoColor = saldoM >= 0 ? 'var(--green)' : 'var(--red)';
-          const isFut = cf.isFuture;
           return `<div class="cf-col">
             <div class="cf-col-saldo" style="color:${saldoColor}">${saldoM>=0?'+':''}${fmtN(saldoM/1000).replace(',','.')}k</div>
             <div class="cf-col-bars">
-              <div class="cf-bar" title="${isFut?'Entrate previste':'Entrate'} ${fmt(cf.incassi)}" style="height:${hInc}px;background:${isFut?'#7c3aed':'var(--green)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #7c3aed;outline-offset:-1px':''}"></div>
-              <div class="cf-bar" title="${isFut?'Spese pianificate':'Uscite'} ${fmt(cf.uscite)}" style="height:${hUsc}px;background:${isFut?'#a78bfa':'var(--red)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #a78bfa;outline-offset:-1px':''}"></div>
+              <div class="cf-bar" style="display:flex;flex-direction:column;height:${hIncA+hIncF}px;overflow:hidden">
+                ${hIncF>0?`<div title="Entrate previste ${fmt(cf.incassiForecast)}" style="height:${hIncF}px;width:100%;background:#7c3aed;opacity:.55"></div>`:''}
+                ${hIncA>0?`<div title="Entrate reali ${fmt(cf.incassiActual)}" style="height:${hIncA}px;width:100%;background:var(--green);opacity:.85"></div>`:''}
+              </div>
+              <div class="cf-bar" style="display:flex;flex-direction:column;height:${hUscA+hUscF}px;overflow:hidden">
+                ${hUscF>0?`<div title="Spese pianificate ${fmt(cf.usciteForecast)}" style="height:${hUscF}px;width:100%;background:#a78bfa;opacity:.6"></div>`:''}
+                ${hUscA>0?`<div title="Uscite reali ${fmt(cf.usciteActual)}" style="height:${hUscA}px;width:100%;background:var(--red);opacity:.85"></div>`:''}
+              </div>
             </div>
             <div class="cf-col-label" style="font-weight:${cf.isCurrent?'700':'400'};color:${cf.isCurrent?'var(--accent)':'var(--text2)'}">${cf.mese}</div>
           </div>`;
