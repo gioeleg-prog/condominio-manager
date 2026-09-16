@@ -917,6 +917,7 @@ let state = {
   wizardData: {},
   bilancioTab: 'overview',
   bilancioCondId: null,  // id condomino selezionato per dettaglio
+  pianoRateConferma: null, // anno per cui è in attesa di conferma la generazione/rigenerazione del piano rate
   loginEmail: '',
   loginStep: 1,
 };
@@ -2145,131 +2146,87 @@ function renderDashboard() {
   })();
   const pagatoUtente   = entrate.filter(e=>e.condominoId===state.user.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
 
-  // ── Voci ancora aperte (non ancora realizzate) ───────────────────────────
-  const speseConfermate     = spese.filter(s=>parseFloat(s.consuntivo||0)>0);
-  const spesePrevisional    = spese.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
-  const entratePrevisionali = entrate.filter(e=>e.previsionale);
-
-  // ── Cashflow mensile (dati reali/pianificati, mai medie inventate) ──────
-  // Ogni mese usa SEMPRE i valori reali delle voci datate in quel mese
-  // (consuntivo se già chiuse, preventivo se ancora aperte/pianificate; stesso
-  // discorso per le entrate, incluse quelle previsionali) — sia per i mesi
-  // passati che per quelli futuri, così il grafico riflette esattamente ciò
-  // che è stato inserito e non una stima statistica basata sulla media.
+  // ── Calcolo cashflow mensile (storico + previsionale) ──────────────────
   const nomiMesi = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
-  const annoIsCorrente = annoEff === oggi.getFullYear();
-  const annoIsPassato  = annoEff < oggi.getFullYear();
   const cashflow = Array.from({length:12}, (_,m) => {
     const speseM   = spese.filter(s=>new Date(s.data).getMonth()===m);
     const entrateM = entrate.filter(e=>new Date(e.data).getMonth()===m);
-    // Scomposizione actual (già confermato) vs forecast (ancora aperto/pianificato):
-    // un mese può avere ENTRAMBI — tipicamente il mese corrente, con alcune spese
-    // già consuntivate e altre ancora solo a preventivo con data nello stesso mese.
-    const usciteActual    = speseM.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-    const usciteForecast  = speseM.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-    const incassiActual   = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-    const incassiForecast = entrateM.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-    const uscite   = usciteActual + usciteForecast;
-    const incassi  = incassiActual + incassiForecast;
-    const isPast   = annoIsPassato || (annoIsCorrente && m <= meseCurr);
-    const isCurrentMonth = annoIsCorrente && m === meseCurr;
+    const uscite   = speseM.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0),0);
+    const incassi  = entrateM.reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const isAnnoPassato = anno < oggi.getFullYear();
+    const isPast   = isAnnoPassato || (anno === oggi.getFullYear() && m <= meseCurr);
+    const isCurrentMonth = anno === oggi.getFullYear() && m === meseCurr;
+    // Stima solo per mesi futuri nell'anno corrente — mai per anni passati
+    const mesiPassati = isAnnoPassato ? 12 : meseCurr;
+    const mediaUscite  = mesiPassati > 0 ? totSpeseCons / Math.max(mesiPassati,1) : 0;
+    const mediaIncassi = mesiPassati > 0 ? totEntrate  / Math.max(mesiPassati,1) : 0;
     return {
       mese: nomiMesi[m], m,
-      uscite, incassi,
-      usciteActual, usciteForecast, incassiActual, incassiForecast,
+      uscite:  isPast ? uscite  : mediaUscite,
+      incassi: isPast ? incassi : mediaIncassi,
       isFuture: !isPast,
       isCurrent: isCurrentMonth,
     };
   });
 
-  // Saldo cumulativo mese per mese (per il grafico) — parte dal riporto anni precedenti
+  // Saldo cumulativo mese per mese — parte dal riporto anni precedenti
   let cumulativo = saldoRiporto;
   const cfCumul = cashflow.map(cf => {
     cumulativo += cf.incassi - cf.uscite;
     return {...cf, cumul: cumulativo};
   });
 
-  // ── Runway: proiezione della cassa sulle voci ancora aperte ─────────────
-  // Parte dal saldo di cassa REALE di oggi e proietta in avanti solo ciò che
-  // NON è ancora stato realizzato (spese non consuntivate, entrate non
-  // incassate), usando la data reale di ciascuna voce per capire in quale
-  // mese — se succede — la cassa si esaurirebbe. Le voci aperte con data già
-  // passata (scadute e non ancora saldate) vengono considerate subito, nel
-  // primo mese della simulazione.
-  let cassaSim = saldo;
+  // Mese in cui la cassa va a zero
   let meseZero = null;
-  if (!annoIsPassato) {
-    const meseInizioSim = annoIsCorrente ? meseCurr : 0;
-    for (let m = meseInizioSim; m < 12; m++) {
-      const inScadenzaOMese = (d) => m === meseInizioSim ? d.getMonth() <= m : d.getMonth() === m;
-      const usciteApM = spesePrevisional
-        .filter(s => inScadenzaOMese(new Date(s.data)))
-        .reduce((a,s)=>a+parseFloat(s.preventivo||0), 0);
-      const incassiApM = entratePrevisionali
-        .filter(e => inScadenzaOMese(new Date(e.data)))
-        .reduce((a,e)=>a+parseFloat(e.importo||0), 0);
-      cassaSim += incassiApM - usciteApM;
-      if (cassaSim <= 0 && meseZero === null) meseZero = m;
-    }
+  let saldoCorrente = totEntrate - totSpeseCons;
+  for (let m = meseCurr+1; m < 12; m++) {
+    const cf = cfCumul[m];
+    saldoCorrente += cf.incassi - cf.uscite;
+    if (saldoCorrente <= 0 && meseZero === null) meseZero = m;
   }
-  const cassaProiettata = cassaSim; // saldo di cassa proiettato dopo tutte le voci ancora aperte
-  const totEntratePrevis     = entratePrevisionali.reduce((a,e) => a + parseFloat(e.importo||0), 0);
-  const totSpesePrevisionali = spesePrevisional.reduce((a,s) => a + parseFloat(s.preventivo||0), 0);
 
-  // Media mensile storica delle uscite reali — solo come soglia di riferimento
-  // per il badge "riserva bassa" nella griglia mensile, mai per proiettare i mesi futuri
-  const mesiStoriciConSpesa      = annoIsPassato ? 12 : Math.max(meseCurr, 1);
-  const spesaMensileMediaStorica = totSpeseCons > 0 ? totSpeseCons / mesiStoriciConSpesa : 0;
+  // Copertura mesi futuri (runway)
+  // Usa TUTTE le spese inserite: consuntivate + preventivi aperti
+  // Cassa proiettata = saldo reale + entrate previsionali pianificate
+  const totSpeseFull      = spese.reduce((a,s) => a + parseFloat(s.consuntivo||s.preventivo||0), 0);
+  const totEntratePrevis  = entrate.filter(e=>e.previsionale).reduce((a,e) => a + parseFloat(e.importo||0), 0);
+  const cassaProiettata   = saldo + totEntratePrevis; // saldo reale + previsionali in entrata
+  // Media mensile basata sui mesi con spese inserite (non una media inventata)
+  const mesiConSpese      = new Set(spese.filter(s=>parseFloat(s.consuntivo||s.preventivo||0)>0).map(s=>new Date(s.data).getMonth()));
+  const nMesiPianificati  = Math.max(mesiConSpese.size, 1);
+  const spesaMensileMedia = totSpeseFull / nMesiPianificati;
+  // Runway: quanti mesi copre la cassa proiettata
+  const runwayMesi = totSpeseFull <= 0
+    ? 99
+    : cassaProiettata <= 0
+    ? 0
+    : cassaProiettata >= totSpeseFull
+    ? 99
+    : cassaProiettata < spesaMensileMedia
+    ? -1
+    : Math.floor(cassaProiettata / spesaMensileMedia);
 
   // Max per scala grafico
   const maxCF = Math.max(...cashflow.map(cf=>Math.max(cf.uscite, cf.incassi)), 1);
 
-  // ── Presentazione "Runway stimato" ───────────────────────────────────────
-  // Numero di mesi futuri interi (dopo quello corrente) coperti dalla proiezione:
-  // se la cassa non si azzera mai, è semplicemente quanto manca a fine anno.
-  const mesiCoperti = annoIsPassato ? 0 : (annoIsCorrente ? Math.max(0, 11 - meseCurr) : 12);
-  const runwayState = annoIsPassato
-    ? 'past'
-    : cassaProiettata < 0
-    ? 'critico'
-    : meseZero !== null
-    ? 'attenzione'
-    : 'ok';
-  const runwayCardClass = {ok:'kpi-green', attenzione:'kpi-amber', critico:'kpi-red', past:'kpi-blue'}[runwayState];
-  const runwayColor     = {ok:'var(--green)', attenzione:'var(--amber)', critico:'var(--red)', past:'var(--text2)'}[runwayState];
-  const runwayIcon      = {ok:'🛡️', attenzione:'⚠️', critico:'🚨', past:'—'}[runwayState];
-  const runwayHeadline  = runwayState==='ok'
-    ? (totSpesePrevisionali>0 ? `${mesiCoperti} ${mesiCoperti===1?'mese coperto':'mesi coperti'}` : 'Nessuna spesa aperta')
-    : runwayState==='attenzione'
-    ? `Attenzione a ${nomiMesi[meseZero]}`
-    : runwayState==='critico'
-    ? 'Cassa insufficiente'
-    : '—';
-  const runwaySub = runwayState==='ok'
-    ? `Cassa a fine periodo: ${fmt(cassaProiettata)}${totSpesePrevisionali>0?' · spese pianificate coperte':''}`
-    : runwayState==='attenzione'
-    ? `La cassa potrebbe azzerarsi a ${nomiMesi[meseZero]} · ${fmt(totSpesePrevisionali)} ancora da pagare`
-    : runwayState==='critico'
-    ? `Mancano ${fmt(Math.abs(cassaProiettata))} per coprire le spese pianificate`
-    : 'Anno già chiuso';
-  // Copertura % delle spese ancora aperte: cassa attuale + entrate previste vs spese da pagare
-  const coperturaPctRaw = totSpesePrevisionali>0 ? (saldo+totEntratePrevis)/totSpesePrevisionali*100 : 100;
-  const coperturaPct    = Math.max(0, Math.min(100, Math.round(coperturaPctRaw)));
-  const coperturaColor  = coperturaPctRaw>=100 ? 'var(--green)' : coperturaPctRaw>=50 ? 'var(--amber)' : 'var(--red)';
-
   // Alert status
-  const alertStatus = cassaProiettata < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
+  const alertStatus = cassaProiettata < 0 ? 'critical' : (runwayMesi === -1 || meseZero !== null) ? 'warn' : 'ok';
+  const runwayLabel = runwayMesi > 11 ? '>12 mesi' : runwayMesi === -1 ? 'meno di 1 mese' : runwayMesi + ' mesi';
   const alertMsg = cassaProiettata < 0
-    ? `⚠️ Proiezione di fine periodo negativa (${fmt(cassaProiettata)}) — le spese pianificate superano cassa ed entrate previste`
+    ? `⚠️ Cassa proiettata negativa (${fmt(cassaProiettata)}) — il condominio è in deficit`
+    : runwayMesi === -1
+    ? `⚠️ Cassa proiettata (${fmt(cassaProiettata)}) copre meno di 1 mese — raccogli le quote`
+    : runwayMesi === 99
+    ? `✅ Cassa proiettata sufficiente per tutte le spese pianificate (${fmt(totSpeseFull)})`
     : meseZero !== null
-    ? `⚠️ La cassa potrebbe azzerarsi a ${nomiMesi[meseZero]} (in base alle spese/entrate pianificate) — valuta di raccogliere le quote`
-    : totSpesePrevisionali > 0
-    ? `✅ Situazione stabile — le spese pianificate dei prossimi ${mesiCoperti} ${mesiCoperti===1?'mese':'mesi'} sono coperte · cassa a fine periodo: ${fmt(cassaProiettata)}`
-    : `✅ Situazione stabile — nessuna spesa aperta pianificata`;
+    ? `⚠️ La cassa potrebbe azzerarsi a ${nomiMesi[meseZero]} — raccogli le quote ora`
+    : `✅ Situazione stabile — runway ${runwayLabel} sulle spese pianificate`;
+
+  const speseConfermate = spese.filter(s=>parseFloat(s.consuntivo||0)>0);
+  const spesePrevisional= spese.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
   const ultimeSpese      = [...speseConfermate].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,6);
   const ultimeForecast   = [...spesePrevisional].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,6);
   const ultimeEntrate = [...entrate].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,6);
-
 
   return `
   <div>
@@ -2322,20 +2279,15 @@ function renderDashboard() {
             : ''}
         </div>
       </div>
-      <div class="kpi-card ${runwayCardClass}">
+      <div class="kpi-card kpi-amber">
         <div class="kpi-label">Runway stimato</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
-          <span style="font-size:20px;line-height:1">${runwayIcon}</span>
-          <div class="kpi-value" style="color:${runwayColor};font-size:1.05rem;line-height:1.25">${runwayHeadline}</div>
+        <div class="kpi-value" style="color:${runwayMesi===0?'var(--red)':runwayMesi===-1?'var(--amber)':'var(--amber)'}">
+          ${runwayMesi > 11 ? '>12' : runwayMesi === -1 ? '<1' : runwayMesi} mesi
         </div>
-        <div class="kpi-sub" style="margin-top:3px">${runwaySub}</div>
-        ${totSpesePrevisionali>0?`
-        <div style="margin-top:7px">
-          <div style="height:5px;border-radius:3px;background:var(--surface2);overflow:hidden">
-            <div style="height:100%;width:${coperturaPct}%;background:${coperturaColor};border-radius:3px"></div>
-          </div>
-          <div style="font-size:10px;color:var(--text2);margin-top:3px">Copertura spese pianificate: ${Math.round(coperturaPctRaw)}%</div>
-        </div>`:''}
+        <div class="kpi-sub">
+          ${fmt(cassaProiettata)} su ${fmt(totSpeseFull)} pianificate
+          ${totEntratePrevis>0?'(incl. prev.)':''}
+        </div>
       </div>
     </div>
 
@@ -2357,26 +2309,19 @@ function renderDashboard() {
     <!-- CASHFLOW CHART -->
     <div class="cf-chart">
       <div class="cf-chart-title">📊 Cashflow mensile ${anno}</div>
-      <div class="cf-chart-sub">Colore pieno = dati reali confermati · Segmento viola in cima = spese/entrate ancora pianificate nello stesso mese (con la loro data reale)</div>
+      <div class="cf-chart-sub">Barre continue = dati reali · Barre tratteggiate = stima basata sulla media</div>
       <div class="cf-bars">
         ${cfCumul.map((cf,i) => {
-          const hIncA = Math.round(cf.incassiActual/maxCF*100);
-          const hIncF = Math.round(cf.incassiForecast/maxCF*100);
-          const hUscA = Math.round(cf.usciteActual/maxCF*100);
-          const hUscF = Math.round(cf.usciteForecast/maxCF*100);
+          const hInc = Math.round(cf.incassi/maxCF*100);
+          const hUsc = Math.round(cf.uscite/maxCF*100);
           const saldoM = cf.incassi - cf.uscite;
           const saldoColor = saldoM >= 0 ? 'var(--green)' : 'var(--red)';
+          const isFut = cf.isFuture;
           return `<div class="cf-col">
             <div class="cf-col-saldo" style="color:${saldoColor}">${saldoM>=0?'+':''}${fmtN(saldoM/1000).replace(',','.')}k</div>
             <div class="cf-col-bars">
-              <div class="cf-bar" style="display:flex;flex-direction:column;height:${hIncA+hIncF}px;overflow:hidden">
-                ${hIncF>0?`<div title="Entrate previste ${fmt(cf.incassiForecast)}" style="height:${hIncF}px;width:100%;background:#7c3aed;opacity:.55"></div>`:''}
-                ${hIncA>0?`<div title="Entrate reali ${fmt(cf.incassiActual)}" style="height:${hIncA}px;width:100%;background:var(--green);opacity:.85"></div>`:''}
-              </div>
-              <div class="cf-bar" style="display:flex;flex-direction:column;height:${hUscA+hUscF}px;overflow:hidden">
-                ${hUscF>0?`<div title="Spese pianificate ${fmt(cf.usciteForecast)}" style="height:${hUscF}px;width:100%;background:#a78bfa;opacity:.6"></div>`:''}
-                ${hUscA>0?`<div title="Uscite reali ${fmt(cf.usciteActual)}" style="height:${hUscA}px;width:100%;background:var(--red);opacity:.85"></div>`:''}
-              </div>
+              <div class="cf-bar" title="${isFut?'Stima entrate':'Entrate'} ${fmt(cf.incassi)}" style="height:${hInc}px;background:${isFut?'#7c3aed':'var(--green)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #7c3aed;outline-offset:-1px':''}"></div>
+              <div class="cf-bar" title="${isFut?'Stima uscite':'Uscite'} ${fmt(cf.uscite)}" style="height:${hUsc}px;background:${isFut?'#a78bfa':'var(--red)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #a78bfa;outline-offset:-1px':''}"></div>
             </div>
             <div class="cf-col-label" style="font-weight:${cf.isCurrent?'700':'400'};color:${cf.isCurrent?'var(--accent)':'var(--text2)'}">${cf.mese}</div>
           </div>`;
@@ -2385,7 +2330,7 @@ function renderDashboard() {
       <div class="cf-legend">
         <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--green)"></div>Entrate</div>
         <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--red)"></div>Uscite</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#7c3aed;opacity:.5"></div>Pianificato</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#7c3aed;opacity:.5"></div>Stima futura</div>
       </div>
     </div>
 
@@ -2399,8 +2344,8 @@ function renderDashboard() {
           // Mesi futuri con dati reali (es. spese ricorrenti) mostrano stato reale
           const hasRealData = cf.incassi > 0 || cf.uscite > 0;
           const isTrulyFuture = cf.isFuture && !hasRealData;
-          let cls = isTrulyFuture ? 'future' : sM > 0 ? (sM < spesaMensileMediaStorica*0.5 ? 'warning' : 'positive') : sM < 0 ? 'negative' : 'warning';
-          const emoji = isTrulyFuture ? '?' : sM > 0 ? (sM < spesaMensileMediaStorica*0.5 ? '⚠' : '✓') : '✗';
+          let cls = isTrulyFuture ? 'future' : sM > 0 ? (sM < spesaMensileMedia*0.5 ? 'warning' : 'positive') : sM < 0 ? 'negative' : 'warning';
+          const emoji = isTrulyFuture ? '?' : sM > 0 ? (sM < spesaMensileMedia*0.5 ? '⚠' : '✓') : '✗';
           return `<div class="runway-month">
             <div class="runway-dot ${cls}" title="${cf.mese}: ${fmt(sM)}">${emoji}</div>
             <div class="runway-month-label">${cf.mese}</div>
@@ -2525,10 +2470,9 @@ function renderDashboard() {
 // ===========================
 // SPESE
 // ===========================
-// Filtro + ordinamento condivisi tra la vista tabellare e l'export Excel:
-// leggono gli stessi campi di stato (filterAnno, filterCat, ecc.) usati dalla UI,
-// quindi rispecchiano sempre esattamente i filtri attivi in quel momento.
-function getSpeseFiltrateOrdinate() {
+function renderSpese() {
+  const canEdit = canUserEdit(state.user);
+  const myEdId = getUserEdificio(state.user);
   let items = state.spese.filter(s => s.edificioId === state.edificioAttivo);
   if (state.filterAnno) items = items.filter(s=>new Date(s.data).getFullYear()===state.filterAnno);
   if (state.filterCat !== 'all') items = items.filter(s=>s.categoria===state.filterCat);
@@ -2538,6 +2482,7 @@ function getSpeseFiltrateOrdinate() {
   if (state.filterStato === 'previsionale') items = items.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
   if (state.filterFornitore !== 'all')      items = items.filter(s=>String(s.fornitoreId)===state.filterFornitore);
 
+  // ── Ordinamento ──────────────────────────────────────────────────────────
   const col = state.sortCol || 'data';
   const dir = state.sortDir || 'desc';
   items = [...items].sort((a, b) => {
@@ -2557,83 +2502,6 @@ function getSpeseFiltrateOrdinate() {
     if (va > vb) return dir==='asc' ?  1 : -1;
     return 0;
   });
-  return items;
-}
-
-// Quota per export: stessa logica di renderQuotaCell ma in testo puro (senza HTML),
-// splittata in importo numerico + riferimento (x N condomini / percentuale / split custom)
-function getQuotaExportParts(spesa) {
-  const user = state.user;
-  const importoRef = parseFloat(spesa.consuntivo||spesa.preventivo||0);
-  if (!importoRef) return {importo: null, rif: ''};
-  const edId = spesa.edificioId || state.edificioAttivo;
-  const condEd = state.condomini.filter(c => c.edificioId === edId && !c.disabled && !c.superAdmin);
-  const nCond = condEd.length || 1;
-  const validSplit = (spesa.split||[]).filter(s => condEd.some(c=>c.id===s.id) && (s.perc||0) > 0);
-
-  if (user.isAdmin) {
-    if (validSplit.length === 0) return {importo: importoRef/nCond, rif: 'x ' + nCond};
-    const refPerc = validSplit[0].perc;
-    const isEqual = validSplit.length === nCond && validSplit.every(s=>Math.abs((s.perc||0)-refPerc)<0.1);
-    if (isEqual) return {importo: refPerc/100*importoRef, rif: 'x ' + nCond};
-    const isEqualPartial = validSplit.every(s=>Math.abs((s.perc||0)-refPerc)<0.1);
-    if (isEqualPartial) return {importo: refPerc/100*importoRef, rif: 'x ' + validSplit.length};
-    return {importo: null, rif: 'Split personalizzato (' + validSplit.length + ' cond.)'};
-  }
-  if (validSplit.length === 0) return {importo: importoRef/nCond, rif: ''};
-  const mySplit = validSplit.find(s=>s.id===user.id);
-  if (!mySplit) return {importo: null, rif: ''};
-  return {importo: (mySplit.perc||0)/100*importoRef, rif: (mySplit.perc||0).toFixed(1) + '%'};
-}
-
-// Export CSV (compatibile Excel) delle spese, rispettando i filtri e l'ordinamento
-// correntemente attivi nella pagina Spese.
-window.esportaSpeseCSV = function() {
-  const items = getSpeseFiltrateOrdinate();
-  if (!items.length) { alert('Nessuna spesa da esportare con i filtri correnti.'); return; }
-
-  const headers = ['Data','Titolo','Descrizione','Categoria','Tipo','Fornitore','Preventivo','Consuntivo','Stato','Quota (importo)','Quota (rif.)','Allegati'];
-  const csvCell = (v) => '"' + String(v===null||v===undefined?'':v).replace(/"/g,'""') + '"';
-
-  const rows = items.map(s => {
-    const cat = getCategorie().find(c=>c.id===s.categoria) || {label:s.categoria||''};
-    const forn = s.fornitoreId ? state.fornitori.find(f=>f.id===s.fornitoreId) : null;
-    const hasCons = parseFloat(s.consuntivo||0) > 0;
-    const q = getQuotaExportParts(s);
-    return [
-      s.data || '',
-      s.titolo || '',
-      s.descrizione || '',
-      cat.label || '',
-      s.tipoSpesa==='straordinaria' ? 'Straordinaria' : 'Ordinaria',
-      forn ? forn.nome : '',
-      s.preventivo ? fmtN(s.preventivo) : '',
-      s.consuntivo ? fmtN(s.consuntivo) : '',
-      hasCons ? 'Definitiva' : 'Previsionale',
-      q.importo!=null ? fmtN(q.importo) : '',
-      q.rif || '',
-      (s.allegati||[]).map(a=>a.nome).join(' | ')
-    ].map(csvCell).join(';');
-  });
-
-  // BOM UTF-8 + separatore ';' → apertura corretta in Excel con locale italiano
-  const csv = '\uFEFF' + headers.map(csvCell).join(';') + '\r\n' + rows.join('\r\n');
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const suffix = state.filterAnno ? ('_' + state.filterAnno) : '';
-  a.download = 'spese' + suffix + '_' + new Date().toISOString().slice(0,10) + '.csv';
-  a.click();
-  URL.revokeObjectURL(url);
-};
-
-function renderSpese() {
-  const canEdit = canUserEdit(state.user);
-  const myEdId = getUserEdificio(state.user);
-  let items = getSpeseFiltrateOrdinate();
-  const col = state.sortCol || 'data';
-  const dir = state.sortDir || 'desc';
 
   // Helper: intestazione cliccabile
   const thSort = (label, colId) => {
@@ -2660,7 +2528,6 @@ function renderSpese() {
       <div><div class="page-title">Spese</div><div class="page-sub">${items.length} voci</div></div>
       <div style="display:flex;gap:.5rem">
         ${canEdit?`<button class="btn btn-primary btn-add-spesa" id="btn-add-spesa">+ Aggiungi spesa</button>`:''}
-        <button class="btn btn-secondary" id="btn-export-spese" title="Esporta in Excel le spese in base ai filtri attivi">⬇ Esporta Excel</button>
         ${canEdit?`<button class="btn btn-secondary" id="btn-toggle-multisel" title="Seleziona più spese">☑ Seleziona</button>`:''}
       </div>
     </div>
@@ -3147,10 +3014,10 @@ function renderBilancio() {
   const totEntrate      = totEntrateActual; // per compatibilità
   const scartoPrevCons  = totCons - totPrev;
 
-  // Totali "full" = actual + forecast (include il riporto anni precedenti)
+  // Totali "full" = actual + forecast
   const totUsciteFull   = totCons + totPrevForecast;
   const totEntrateFull  = totEntrateActual + totEntratePrevis;
-  const saldoFull        = saldo - totPrevForecast + totEntratePrevis; // cassa proiettata a fine periodo
+  const saldoFull       = totEntrateFull - totUsciteFull;
 
   // Cashflow mensile: reale mese per mese, forecast per mesi futuri O spese solo-preventivo
   const isCurrYear = anno === oggi.getFullYear();
@@ -3191,31 +3058,15 @@ function renderBilancio() {
     return {...cf, cumul: cumulActual, cumulFull};
   });
 
-  // ── Runway: proiezione della cassa sulle voci ancora aperte ─────────────
-  // Parte dal saldo di cassa REALE di oggi e proietta in avanti solo ciò che
-  // NON è ancora stato realizzato (spese non consuntivate, entrate non
-  // incassate), usando la data reale di ciascuna voce. Le voci aperte con
-  // data già passata (scadute) vengono considerate subito, nel primo mese
-  // della simulazione — mai sommate due volte come nella versione precedente.
+  // Mese zero basato su saldo full
   let meseZero = null;
-  if (!isAnnoPassatoBil) {
-    let cassaSim = saldo;
-    const meseInizioSim = isCurrYear ? meseCurr : 0;
-    for (let m = meseInizioSim; m < 12; m++) {
-      const inScadenzaOMese = (d) => m === meseInizioSim ? d.getMonth() <= m : d.getMonth() === m;
-      const usciteApM = speseOnlyPrev
-        .filter(s => inScadenzaOMese(new Date(s.data)))
-        .reduce((a,s)=>a+parseFloat(s.preventivo||0), 0);
-      const incassiApM = entratePrevis
-        .filter(e => inScadenzaOMese(new Date(e.data)))
-        .reduce((a,e)=>a+parseFloat(e.importo||0), 0);
-      cassaSim += incassiApM - usciteApM;
-      if (cassaSim <= 0 && meseZero === null) meseZero = m;
-    }
+  let saldoSim = saldoFull;
+  for (let m = meseCurr+1; m < 12; m++) {
+    saldoSim += cfCumul[m].totIncassi - cfCumul[m].totUscite;
+    if (saldoSim <= 0 && meseZero === null) meseZero = m;
   }
-  const runwayMesi = (isAnnoPassatoBil || meseZero === null)
-    ? 99
-    : Math.max(0, meseZero - (isCurrYear ? meseCurr : 0));
+
+  const runwayMesi = mediaUscite > 0 ? Math.max(0, Math.floor(saldo / mediaUscite)) : 99;
   const maxCF = Math.max(...cfMensile.map(cf=>Math.max(cf.totUscite, cf.totIncassi, 1)), 1);
 
   // Categorie breakdown
@@ -3283,45 +3134,12 @@ function renderBilancio() {
 
   // ── TAB: PANORAMICA ───────────────────────────────────────────────────────
   function tabOverview() {
-    // ── Presentazione "Runway stimato" — stessa dicitura del Dashboard ──────
-    const mesiCoperti = isAnnoPassatoBil ? 0 : (isCurrYear ? Math.max(0, 11 - meseCurr) : 12);
-    const runwayState = isAnnoPassatoBil
-      ? 'past'
-      : saldoFull < 0
-      ? 'critico'
+    const alertStatus = saldo < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
+    const alertMsg = saldo < 0
+      ? `⚠️ Saldo negativo di ${fmt(Math.abs(saldo))}`
       : meseZero !== null
-      ? 'attenzione'
-      : 'ok';
-    const runwayCardClass = {ok:'kpi-green', attenzione:'kpi-amber', critico:'kpi-red', past:'kpi-blue'}[runwayState];
-    const runwayColor     = {ok:'var(--green)', attenzione:'var(--amber)', critico:'var(--red)', past:'var(--text2)'}[runwayState];
-    const runwayIcon      = {ok:'🛡️', attenzione:'⚠️', critico:'🚨', past:'—'}[runwayState];
-    const runwayHeadline  = runwayState==='ok'
-      ? (totPrevForecast>0 ? `${mesiCoperti} ${mesiCoperti===1?'mese coperto':'mesi coperti'}` : 'Nessuna spesa aperta')
-      : runwayState==='attenzione'
-      ? `Attenzione a ${nomiMesi[meseZero]}`
-      : runwayState==='critico'
-      ? 'Cassa insufficiente'
-      : '—';
-    const runwaySub = runwayState==='ok'
-      ? `Cassa a fine periodo: ${fmt(saldoFull)}${totPrevForecast>0?' · spese pianificate coperte':''}`
-      : runwayState==='attenzione'
-      ? `La cassa potrebbe azzerarsi a ${nomiMesi[meseZero]} · ${fmt(totPrevForecast)} ancora da pagare`
-      : runwayState==='critico'
-      ? `Mancano ${fmt(Math.abs(saldoFull))} per coprire le spese pianificate`
-      : 'Anno già chiuso';
-    // Copertura % delle spese ancora aperte: cassa attuale + entrate previste vs spese da pagare
-    const coperturaPctRaw = totPrevForecast>0 ? (saldo+totEntratePrevis)/totPrevForecast*100 : 100;
-    const coperturaPct    = Math.max(0, Math.min(100, Math.round(coperturaPctRaw)));
-    const coperturaColor  = coperturaPctRaw>=100 ? 'var(--green)' : coperturaPctRaw>=50 ? 'var(--amber)' : 'var(--red)';
-
-    const alertStatus = saldoFull < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
-    const alertMsg = saldoFull < 0
-      ? `⚠️ Proiezione di fine periodo negativa (${fmt(saldoFull)}) — le spese pianificate superano cassa ed entrate previste`
-      : meseZero !== null
-      ? `⚠️ La cassa potrebbe azzerarsi a ${nomiMesi[meseZero]} (in base alle spese/entrate pianificate) — valuta di raccogliere le quote`
-      : totPrevForecast > 0
-      ? `✅ Situazione stabile — le spese pianificate dei prossimi ${mesiCoperti} ${mesiCoperti===1?'mese':'mesi'} sono coperte · cassa a fine periodo: ${fmt(saldoFull)}`
-      : `✅ Situazione stabile — nessuna spesa aperta pianificata`;
+      ? `⚠️ Proiezione: cassa a zero a ${nomiMesi[meseZero]}`
+      : `✅ Situazione stabile — runway ${runwayMesi>11?'>12':runwayMesi} mesi`;
 
     return `
     <!-- ACTUALS -->
@@ -3348,21 +3166,7 @@ function renderBilancio() {
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Entrate (incl. prev.)</div><div class="kpi-value" style="color:#7c3aed">${fmt(totEntrateFull)}</div><div class="kpi-sub">+${fmt(totEntratePrevis)} previsionali</div></div>
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Uscite (incl. prev.)</div><div class="kpi-value" style="color:#7c3aed">${fmt(totUsciteFull)}</div><div class="kpi-sub">+${fmt(totPrevForecast)} da consuntivare</div></div>
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Saldo proiettato</div><div class="kpi-value" style="color:${saldoFull>=0?'#7c3aed':'var(--red)'}">${fmt(saldoFull)}</div><div class="kpi-sub">Con tutti i previsionali</div></div>
-      <div class="kpi-card ${runwayCardClass}">
-        <div class="kpi-label">Runway stimato</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
-          <span style="font-size:20px;line-height:1">${runwayIcon}</span>
-          <div class="kpi-value" style="color:${runwayColor};font-size:1.05rem;line-height:1.25">${runwayHeadline}</div>
-        </div>
-        <div class="kpi-sub" style="margin-top:3px">${runwaySub}</div>
-        ${totPrevForecast>0?`
-        <div style="margin-top:7px">
-          <div style="height:5px;border-radius:3px;background:var(--surface2);overflow:hidden">
-            <div style="height:100%;width:${coperturaPct}%;background:${coperturaColor};border-radius:3px"></div>
-          </div>
-          <div style="font-size:10px;color:var(--text2);margin-top:3px">Copertura spese pianificate: ${Math.round(coperturaPctRaw)}%</div>
-        </div>`:''}
-      </div>
+      <div class="kpi-card kpi-amber"><div class="kpi-label">Runway stimato</div><div class="kpi-value" style="color:${runwayMesi===0?'var(--red)':runwayMesi===-1?'var(--amber)':'var(--amber)'};">${runwayMesi>11?'>12':runwayMesi===-1?'<1':runwayMesi} mesi</div><div class="kpi-sub">${fmt(mediaUscite)}/mese reale</div></div>
     </div>
 
     <div class="cf-zero-warn ${alertStatus}" style="margin-bottom:1rem">${alertMsg}</div>
@@ -3395,7 +3199,7 @@ function renderBilancio() {
           const hCP = Math.round(cf.prevForecast/maxCF*100);
           const sm  = cf.totIncassi - cf.totUscite;
           return `<div class="cf-col">
-            <div class="cf-col-saldo" style="color:${sm>=0?'#7c3aed':'var(--red)'}">${sm>=0?'+':''}${fmtN(sm/1000).replace(',','.')}k</div>
+            <div class="cf-col-saldo" style="color:${sm>=0?'#7c3aed':'var(--red)'}">${sm>=0?'+':''}${Math.round(sm/1000)}k</div>
             <div class="cf-col-bars">
               <div style="display:flex;flex-direction:column;align-items:center">
                 <div class="cf-bar" style="height:${hIP}px;background:#7c3aed;opacity:.7;width:14px" title="Entrate prev. ${fmt(cf.incPrevis)}"></div>
@@ -3504,16 +3308,13 @@ function renderBilancio() {
 
     <div class="runway-card">
       <div style="font-weight:700;font-size:15px;margin-bottom:.25rem">🗓️ Visualizzazione cassa mese per mese</div>
-      <div style="font-size:12px;color:var(--text2);margin-bottom:.875rem">Mesi futuri con spese/entrate pianificate mostrano la proiezione reale · "?" solo se non c'è nulla di pianificato</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:.875rem">Proiezione basata sulla media storica per i mesi futuri</div>
       <div class="runway-months">
         ${cfCumul.map(cf=>{
-          const hasRealData = cf.incassi>0||cf.cons>0||cf.incPrevis>0||cf.prevForecast>0;
-          const isTrulyFuture = cf.isForecast && !hasRealData;
-          const sM = cf.cumulFull;
-          let cls = isTrulyFuture ? 'future' : sM>0 ? (sM<mediaUscite*0.5?'warning':'positive') : 'negative';
-          const ico = isTrulyFuture ? '?' : sM>0 ? (sM<mediaUscite*0.5?'⚠':'✓') : '✗';
+          let cls = cf.isForecast ? 'future' : cf.cumul>0 ? (cf.cumul<mediaUscite*0.5?'warning':'positive') : 'negative';
+          const ico = cf.isForecast ? '?' : cf.cumul>0 ? (cf.cumul<mediaUscite*0.5?'⚠':'✓') : '✗';
           return `<div class="runway-month">
-            <div class="runway-dot ${cls}" title="${cf.mese}: ${fmt(sM)}">${ico}</div>
+            <div class="runway-dot ${cls}" title="${cf.mese}: ${fmt(cf.cumul)}">${ico}</div>
             <div class="runway-month-label">${cf.mese}</div>
           </div>`;
         }).join('')}
@@ -5263,10 +5064,6 @@ function bindPageActions() {
   // Anno filter dashboard
   const ad = document.getElementById('anno-filter');
   if (ad) ad.onchange = e => setState({filterAnno: parseInt(e.target.value)||new Date().getFullYear()});
-  // Export Excel spese (rispetta i filtri correnti)
-  const bExportSpese = document.getElementById('btn-export-spese');
-  if (bExportSpese) bExportSpese.onclick = () => esportaSpeseCSV();
-
   // Toggle modalità multiselect
   const bToggleSel = document.getElementById('btn-toggle-multisel');
   if (bToggleSel) bToggleSel.onclick = () => {
@@ -5290,15 +5087,10 @@ function bindPageActions() {
       // Aggiorna stile riga
       const row = chk.closest('tr');
       if (row) row.className = chk.checked ? 'spesa-row-sel' : '';
-      // Aggiorna barra selezione senza full re-render, tranne quando deve comparire/sparire
-      const barSpan = document.querySelector('.sel-count-bar span');
-      if (sel.size === 0) {
-        render(); // selezione vuota → la barra deve sparire
-      } else if (barSpan) {
-        barSpan.textContent = sel.size + ' spese selezionate';
-      } else {
-        render(); // barra non ancora presente → mostrala
-      }
+      // Aggiorna barra selezione senza full re-render
+      const bar = document.querySelector('.sel-count-bar span');
+      if (bar) bar.textContent = sel.size + ' spese selezionate';
+      else if (sel.size > 0) render(); // mostra la barra
     };
   });
 
@@ -5430,38 +5222,59 @@ function bindPageActions() {
   bindAllegatiInTable(state.spese);
 
   // Delete entrate
-  // Piano rate: crea versamenti previsionali automaticamente
-  const bCreaPiano = document.getElementById('btn-crea-rate-piano');
-  if (bCreaPiano) bCreaPiano.onclick = () => {
+  // Piano rate: 1) "Avvia" mostra il pannello di conferma con le rate già calcolate sopra
+  //             2) "Conferma" crea davvero i versamenti (sostituendo eventuali proposte precedenti)
+  //             3) "Annulla" chiude il pannello senza scrivere nulla
+  const bAvviaPiano = document.getElementById('btn-crea-rate-piano');
+  if (bAvviaPiano) bAvviaPiano.onclick = () => {
+    const annoSel = state.filterAnno || new Date().getFullYear();
+    setState({ pianoRateConferma: annoSel });
+  };
+
+  const bAnnullaPiano = document.getElementById('btn-annulla-rate-piano');
+  if (bAnnullaPiano) bAnnullaPiano.onclick = () => {
+    setState({ pianoRateConferma: null });
+  };
+
+  const bConfermaPiano = document.getElementById('btn-conferma-rate-piano');
+  if (bConfermaPiano) bConfermaPiano.onclick = () => {
     const annoSel = state.filterAnno || new Date().getFullYear();
     const piano   = calcolaPianoRate(annoSel);
-    if (!piano.rate.length) { alert('Nessuna rata da creare.'); return; }
-    const condominiAttivi = (state.condomini.filter(c=>c.edificioId===state.edificioAttivo)
-    ).filter(c=>!c.disabled && !c.superAdmin);
-    const n = piano.rate.length * condominiAttivi.length;
-    const msgConf = 'Creare ' + n + ' versamenti previsionali?\n\n' +
-      piano.rate.map(function(r){ return '• Rata ' + r.n + ' (' + r.data + '): ' + fmt(r.importoPerCondo) + ' x ' + condominiAttivi.length + ' condomini'; }).join('\n') +
-      '\n\nPotrai validarli uno a uno quando arriveranno i pagamenti.';
-    if (!confirm(msgConf)) return;
+    if (!piano.rate.length) { alert('Nessuna rata da creare.'); setState({ pianoRateConferma: null }); return; }
+    const edId = getUserEdificio(state.user);
+
+    // Proposte precedenti di QUESTO piano, ancora in sospeso (non validate) per l'anno selezionato:
+    // verranno sostituite. I versamenti già validati (previsionale:false) non rientrano qui e non
+    // vengono mai toccati, anche se erano stati generati in origine dal piano rate.
+    const vecchieProposte = state.entrate.filter(e =>
+      (!e.edificioId || e.edificioId === edId) && e.previsionale && e.pianoRataAuto && e.pianoAnno === annoSel
+    );
+    const idsDaRimuovere = new Set(vecchieProposte.map(e=>e.id));
+    let entrate = state.entrate.filter(e => !idsDaRimuovere.has(e.id));
+
     const nuoviVers = [];
+    let seq = 0;
     for (const r of piano.rate) {
-      for (const c of condominiAttivi) {
+      for (const c of r.perCondomino) {
+        seq++;
         nuoviVers.push({
-          id: newId(),
+          id: newId() + seq, // offset per evitare collisioni di id quando si creano molti record nello stesso istante
           condominoId: c.id,
-          importo: String(r.importoPerCondo),
+          importo: String(c.importo),
           data: r.data,
           descrizione: 'Piano rate ' + annoSel + ' - Rata ' + r.n + ' (' + r.mese + ')',
           categoria: 'quote',
-          edificioId: getUserEdificio(state.user),
+          edificioId: edId,
           previsionale: true,
+          pianoRataAuto: true,
+          pianoAnno: annoSel,
         });
       }
     }
-    const entrate = [...state.entrate, ...nuoviVers];
+    entrate = [...entrate, ...nuoviVers];
     save('cm_entrate', entrate);
-    setState({entrate});
-    alert('Creati ' + nuoviVers.length + ' versamenti previsionali. Validali dalla lista quando arrivano i pagamenti.');
+    setState({ entrate, pianoRateConferma: null });
+    alert('Creati ' + nuoviVers.length + ' versamenti previsionali per il ' + annoSel + '. Validali dalla lista quando arrivano i pagamenti.');
   };
 
   // Valida entrata previsionale → effettiva
@@ -5807,47 +5620,184 @@ Sposta o elimina prima tutti i dati associati.`);
 
 
 // ===========================
-// PIANO RATE AUTOMATICO
+// PIANO RATE AUTOMATICO — basato su simulazione di cassa
 // ===========================
-function calcolaPianoRate(anno, nRate=3) {
-  const myEdId = getUserEdificio(state.user);
-  const speseAnno = (state.spese.filter(s => s.edificioId === state.edificioAttivo))
-    .filter(s=>new Date(s.data).getFullYear()===anno);
-  const entrateAnno = (state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo))
-    .filter(e=>new Date(e.data).getFullYear()===anno && !e.previsionale);
-  const nAttivi = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).length || 1;
+// Calcola fino a `nRate` proposte di versamento (default 3) per l'anno indicato.
+// A differenza di un calendario fisso, le date vengono scelte simulando il saldo
+// di cassa giorno per giorno: ogni rata viene posizionata almeno MARGINE_GIORNI
+// prima del primo momento in cui la cassa andrebbe sotto zero, così c'è sempre
+// un cuscinetto di sicurezza anche se qualche condomino paga in ritardo.
+// La 1a rata è sempre il 1° gennaio dell'anno; se quella data è già passata
+// (piano generato a metà anno corrente) si usa oggi al suo posto (vedi forzataOggi).
+function calcolaPianoRate(anno, nRate = 3) {
+  const MARGINE_GIORNI = 15;
+  const MIN_GIORNI_TRA_RATE = 30;
+  const oggi = new Date(); oggi.setHours(0,0,0,0);
 
-  // Totale spese: consuntivo se chiuse, preventivo se aperte
-  const totSpeseFull   = speseAnno.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0),0);
-  const totGiaVersato  = entrateAnno.reduce((a,e)=>a+parseFloat(e.importo||0),0);
-  const daRaccogliere  = Math.max(0, totSpeseFull - totGiaVersato);
-
-  // Mesi rate: Marzo(3), Luglio(7), Novembre(11)
-  const MESI_RATE = [3, 7, 11];
-  const oggi = new Date();
-  // Usa solo mesi futuri dell'anno selezionato
-  const mesiFuturi = anno > oggi.getFullYear()
-    ? MESI_RATE  // anno futuro: tutte le rate
-    : anno < oggi.getFullYear()
-    ? []  // anno passato: nessuna rata
-    : MESI_RATE.filter(m => new Date(anno, m-1, 1) > oggi);
-
-  const nRateEff = Math.min(nRate, mesiFuturi.length);
-  if (daRaccogliere === 0 || nRateEff === 0) {
-    return { totSpeseFull, totGiaVersato, daRaccogliere, rate:[], coperto: daRaccogliere===0, nAttivi };
+  // Non ha senso generare un piano per un anno già chiuso
+  if (anno < oggi.getFullYear()) {
+    return { coperto:false, annoPassato:true, saldoPartenza:0, totDaRaccogliere:0, rate:[], nAttivi:0, margineGiorni:MARGINE_GIORNI };
   }
 
-  const rataTot   = Math.round(daRaccogliere / nRateEff * 100) / 100;
-  const rataCondo = Math.round(rataTot / nAttivi * 100) / 100;
-  const rate = mesiFuturi.slice(0, nRateEff).map((m, i) => ({
-    n: i+1,
-    data: `${anno}-${String(m).padStart(2,'0')}-01`,
-    mese: ['','Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'][m],
-    importoTotale: rataTot,
-    importoPerCondo: rataCondo,
-  }));
+  const edId = state.edificioAttivo;
+  // Stesso criterio di filtro edificio usato nel resto della pagina Entrate (include i dati "legacy" senza edificioId)
+  const allSpese   = state.spese.filter(s => !s.edificioId || s.edificioId === edId);
+  const allEntrate = state.entrate.filter(e => !e.edificioId || e.edificioId === edId);
 
-  return { totSpeseFull, totGiaVersato, daRaccogliere, rate, coperto:false, nAttivi };
+  // ── 1. Saldo di partenza: riporto anni precedenti + movimenti reali già avvenuti nell'anno ──
+  let saldoPartenza = getSaldoRiporto(anno);
+  const speseRealizzateAnno   = allSpese.filter(s => new Date(s.data).getFullYear()===anno && parseFloat(s.consuntivo||0)>0);
+  const entrateRealizzateAnno = allEntrate.filter(e => !e.previsionale && new Date(e.data).getFullYear()===anno);
+  saldoPartenza += entrateRealizzateAnno.reduce((a,e)=>a+parseFloat(e.importo||0),0)
+                 - speseRealizzateAnno.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  saldoPartenza = Math.round(saldoPartenza*100)/100;
+
+  // ── 2. Data della prima rata: 1° gennaio, o oggi se l'anno è già iniziato ──
+  const gennaio1 = new Date(anno, 0, 1);
+  const dataRata1 = gennaio1 > oggi ? gennaio1 : new Date(oggi);
+  const forzataOggi = dataRata1.getTime() !== gennaio1.getTime();
+
+  // ── 3. Condomini attivi e timeline delle uscite previste (solo preventivo, non consuntivate) ──
+  const condominiAttivi = state.condomini.filter(c=>c.edificioId===edId && !c.disabled && !c.superAdmin);
+  const nAttivi = condominiAttivi.length || 1;
+
+  const speseAperte = allSpese
+    .filter(s => new Date(s.data).getFullYear()===anno)
+    .filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
+
+  const uscite = speseAperte.map(s => {
+    let d = new Date(s.data);
+    if (d < dataRata1) d = new Date(dataRata1); // spesa scaduta e non ancora pagata → rischio da subito
+    return { data:d, importo:parseFloat(s.preventivo) };
+  }).sort((a,b)=>a.data-b.data);
+
+  const totDaRaccogliere = Math.round(uscite.reduce((a,u)=>a+u.importo,0)*100)/100;
+
+  if (totDaRaccogliere <= 0) {
+    return { coperto:true, annoPassato:false, saldoPartenza, totDaRaccogliere:0, rate:[], nAttivi, margineGiorni:MARGINE_GIORNI, forzataOggi, dataRata1 };
+  }
+
+  // ── 4. Quota di ciascun condomino sul totale da raccogliere (rispetta gli split % definiti sulle spese, stessa logica usata altrove nell'app) ──
+  const quotaCondomino = {};
+  condominiAttivi.forEach(c => quotaCondomino[c.id] = 0);
+  speseAperte.forEach(s => {
+    const ref = parseFloat(s.preventivo||0);
+    if (!ref) return;
+    condominiAttivi.forEach(c => {
+      const split = s.split?.find(x=>x.id===c.id);
+      quotaCondomino[c.id] += split ? (split.perc||0)/100*ref : ref/nAttivi;
+    });
+  });
+
+  // ── 5. Simulatore di cassa: dato un elenco di rate {data, importo}, calcola saldo minimo e prima data di rottura ──
+  function simula(rateArr) {
+    const eventi = [
+      ...rateArr.map(r => ({ data:r.data, delta: r.importo, entrata:true })),
+      ...uscite.map(u => ({ data:u.data, delta: -u.importo, entrata:false })),
+    ].sort((a,b) => a.data - b.data || (a.entrata ? -1 : 1)); // a parità di data, le entrate prima delle uscite
+    let bal = saldoPartenza, minBal = bal, dataRottura = null;
+    for (const ev of eventi) {
+      bal += ev.delta;
+      if (bal < minBal) minBal = bal;
+      if (bal < 0 && !dataRottura) dataRottura = ev.data;
+    }
+    return { minBal, dataRottura, saldoFinale: bal };
+  }
+
+  // ── 6. Posizionamento greedy delle rate: la 1a è fissa, le successive si piazzano
+  //       MARGINE_GIORNI prima del primo rischio di rottura previsto ──
+  const importoBase = Math.round(totDaRaccogliere / nRate * 100) / 100;
+  const rate = [{ n:1, data:new Date(dataRata1), importo:importoBase }];
+
+  for (let i = 2; i <= nRate; i++) {
+    const test = simula(rate);
+    let prossima;
+    if (test.dataRottura) {
+      prossima = new Date(test.dataRottura);
+      prossima.setDate(prossima.getDate() - MARGINE_GIORNI);
+      const minSucc = new Date(rate[rate.length-1].data);
+      minSucc.setDate(minSucc.getDate() + MIN_GIORNI_TRA_RATE);
+      if (prossima < minSucc) prossima = minSucc;
+    } else {
+      // nessuna criticità prevista con le rate piazzate finora: mantieni comunque
+      // una cadenza di fatturazione regolare (più prevedibile per i condomini)
+      prossima = new Date(anno, 0, 1);
+      prossima.setMonth(Math.round(12 / nRate * (i-1)));
+      if (prossima < rate[rate.length-1].data) {
+        prossima = new Date(rate[rate.length-1].data);
+        prossima.setDate(prossima.getDate() + 90);
+      }
+    }
+    const capMax = new Date(anno, 10, 30); // non oltre il 30 novembre: lascia tempo per incassare entro l'anno
+    if (prossima > capMax) prossima = capMax;
+    rate.push({ n:i, data:prossima, importo:importoBase });
+  }
+
+  // ── 7. Verifica finale + ribilanciamento: se anche con tutte le rate piazzate si rischia
+  //       comunque di andare sotto zero (es. spesa enorme molto ravvicinata), rinforza la 1a
+  //       rata e riduci le successive, così il totale complessivo resta invariato ──
+  let esito = simula(rate);
+  let tentativi = 0;
+  while (esito.minBal < 0 && tentativi < 6 && nRate > 1) {
+    const mancante = Math.round(-esito.minBal * 100) / 100;
+    rate[0].importo = Math.round((rate[0].importo + mancante) * 100) / 100;
+    const perAltre = mancante / (nRate - 1);
+    for (let i = 1; i < nRate; i++) rate[i].importo = Math.max(0, Math.round((rate[i].importo - perAltre) * 100) / 100);
+    esito = simula(rate);
+    tentativi++;
+  }
+
+  // ── 8. Split per condomino di ciascuna rata, proporzionale alla propria quota totale,
+  //       con correzione dell'arrotondamento così il totale della rata torna esatto ──
+  const meseNomi = ['','Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+  const rateFinali = rate.map(r => {
+    const pct = totDaRaccogliere > 0 ? r.importo / totDaRaccogliere : 0;
+    const perCondo = condominiAttivi.map(c => ({
+      id:c.id, nome:c.nome,
+      importo: Math.round(quotaCondomino[c.id] * pct * 100) / 100,
+    }));
+    const sommaCondo = perCondo.reduce((a,c)=>a+c.importo,0);
+    const scarto = Math.round((r.importo - sommaCondo) * 100) / 100;
+    if (perCondo.length && Math.abs(scarto) >= 0.01) {
+      perCondo[perCondo.length-1].importo = Math.round((perCondo[perCondo.length-1].importo + scarto) * 100) / 100;
+    }
+    return {
+      n: r.n,
+      dataObj: r.data,
+      data: r.data.toISOString().slice(0,10),
+      mese: meseNomi[r.data.getMonth()+1],
+      importoTotale: r.importo,
+      importoPerCondo: Math.round(r.importo / nAttivi * 100) / 100,
+      perCondomino: perCondo,
+    };
+  });
+
+  // ── 9. Serie mensile del saldo cumulato (per il grafico) ──
+  const meseNomiFull = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+  const eventiFinali = [
+    ...rate.map(r => ({ data:r.data, delta:r.importo })),
+    ...uscite.map(u => ({ data:u.data, delta:-u.importo })),
+  ].sort((a,b)=>a.data-b.data);
+  const serieMensile = meseNomiFull.map((mese, m) => {
+    const fine = new Date(anno, m+1, 0); // ultimo giorno del mese
+    const bal = eventiFinali.filter(e=>e.data<=fine).reduce((a,e)=>a+e.delta, saldoPartenza);
+    return { mese, saldo: Math.round(bal*100)/100 };
+  });
+
+  return {
+    coperto: false,
+    annoPassato: false,
+    saldoPartenza,
+    totDaRaccogliere,
+    rate: rateFinali,
+    nAttivi,
+    margineGiorni: MARGINE_GIORNI,
+    forzataOggi,
+    dataRata1,
+    saldoMinimoPrevisto: Math.round(esito.minBal*100)/100,
+    ancoraInRottura: esito.minBal < -0.005,
+    serieMensile,
+  };
 }
 
 
@@ -5858,61 +5808,133 @@ function renderPianoRateBox(annoSel, canEdit) {
   if (!canEdit || !annoSel || annoSel === 0) return '';
   const piano = calcolaPianoRate(annoSel);
 
+  if (piano.annoPassato) return '';
+
   if (piano.coperto) {
     return '<div class="alert alert-success" style="margin-bottom:1rem;font-size:13px">' +
-      '✅ <strong>Anno ' + annoSel + ' coperto</strong> — Versato ' + fmt(piano.totGiaVersato) +
-      ' su ' + fmt(piano.totSpeseFull) + ' previsti. Nessuna rata necessaria.</div>';
+      '✅ <strong>Anno ' + annoSel + ' coperto</strong> — nessuna spesa previsionale ancora da finanziare con nuove rate.</div>';
   }
   if (piano.rate.length === 0) return '';
 
+  // Proposte già create in precedenza per quest'anno, ancora in sospeso (non validate)
+  const edId = state.edificioAttivo;
+  const proposteEsistenti = state.entrate.filter(e =>
+    (!e.edificioId || e.edificioId === edId) && e.previsionale && e.pianoRataAuto && e.pianoAnno === annoSel
+  );
+  const btnLabel = proposteEsistenti.length
+    ? '🔁 Rigenera proposta (sostituisce ' + proposteEsistenti.length + ')'
+    : '➕ Crea versamenti previsionali';
+  const inConferma = state.pianoRateConferma === annoSel;
+  const nNuovi = piano.rate.reduce((a,r)=>a+r.perCondomino.length, 0);
+
   const rateHtml = piano.rate.map(function(r) {
-    return '<div style="flex:1;min-width:150px;background:#f5f3ff;border-radius:var(--radius-sm);padding:.875rem;border-left:3px solid #7c3aed;text-align:center">' +
-      '<div style="font-weight:700;color:#7c3aed;margin-bottom:2px">Rata ' + r.n + ' — ' + r.mese + '</div>' +
-      '<div style="font-size:11px;color:var(--text2);margin-bottom:.5rem">' + r.data + '</div>' +
-      '<div style="font-size:1.4rem;font-weight:800;color:#5b21b6">' + fmt(r.importoPerCondo) + '</div>' +
-      '<div style="font-size:11px;color:var(--text2)">per condomino</div>' +
-      '<div style="font-size:11px;color:var(--text2);margin-top:4px">Tot: ' + fmt(r.importoTotale) + '</div>' +
+    const dettaglioRighe = r.perCondomino.map(c =>
+      '<tr><td style="padding:2px 8px 2px 0">' + esc(c.nome) + '</td><td style="padding:2px 0;text-align:right;font-weight:600">' + fmt(c.importo) + '</td></tr>'
+    ).join('');
+    return '<div style="flex:1;min-width:170px;background:#f5f3ff;border-radius:var(--radius-sm);padding:.875rem;border-left:3px solid #7c3aed">' +
+      '<div style="font-weight:700;color:#7c3aed;margin-bottom:2px;text-align:center">Rata ' + r.n + ' — ' + r.mese + '</div>' +
+      '<div style="font-size:11px;color:var(--text2);margin-bottom:.5rem;text-align:center">' + r.data + '</div>' +
+      '<div style="font-size:1.3rem;font-weight:800;color:#5b21b6;text-align:center">' + fmt(r.importoTotale) + '</div>' +
+      '<div style="font-size:11px;color:var(--text2);text-align:center">totale &middot; media ' + fmt(r.importoPerCondo) + '/cond.</div>' +
+      '<details style="margin-top:.5rem"><summary style="cursor:pointer;font-size:11px;color:var(--accent)">Dettaglio per condomino</summary>' +
+      '<table style="width:100%;font-size:11px;margin-top:4px">' + dettaglioRighe + '</table></details>' +
     '</div>';
   }).join('');
+
+  const noteOggi = piano.forzataOggi
+    ? '<div style="font-size:11px;color:var(--text2);margin-top:5px">ℹ️ Il 1° gennaio ' + annoSel + ' è già passato: la prima rata è fissata su oggi (' + piano.dataRata1.toISOString().slice(0,10) + ') invece che al 1° gennaio.</div>'
+    : '';
+
+  const avviso = piano.ancoraInRottura
+    ? '<div class="alert alert-warning" style="margin-top:.75rem;font-size:12px">⚠️ Anche con queste rate il modello prevede un saldo minimo di ' + fmt(piano.saldoMinimoPrevisto) + ' durante l\'anno: valuta di anticipare/rateizzare diversamente una spesa importante o di aumentare la prima rata.</div>'
+    : '';
+
+  // Pannello di conferma: sostituisce il vecchio window.confirm(). Resta visibile finché non si
+  // clicca esplicitamente Conferma o Annulla, così c'è tutto il tempo di rivedere le rate sopra.
+  const pannelloConferma = inConferma
+    ? '<div style="margin-top:.875rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:var(--radius-sm);padding:.875rem 1rem">' +
+      '<div style="font-weight:700;color:#5b21b6;margin-bottom:4px">' + (proposteEsistenti.length ? '🔁 Confermi la rigenerazione?' : '➕ Confermi la creazione?') + '</div>' +
+      '<div style="font-size:12px;color:#5b21b6;margin-bottom:.75rem">' +
+        (proposteEsistenti.length
+          ? 'Le <strong>' + proposteEsistenti.length + ' proposte</strong> già create (non ancora validate) per il ' + annoSel + ' verranno cancellate e sostituite dalle rate mostrate sopra (' + nNuovi + ' versamenti).'
+          : 'Verranno creati <strong>' + nNuovi + ' versamenti</strong> previsionali per il ' + annoSel + ', come mostrato sopra.') +
+        ' I versamenti già validati come reali non verranno mai toccati.' +
+      '</div>' +
+      '<div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
+        '<button class="btn btn-primary btn-sm" id="btn-conferma-rate-piano">✅ Conferma e crea ' + nNuovi + ' versamenti</button>' +
+        '<button class="btn btn-secondary btn-sm" id="btn-annulla-rate-piano">✖️ Annulla</button>' +
+      '</div>' +
+    '</div>'
+    : '';
 
   return '<div class="card" style="margin-bottom:1rem;border-top:3px solid #7c3aed">' +
     '<div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">' +
     '<h3>📅 Piano rate suggerito ' + annoSel + '</h3>' +
-    '<button class="btn btn-secondary btn-sm" id="btn-crea-rate-piano">➕ Crea rate previsionali</button>' +
+    (inConferma
+      ? '<span style="font-size:12px;color:#7c3aed;font-weight:600">⏳ In attesa di conferma qui sotto…</span>'
+      : '<button class="btn btn-secondary btn-sm" id="btn-crea-rate-piano">' + btnLabel + '</button>') +
     '</div>' +
-    '<div style="padding:.75rem 1.25rem">' +
-    '<div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:1rem;font-size:13px;background:var(--surface2);padding:.625rem .875rem;border-radius:var(--radius-sm)">' +
-    '<div>Spese previste: <strong>' + fmt(piano.totSpeseFull) + '</strong></div>' +
-    '<div>Già versato: <strong style="color:var(--green)">' + fmt(piano.totGiaVersato) + '</strong></div>' +
-    '<div>Da raccogliere: <strong style="color:#7c3aed">' + fmt(piano.daRaccogliere) + '</strong></div>' +
+    '<div style="padding:.75rem 1.25rem 1rem">' +
+    '<div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:.75rem;font-size:13px;background:var(--surface2);padding:.625rem .875rem;border-radius:var(--radius-sm)">' +
+    '<div>Saldo di partenza: <strong style="color:' + (piano.saldoPartenza>=0?'var(--green)':'var(--red)') + '">' + fmt(piano.saldoPartenza) + '</strong></div>' +
+    '<div>Da raccogliere: <strong style="color:#7c3aed">' + fmt(piano.totDaRaccogliere) + '</strong></div>' +
+    '<div>Margine di sicurezza: <strong>' + piano.margineGiorni + ' giorni</strong></div>' +
     '<div>Condomini: <strong>' + piano.nAttivi + '</strong></div>' +
+    '<div>Saldo minimo previsto: <strong style="color:' + (piano.saldoMinimoPrevisto>=0?'var(--green)':'var(--red)') + '">' + fmt(piano.saldoMinimoPrevisto) + '</strong></div>' +
     '</div>' +
-    '<div style="display:flex;gap:.75rem;flex-wrap:wrap">' + rateHtml + '</div>' +
-    '<div style="font-size:11px;color:var(--text2);margin-top:.75rem">' +
-    '<div style="font-size:11px;color:var(--text2);margin-top:.75rem">' +
-    '💡 Rate su Marzo, Luglio e Novembre in base alle spese restanti. Clicca per creare versamenti previsionali.' +
-    '</div>' +
-    (function(){
-      // Analisi rotture di cassa tra oggi e la prima rata
-      if (!piano.rate.length) return '';
-      const oggi = new Date();
-      const firstRata = new Date(piano.rate[0].data);
-      const myEdId2 = state.edificioAttivo;
-      const allSpese = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
-      const speseAntecedenti = allSpese
-        .filter(s=>parseFloat(s.consuntivo||0)===0&&parseFloat(s.preventivo||0)>0)
-        .filter(s=>{ const d=new Date(s.data); return d>oggi&&d<firstRata; });
-      if (!speseAntecedenti.length) return '<div style="font-size:11px;color:var(--green);margin-top:5px">✅ Nessuna spesa forecast prima della prima rata — cassa al sicuro.</div>';
-      const totPrima = speseAntecedenti.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-      const totCons  = allSpese.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-      const saldo    = piano.totGiaVersato - totCons;
-      const ok       = saldo >= totPrima;
-      return '<div style="background:'+(ok?'#f0fdf4':'#fef2f2')+';border:1px solid '+(ok?'#bbf7d0':'#fecaca')+';border-radius:6px;padding:.4rem .75rem;margin-top:5px;font-size:11px">' +
-        (ok?'✅':'⚠️') + ' Prima della prima rata (' + piano.rate[0].mese + ') ci sono <strong>' + speseAntecedenti.length + ' spese forecast</strong> per <strong>' + fmt(totPrima) + '</strong>' +
-        (ok?' — cassa sufficiente (saldo ' + fmt(saldo) + ')' : ' — <strong style="color:var(--red)">RISCHIO ROTTURA DI CASSA</strong> (saldo ' + fmt(saldo) + ')') +
-        '</div>';
-    })() +
+    noteOggi +
+    '<div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.5rem">' + rateHtml + '</div>' +
+    renderMiniCashflowRateChart(piano, annoSel) +
+    avviso +
+    '<div style="font-size:11px;color:var(--text2);margin-top:.75rem">💡 Le date sono calcolate per non far mai scendere la cassa sotto zero, con almeno ' + piano.margineGiorni + ' giorni di margine prima di ogni criticità prevista. Rigenerando, le proposte non ancora validate per questo anno vengono sostituite; i versamenti già validati come reali non vengono mai toccati.</div>' +
+    pannelloConferma +
     '</div></div>';
+}
+
+// ===========================
+// PIANO RATE — MINI GRAFICO CASSA
+// ===========================
+// Mostra il saldo cumulato mese per mese lungo l'anno, con un marker viola nel
+// mese di ciascuna rata proposta. Barre verdi = cassa positiva, rosse = a rischio.
+function renderMiniCashflowRateChart(piano, anno) {
+  if (!piano.serieMensile || !piano.serieMensile.length) return '';
+  const W = 760, H = 170, padL = 46, padR = 10, padT = 22, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const vals = piano.serieMensile.map(s=>s.saldo);
+  const maxV = Math.max(...vals, 0);
+  const minV = Math.min(...vals, 0);
+  const range = (maxV - minV) || 1;
+  const n = piano.serieMensile.length;
+  const xFor = i => padL + (n>1 ? (plotW/(n-1))*i : plotW/2);
+  const yFor = v => padT + plotH - ((v - minV)/range)*plotH;
+  const yZero = yFor(0);
+  const barW = Math.max(8, Math.min(30, plotW/n - 6));
+
+  const bars = piano.serieMensile.map((s,i) => {
+    const x = xFor(i) - barW/2;
+    const yTop = s.saldo>=0 ? yFor(s.saldo) : yZero;
+    const h = Math.max(1, Math.abs(yFor(s.saldo) - yZero));
+    const color = s.saldo>=0 ? 'var(--green)' : 'var(--red)';
+    return '<rect x="'+x.toFixed(1)+'" y="'+yTop.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+h.toFixed(1)+'" fill="'+color+'" opacity=".75" rx="2"><title>'+s.mese+': '+fmt(s.saldo)+'</title></rect>';
+  }).join('');
+
+  const labels = piano.serieMensile.map((s,i) =>
+    '<text x="'+xFor(i).toFixed(1)+'" y="'+(H-6)+'" font-size="10" fill="var(--text2)" text-anchor="middle">'+s.mese+'</text>'
+  ).join('');
+
+  const markers = piano.rate.map(r => {
+    const x = xFor(r.dataObj.getMonth());
+    return '<g><circle cx="'+x.toFixed(1)+'" cy="'+(padT-10).toFixed(1)+'" r="7" fill="#7c3aed"/>' +
+      '<text x="'+x.toFixed(1)+'" y="'+(padT-6).toFixed(1)+'" font-size="9" fill="#fff" text-anchor="middle" font-weight="700">R'+r.n+'</text></g>';
+  }).join('');
+
+  return '<div style="overflow-x:auto;margin-top:.875rem">' +
+    '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-width:760px;height:auto;display:block">' +
+    '<line x1="'+padL+'" y1="'+yZero.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+yZero.toFixed(1)+'" stroke="var(--border)" stroke-dasharray="3,3"/>' +
+    bars + labels + markers +
+    '</svg>' +
+    '<div style="font-size:11px;color:var(--text2);margin-top:2px">🟣 mese della rata &nbsp; 🟩 cassa positiva &nbsp; 🟥 cassa a rischio &nbsp; (linea tratteggiata = zero)</div>' +
+    '</div>';
 }
 
 // ===========================
