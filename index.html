@@ -2555,6 +2555,7 @@ function renderSpese() {
       <div style="display:flex;gap:.5rem">
         ${canEdit?`<button class="btn btn-primary btn-add-spesa" id="btn-add-spesa">+ Aggiungi spesa</button>`:''}
         ${canEdit?`<button class="btn btn-secondary" id="btn-toggle-multisel" title="Seleziona più spese">☑ Seleziona</button>`:''}
+        <button class="btn btn-secondary" id="btn-export-spese" title="Esporta in Excel — tutte le spese visibili, o solo quelle selezionate">📊 Esporta Excel</button>
       </div>
     </div>
 
@@ -5182,6 +5183,74 @@ function renderModalCond(d) {
 // ===========================
 // BIND ACTIONS
 // ===========================
+// ===========================
+// ESPORTA SPESE (Excel/CSV)
+// ===========================
+// Genera un CSV (si apre correttamente in Excel, incluso il formato numerico italiano) con una
+// riga per spesa e una colonna per ogni condomino attivo con la sua quota — stessa logica di
+// ripartizione già usata in renderQuotaCell (split % se definito sulla spesa, altrimenti parti
+// uguali tra i condomini attivi dell'edificio DI QUELLA spesa).
+function esportaSpeseCSV(spese, nomeFile) {
+  if (!spese.length) { alert('Nessuna spesa da esportare.'); return; }
+
+  function quotaCondomino(spesa, condId, condEd) {
+    const importoRef = parseFloat(spesa.consuntivo || spesa.preventivo || 0);
+    if (!importoRef) return 0;
+    const nCond = condEd.length || 1;
+    const validSplit = (spesa.split||[]).filter(s => condEd.some(c=>c.id===s.id) && (s.perc||0) > 0);
+    if (validSplit.length === 0) return importoRef / nCond;
+    const mySplit = validSplit.find(s => s.id === condId);
+    return mySplit ? (mySplit.perc||0)/100*importoRef : 0;
+  }
+  function csvField(v) {
+    const s = String(v ?? '');
+    // Escapa i campi che contengono il separatore, virgolette o a-capo (standard CSV)
+    return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+  }
+  function numCSV(n) {
+    // Virgola come separatore decimale: coerente con Excel in locale italiano quando il
+    // separatore di campo è il punto e virgola (altrimenti Excel legge tutto in una colonna)
+    return n ? Number(n).toFixed(2).replace('.', ',') : '';
+  }
+
+  // I condomini coinvolti possono differire da spesa a spesa se cambiano edificio: prendo l'unione
+  // di tutti i condomini attivi di tutti gli edifici toccati dalle spese esportate, così ogni riga
+  // ha comunque le colonne corrette (0 per i condomini di un edificio diverso da quello della spesa).
+  const edificiCoinvolti = [...new Set(spese.map(s => s.edificioId || state.edificioAttivo))];
+  const condTotali = state.condomini.filter(c => edificiCoinvolti.includes(c.edificioId) && !c.disabled && !c.superAdmin);
+
+  const intestazione = ['Data','Titolo','Descrizione','Categoria','Tipo','Fornitore','Preventivo','Consuntivo','Stato', ...condTotali.map(c=>c.nome)];
+  const righe = spese.map(s => {
+    const cat = getCategorie().find(c=>c.id===s.categoria) || {label:s.categoria||''};
+    const forn = s.fornitoreId ? state.fornitori.find(f=>f.id===s.fornitoreId) : null;
+    const stato = parseFloat(s.consuntivo||0) > 0 ? 'Definitiva' : 'Previsionale';
+    const condEdSpesa = state.condomini.filter(c => c.edificioId === (s.edificioId||state.edificioAttivo) && !c.disabled && !c.superAdmin);
+    const base = [
+      s.data || '',
+      s.titolo || '',
+      s.descrizione || '',
+      cat.label || '',
+      s.tipoSpesa === 'straordinaria' ? 'Straordinaria' : 'Ordinaria',
+      forn ? forn.nome : '',
+      numCSV(s.preventivo),
+      numCSV(s.consuntivo),
+      stato,
+    ];
+    const quote = condTotali.map(c => condEdSpesa.some(ce=>ce.id===c.id) ? numCSV(quotaCondomino(s, c.id, condEdSpesa)) : '');
+    return [...base, ...quote];
+  });
+
+  const corpo = [intestazione, ...righe].map(r => r.map(csvField).join(';')).join('\r\n');
+  const BOM = '\uFEFF'; // necessario perché Excel riconosca correttamente UTF-8 (accenti, simbolo €)
+  const blob = new Blob([BOM + corpo], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nomeFile;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function bindPageActions() {
   // Anno filter dashboard
   const ad = document.getElementById('anno-filter');
@@ -5216,10 +5285,25 @@ function bindPageActions() {
     };
   });
 
-  // Seleziona tutte
+  // Esporta Excel: le spese SELEZIONATE se ce n'è almeno una, altrimenti tutte quelle attualmente
+  // visibili a schermo (rispettando i filtri correnti — ricerca, anno, tipo, stato, categoria, fornitore).
+  // Gli id vengono letti dal DOM (checkbox .chk-spesa realmente renderizzate), non ricalcolando i
+  // filtri qui: così l'export è sempre coerente al 100% con quello che si vede sullo schermo.
+  const bExportSpese = document.getElementById('btn-export-spese');
+  if (bExportSpese) bExportSpese.onclick = () => {
+    const idsVisibili = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
+    const sel = state.speseSelezionate;
+    const idsDaEsportare = (sel && sel.size > 0) ? idsVisibili.filter(id => sel.has(id)) : idsVisibili;
+    const speseDaEsportare = state.spese.filter(s => idsDaEsportare.includes(s.id));
+    const nomeFile = 'spese-condominio-' + (sel && sel.size > 0 ? 'selezionate-' : '') + new Date().toISOString().slice(0,10) + '.csv';
+    esportaSpeseCSV(speseDaEsportare, nomeFile);
+  };
+
+  // Seleziona tutte — legge gli id direttamente dalle checkbox visibili a schermo (non da una
+  // variabile 'items' che qui non esiste: era un bug pre-esistente, il bottone non selezionava nulla)
   const bSelAll = document.getElementById('btn-sel-all');
   if (bSelAll) bSelAll.onclick = () => {
-    const ids = items.map(s=>s.id);
+    const ids = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
     state.speseSelezionate = new Set(ids);
     render();
   };
@@ -5231,11 +5315,12 @@ function bindPageActions() {
     render();
   };
 
-  // Checkbox "seleziona tutte" nell'header
+  // Checkbox "seleziona tutte" nell'header — stesso fix di bSelAll qui sopra
   const chkAll = document.getElementById('chk-all-spese');
   if (chkAll) chkAll.onchange = () => {
     if (chkAll.checked) {
-      state.speseSelezionate = new Set(items.map(s=>s.id));
+      const ids = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
+      state.speseSelezionate = new Set(ids);
     } else {
       state.speseSelezionate = new Set();
     }
