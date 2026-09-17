@@ -2554,7 +2554,6 @@ function renderSpese() {
       <div><div class="page-title">Spese</div><div class="page-sub">${items.length} voci</div></div>
       <div style="display:flex;gap:.5rem">
         ${canEdit?`<button class="btn btn-primary btn-add-spesa" id="btn-add-spesa">+ Aggiungi spesa</button>`:''}
-        ${canEdit?`<button class="btn btn-secondary" id="btn-toggle-multisel" title="Seleziona più spese">☑ Seleziona</button>`:''}
         <button class="btn btn-secondary" id="btn-export-spese" title="Esporta in Excel — tutte le spese visibili, o solo quelle selezionate">📊 Esporta Excel</button>
       </div>
     </div>
@@ -5255,18 +5254,6 @@ function bindPageActions() {
   // Anno filter dashboard
   const ad = document.getElementById('anno-filter');
   if (ad) ad.onchange = e => setState({filterAnno: parseInt(e.target.value)||new Date().getFullYear()});
-  // Toggle modalità multiselect
-  const bToggleSel = document.getElementById('btn-toggle-multisel');
-  if (bToggleSel) bToggleSel.onclick = () => {
-    const sel = state.speseSelezionate;
-    if (sel && sel.size >= 0) {
-      // Disattiva: azzera selezione
-      setState({speseSelezionate: new Set()});
-    } else {
-      setState({speseSelezionate: new Set()});
-    }
-    render();
-  };
 
   // Checkbox singola spesa
   document.querySelectorAll('.chk-spesa').forEach(chk => {
@@ -5278,10 +5265,13 @@ function bindPageActions() {
       // Aggiorna stile riga
       const row = chk.closest('tr');
       if (row) row.className = chk.checked ? 'spesa-row-sel' : '';
-      // Aggiorna barra selezione senza full re-render
+      // Aggiorna la barra selezione senza un render completo quando possibile (più leggero),
+      // ma un render completo è necessario quando la barra deve COMPARIRE (non esiste ancora
+      // nel DOM) o SPARIRE (il conteggio è tornato a zero) — un aggiornamento del solo testo,
+      // in quei due casi, lasciava la barra a mostrare "0 spese selezionate" invece di sparire.
       const bar = document.querySelector('.sel-count-bar span');
-      if (bar) bar.textContent = sel.size + ' spese selezionate';
-      else if (sel.size > 0) render(); // mostra la barra
+      if (sel.size === 0 || !bar) render();
+      else bar.textContent = sel.size + ' spese selezionate';
     };
   });
 
