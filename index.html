@@ -2157,14 +2157,13 @@ function renderDashboard() {
     const isAnnoPassato = anno < oggi.getFullYear();
     const isPast   = isAnnoPassato || (anno === oggi.getFullYear() && m <= meseCurr);
     const isCurrentMonth = anno === oggi.getFullYear() && m === meseCurr;
-    // Stima solo per mesi futuri nell'anno corrente — mai per anni passati
-    const mesiPassati = isAnnoPassato ? 12 : meseCurr;
-    const mediaUscite  = mesiPassati > 0 ? totSpeseCons / Math.max(mesiPassati,1) : 0;
-    const mediaIncassi = mesiPassati > 0 ? totEntrate  / Math.max(mesiPassati,1) : 0;
     return {
       mese: nomiMesi[m], m,
-      uscite:  isPast ? uscite  : mediaUscite,
-      incassi: isPast ? incassi : mediaIncassi,
+      // Sempre i dati REALI: consuntivo se il mese è chiuso, preventivo/forecast se ancora aperto,
+      // entrate reali + previsionali già registrate. Mai una media storica proiettata alla cieca —
+      // stessa logica ormai usata per il box "Copertura" qui sopra, per coerenza tra i due.
+      uscite,
+      incassi,
       isFuture: !isPast,
       isCurrent: isCurrentMonth,
     };
@@ -2324,7 +2323,7 @@ function renderDashboard() {
     <!-- CASHFLOW CHART -->
     <div class="cf-chart">
       <div class="cf-chart-title">📊 Cashflow mensile ${anno}</div>
-      <div class="cf-chart-sub">Barre continue = dati reali · Barre tratteggiate = stima basata sulla media</div>
+      <div class="cf-chart-sub">Barre continue = dati reali · Barre tratteggiate = previsionale inserito</div>
       <div class="cf-bars">
         ${cfCumul.map((cf,i) => {
           const hInc = Math.round(cf.incassi/maxCF*100);
@@ -2335,8 +2334,8 @@ function renderDashboard() {
           return `<div class="cf-col">
             <div class="cf-col-saldo" style="color:${saldoColor}">${saldoM>=0?'+':''}${fmtN(saldoM/1000).replace(',','.')}k</div>
             <div class="cf-col-bars">
-              <div class="cf-bar" title="${isFut?'Stima entrate':'Entrate'} ${fmt(cf.incassi)}" style="height:${hInc}px;background:${isFut?'#7c3aed':'var(--green)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #7c3aed;outline-offset:-1px':''}"></div>
-              <div class="cf-bar" title="${isFut?'Stima uscite':'Uscite'} ${fmt(cf.uscite)}" style="height:${hUsc}px;background:${isFut?'#a78bfa':'var(--red)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #a78bfa;outline-offset:-1px':''}"></div>
+              <div class="cf-bar" title="${isFut?'Entrate previste':'Entrate'} ${fmt(cf.incassi)}" style="height:${hInc}px;background:${isFut?'#7c3aed':'var(--green)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #7c3aed;outline-offset:-1px':''}"></div>
+              <div class="cf-bar" title="${isFut?'Uscite previste':'Uscite'} ${fmt(cf.uscite)}" style="height:${hUsc}px;background:${isFut?'#a78bfa':'var(--red)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #a78bfa;outline-offset:-1px':''}"></div>
             </div>
             <div class="cf-col-label" style="font-weight:${cf.isCurrent?'700':'400'};color:${cf.isCurrent?'var(--accent)':'var(--text2)'}">${cf.mese}</div>
           </div>`;
@@ -2345,7 +2344,7 @@ function renderDashboard() {
       <div class="cf-legend">
         <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--green)"></div>Entrate</div>
         <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--red)"></div>Uscite</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#7c3aed;opacity:.5"></div>Stima futura</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#7c3aed;opacity:.5"></div>Previsionale</div>
       </div>
     </div>
 
