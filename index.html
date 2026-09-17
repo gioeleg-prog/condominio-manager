@@ -899,6 +899,7 @@ let state = {
   spese: load('cm_spese', []),
   fornitori: load('cm_fornitori', []),
   entrate: load('cm_entrate', []),
+  loginStats: load('cm_login_stats', {}), // { condominoId: { nome, ultimoLogin, totale, mensile:{'AAAA-MM':n} } }
   modal: null,
   filterCat: 'all',
   filterTipo: 'all',
@@ -1134,7 +1135,6 @@ function newId() {
 function render() {
   const app = document.getElementById('app');
   if (!state.user) { app.innerHTML = renderLogin(); bindLogin(); return; }
-  app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
   app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
   // Applica classe per pagine a piena larghezza
   const _pageEl = document.querySelector('.page');
@@ -3715,6 +3715,77 @@ function renderCondomini() {
 // ===========================
 // IMPOSTAZIONI
 // ===========================
+// ===========================
+// LOG ACCESSI UTENTI — solo superAdmin (Impostazioni)
+// ===========================
+function renderLogAccessiSection() {
+  const meseNomiFull = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+  const oggi = new Date();
+  const meseCorrente = oggi.getFullYear() + '-' + String(oggi.getMonth()+1).padStart(2,'0');
+  const stats = state.loginStats || {};
+
+  // Tutti i condomini attivi (di tutti i condomini/edifici gestiti) + il super admin, anche se
+  // non ha un proprio record in state.condomini (caso comune: riconosciuto solo via UID/email di config).
+  const utenti = state.condomini.filter(c => !c.disabled);
+  if (!utenti.some(c => c.superAdmin) && stats['0']) {
+    utenti.unshift({ id: 0, nome: stats['0'].nome || 'Super Admin', superAdmin: true, appartamento: 'Admin' });
+  }
+
+  const righe = utenti.map(c => {
+    const s = stats[c.id] || null;
+    return {
+      c,
+      ultimoLogin: s?.ultimoLogin || null,
+      totale: s?.totale || 0,
+      mensile: s?.mensile || {},
+      questoMese: (s?.mensile || {})[meseCorrente] || 0,
+    };
+  }).sort((a, b) => {
+    if (!a.ultimoLogin && !b.ultimoLogin) return a.c.nome.localeCompare(b.c.nome);
+    if (!a.ultimoLogin) return 1;
+    if (!b.ultimoLogin) return -1;
+    return b.ultimoLogin.localeCompare(a.ultimoLogin);
+  });
+
+  const maiEntrati = righe.filter(r => !r.ultimoLogin).length;
+
+  const righeHtml = righe.map(r => {
+    const ed = !r.c.superAdmin ? state.edifici.find(e => e.id === r.c.edificioId) : null;
+    const mesiOrdinati = Object.entries(r.mensile).sort((a, b) => b[0].localeCompare(a[0]));
+    const dettaglioMensile = mesiOrdinati.length
+      ? '<table style="width:100%;font-size:11px;margin-top:4px">' +
+        mesiOrdinati.map(([k, v]) => {
+          const [yy, mm] = k.split('-');
+          return '<tr><td style="padding:2px 8px 2px 0">' + meseNomiFull[parseInt(mm) - 1] + ' ' + yy + '</td><td style="padding:2px 0;text-align:right;font-weight:600">' + v + '</td></tr>';
+        }).join('') + '</table>'
+      : '';
+
+    return '<tr>' +
+      '<td><div style="display:flex;align-items:center;gap:8px">' +
+      '<div class="avatar" style="' + avatarStyle(r.c.color) + ';width:28px;height:28px;font-size:11px;flex-shrink:0">' + initials(r.c.nome) + '</div>' +
+      '<div><div style="font-size:13px;font-weight:500">' + esc(r.c.nome) + (r.c.superAdmin ? ' <span class="badge badge-blue" style="font-size:9px">Admin</span>' : '') + '</div>' +
+      (ed ? '<div style="font-size:11px;color:var(--text2)">' + esc(ed.nome) + '</div>' : '') +
+      '</div></div></td>' +
+      '<td style="font-size:13px;white-space:nowrap">' + (r.ultimoLogin ? esc(r.ultimoLogin) : '<span style="color:var(--text2)">Mai effettuato</span>') + '</td>' +
+      '<td style="text-align:right;font-weight:700">' + r.totale + '</td>' +
+      '<td style="text-align:right;color:' + (r.questoMese > 0 ? 'var(--green)' : 'var(--text2)') + '">' + r.questoMese + '</td>' +
+      '<td>' + (mesiOrdinati.length ? '<details><summary style="cursor:pointer;font-size:11px;color:var(--accent)">Per mese</summary>' + dettaglioMensile + '</details>' : '<span style="color:var(--text2)">—</span>') + '</td>' +
+      '</tr>';
+  }).join('');
+
+  return `
+    <div class="section-divider"><h3>📈 Log accessi utenti</h3></div>
+    ${maiEntrati > 0 ? `<div class="alert alert-warning" style="margin-bottom:1rem;font-size:13px">⚠️ <strong>${maiEntrati}</strong> di ${righe.length} utenti non ${maiEntrati === 1 ? 'ha' : 'hanno'} mai effettuato l'accesso.</div>` : ''}
+    <div class="table-wrap" style="margin-bottom:1.5rem">
+      <table>
+        <thead><tr><th>Utente</th><th>Ultimo accesso</th><th style="text-align:right">Totale accessi</th><th style="text-align:right">Questo mese</th><th>Storico mensile</th></tr></thead>
+        <tbody>${righeHtml || '<tr><td colspan="5" style="text-align:center;color:var(--text2);padding:1rem">Nessun utente.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div style="font-size:11px;color:var(--text2);margin-bottom:1.5rem">💡 Un accesso viene contato ogni volta che l'app verifica con successo l'identità dell'utente — sia con login esplicito sia riaprendo l'app con una sessione già attiva. Il conteggio non distingue le due cose.</div>
+  `;
+}
+
 function renderImpostazioni() {
   const legenda = `
     <div style="display:flex;gap:.75rem;flex-wrap:wrap;font-size:12px;color:var(--text2)">
@@ -3979,6 +4050,9 @@ function renderImpostazioni() {
     </div>
 
     ` : ''}
+
+    <!-- LOG ACCESSI UTENTI (solo superAdmin) -->
+    ${isSuperAdmin(state.user) ? renderLogAccessiSection() : ''}
 
     <!-- MIGRAZIONE EDIFICIO ID -->
     ${isSuperAdmin(state.user) ? `
@@ -7042,6 +7116,7 @@ function applyLoadedDataFromCache() {
   const savedFornitori = load('cm_fornitori', null);
   const savedEdifici   = load('cm_edifici', null);
   const savedEdAttivo  = load('cm_edificio_attivo', null);
+  const savedLoginStats = load('cm_login_stats', null);
 
   if (savedCondomini) state.condomini = savedCondomini;
   if (savedSpese)     state.spese     = savedSpese;
@@ -7049,6 +7124,7 @@ function applyLoadedDataFromCache() {
   if (savedFornitori) state.fornitori = savedFornitori;
   if (savedEdifici)   state.edifici   = savedEdifici;
   if (savedEdAttivo)  state.edificioAttivo = savedEdAttivo;
+  if (savedLoginStats) state.loginStats = savedLoginStats;
 
   // Dopo il caricamento: imposta filterAnno all'anno con più dati se quello corrente è vuoto
   const currYear = new Date().getFullYear();
@@ -7079,9 +7155,40 @@ async function loadSuperAdminConfig() {
   } catch(e) { console.warn('cm_config:', e.message); }
 }
 
+// ===========================
+// LOG ACCESSI — registra ogni login riuscito (form o sessione persistente)
+// ===========================
+// Struttura volutamente compatta (aggregata per utente/mese, non un evento per riga) per non far
+// crescere il documento Firestore indefinitamente: { condominoId: { nome, ultimoLogin, totale, mensile } }.
+function registraLogin(profile) {
+  const now = new Date();
+  const key = String(profile.id);
+  const mese = ymdLocale(now).slice(0, 7); // "AAAA-MM"
+  const ora = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  const stats = { ...(state.loginStats || {}) };
+  const prev = stats[key] || { totale: 0, mensile: {} };
+  stats[key] = {
+    nome: profile.nome, // aggiornato ad ogni login, così segue eventuali cambi di nome
+    superAdmin: !!profile.superAdmin,
+    ultimoLogin: ymdLocale(now) + ' ' + ora,
+    totale: (prev.totale || 0) + 1,
+    mensile: { ...(prev.mensile || {}), [mese]: ((prev.mensile || {})[mese] || 0) + 1 },
+  };
+  state.loginStats = stats;
+  save('cm_login_stats', stats);
+}
+
 async function initApp() {
-  // Mostra schermata di caricamento
-  render(); // mostra login subito
+  // Mostra una schermata di caricamento SENZA campo password finché non sappiamo se
+  // esiste già una sessione Firebase valida. Prima qui veniva mostrato subito il form di
+  // login completo (con l'input password): Chrome, vedendo quel campo, avvia in background
+  // il proprio flusso "compila password salvata" (che su Windows richiede il PIN di Windows
+  // Hello prima di rivelare la password). Se nel frattempo la sessione Firebase risultava già
+  // valida, l'app passava alla dashboard prima che Chrome avesse finito — e il PIN compariva
+  // quando si era già dentro. Mostrando qui uno schermo neutro (nessun input password) e il
+  // vero form di login solo quando sappiamo per certo che serve (utente non autenticato, o
+  // timeout di 5s scaduto), quel trigger non scatta più per chi ha già una sessione valida.
+  document.getElementById('app').innerHTML = renderLoading();
 
   // Aspetta che Firebase SDK sia pronto
   if (!window._fbReady) {
@@ -7167,7 +7274,7 @@ async function initApp() {
         state.edificioAttivo = profile.edificioId;
         save('cm_edificio_attivo', profile.edificioId);
       }
-      if (wasLoggedOut) state.page = 'dashboard';
+      if (wasLoggedOut) { state.page = 'dashboard'; registraLogin(profile); }
     } else {
       state.user = null;
     }
