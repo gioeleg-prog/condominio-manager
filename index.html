@@ -2148,22 +2148,26 @@ function renderDashboard() {
   const pagatoUtente   = entrate.filter(e=>e.condominoId===state.user.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
 
   // ── Calcolo cashflow mensile (storico + previsionale) ──────────────────
+  // Stesse componenti usate nel grafico "Andamento mensile" di Bilancio, per coerenza:
+  // reale e previsionale sempre separati (non solo per il mese corrente, ma per ogni mese —
+  // un mese passato può avere spese ancora aperte, un mese futuro può avere versamenti già reali).
   const nomiMesi = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
   const cashflow = Array.from({length:12}, (_,m) => {
     const speseM   = spese.filter(s=>new Date(s.data).getMonth()===m);
     const entrateM = entrate.filter(e=>new Date(e.data).getMonth()===m);
-    const uscite   = speseM.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0),0);
-    const incassi  = entrateM.reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const cons         = speseM.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+    const prevForecast = speseM.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
+    const incassi       = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const incPrevis      = entrateM.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
     const isAnnoPassato = anno < oggi.getFullYear();
     const isPast   = isAnnoPassato || (anno === oggi.getFullYear() && m <= meseCurr);
     const isCurrentMonth = anno === oggi.getFullYear() && m === meseCurr;
     return {
       mese: nomiMesi[m], m,
-      // Sempre i dati REALI: consuntivo se il mese è chiuso, preventivo/forecast se ancora aperto,
-      // entrate reali + previsionali già registrate. Mai una media storica proiettata alla cieca —
-      // stessa logica ormai usata per il box "Copertura" qui sopra, per coerenza tra i due.
-      uscite,
-      incassi,
+      cons, prevForecast,       // uscite: reali (consuntivate) e ancora aperte (forecast)
+      incassi, incPrevis,       // entrate: reali e previsionali
+      totUscite:  cons + prevForecast,
+      totIncassi: incassi + incPrevis,
       isFuture: !isPast,
       isCurrent: isCurrentMonth,
     };
@@ -2172,7 +2176,7 @@ function renderDashboard() {
   // Saldo cumulativo mese per mese — parte dal riporto anni precedenti
   let cumulativo = saldoRiporto;
   const cfCumul = cashflow.map(cf => {
-    cumulativo += cf.incassi - cf.uscite;
+    cumulativo += cf.totIncassi - cf.totUscite;
     return {...cf, cumul: cumulativo};
   });
 
@@ -2224,7 +2228,7 @@ function renderDashboard() {
   const spesaMensileMedia = totSpeseFull / nMesiPianificati;
 
   // Max per scala grafico
-  const maxCF = Math.max(...cashflow.map(cf=>Math.max(cf.uscite, cf.incassi)), 1);
+  const maxCF = Math.max(...cashflow.map(cf=>Math.max(cf.totUscite, cf.totIncassi)), 1);
 
   // Alert status e messaggio — stessa impostazione chiara/esplicita del box "Piano rate" in Entrate/Quote
   const alertStatus = saldo < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
@@ -2323,28 +2327,36 @@ function renderDashboard() {
     <!-- CASHFLOW CHART -->
     <div class="cf-chart">
       <div class="cf-chart-title">📊 Cashflow mensile ${anno}</div>
-      <div class="cf-chart-sub">Barre continue = dati reali · Barre tratteggiate = previsionale inserito</div>
+      <div class="cf-chart-sub">🟢 Entrate reali · 🟣 Entrate previsionali · 🔴 Uscite reali · 🟪 Uscite ancora da consuntivare</div>
       <div class="cf-bars">
         ${cfCumul.map((cf,i) => {
-          const hInc = Math.round(cf.incassi/maxCF*100);
-          const hUsc = Math.round(cf.uscite/maxCF*100);
-          const saldoM = cf.incassi - cf.uscite;
+          const hIA = Math.round(cf.incassi/maxCF*100);
+          const hIP = Math.round(cf.incPrevis/maxCF*100);
+          const hCA = Math.round(cf.cons/maxCF*100);
+          const hCP = Math.round(cf.prevForecast/maxCF*100);
+          const saldoM = cf.totIncassi - cf.totUscite;
           const saldoColor = saldoM >= 0 ? 'var(--green)' : 'var(--red)';
-          const isFut = cf.isFuture;
           return `<div class="cf-col">
             <div class="cf-col-saldo" style="color:${saldoColor}">${saldoM>=0?'+':''}${fmtN(saldoM/1000).replace(',','.')}k</div>
             <div class="cf-col-bars">
-              <div class="cf-bar" title="${isFut?'Entrate previste':'Entrate'} ${fmt(cf.incassi)}" style="height:${hInc}px;background:${isFut?'#7c3aed':'var(--green)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #7c3aed;outline-offset:-1px':''}"></div>
-              <div class="cf-bar" title="${isFut?'Uscite previste':'Uscite'} ${fmt(cf.uscite)}" style="height:${hUsc}px;background:${isFut?'#a78bfa':'var(--red)'};opacity:${isFut?.5:.85};${isFut?'outline:1px dashed #a78bfa;outline-offset:-1px':''}"></div>
+              <div style="display:flex;flex-direction:column;align-items:center">
+                <div class="cf-bar" style="height:${hIP}px;background:#7c3aed;opacity:.7;width:14px" title="Entrate previsionali ${fmt(cf.incPrevis)}"></div>
+                <div class="cf-bar" style="height:${hIA}px;background:var(--green);opacity:.85;width:14px" title="Entrate reali ${fmt(cf.incassi)}"></div>
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center">
+                <div class="cf-bar" style="height:${hCP}px;background:#a78bfa;opacity:.7;width:14px" title="Uscite ancora da consuntivare ${fmt(cf.prevForecast)}"></div>
+                <div class="cf-bar" style="height:${hCA}px;background:var(--red);opacity:.85;width:14px" title="Uscite reali ${fmt(cf.cons)}"></div>
+              </div>
             </div>
             <div class="cf-col-label" style="font-weight:${cf.isCurrent?'700':'400'};color:${cf.isCurrent?'var(--accent)':'var(--text2)'}">${cf.mese}</div>
           </div>`;
         }).join('')}
       </div>
       <div class="cf-legend">
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--green)"></div>Entrate</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--red)"></div>Uscite</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#7c3aed;opacity:.5"></div>Previsionale</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--green)"></div>Entrate reali</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#7c3aed"></div>Entrate previsionali</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--red)"></div>Uscite reali</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#a78bfa"></div>Uscite da consuntivare</div>
       </div>
     </div>
 
@@ -2356,7 +2368,7 @@ function renderDashboard() {
         ${cfCumul.map((cf,i) => {
           const sM = cf.cumul;
           // Mesi futuri con dati reali (es. spese ricorrenti) mostrano stato reale
-          const hasRealData = cf.incassi > 0 || cf.uscite > 0;
+          const hasRealData = cf.incassi>0 || cf.cons>0 || cf.incPrevis>0 || cf.prevForecast>0;
           const isTrulyFuture = cf.isFuture && !hasRealData;
           let cls = isTrulyFuture ? 'future' : sM > 0 ? (sM < spesaMensileMedia*0.5 ? 'warning' : 'positive') : sM < 0 ? 'negative' : 'warning';
           const emoji = isTrulyFuture ? '?' : sM > 0 ? (sM < spesaMensileMedia*0.5 ? '⚠' : '✓') : '✗';
