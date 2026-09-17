@@ -2177,53 +2177,56 @@ function renderDashboard() {
     return {...cf, cumul: cumulativo};
   });
 
-  // Mese in cui la cassa va a zero — simulazione con i dati REALI di forecast (non con le
-  // medie storiche usate per il grafico "Cashflow mensile", che sono solo una stima visiva),
-  // a partire dal saldo REALE attuale (incluso il riporto dagli anni precedenti: la versione
-  // precedente lo ometteva, sottostimando la cassa disponibile e anticipando falsamente la rottura).
+  // ── Copertura di cassa — Dashboard: colpo d'occhio sui prossimi FINESTRA_MESI mesi.
+  // Basta questa visibilità ravvicinata per accorgersi in tempo di un problema e intervenire;
+  // l'analisi completa fino a fine anno è nel Bilancio (stessa logica, orizzonte più ampio).
+  // Simulazione con i dati REALI di forecast (non con le medie storiche usate per il grafico
+  // "Cashflow mensile", che sono solo una stima visiva), a partire dal saldo REALE attuale
+  // (incluso il riporto dagli anni precedenti).
+  const FINESTRA_MESI = 4;
   const annoCorrente = new Date().getFullYear();
+  const isAnnoPassatoDash = annoEff < annoCorrente;
+  const isAnnoCorrenteDash = annoEff === annoCorrente;
+  const meseInizioSim = isAnnoPassatoDash ? 12 : (isAnnoCorrenteDash ? meseCurr + 1 : 0);
+  const meseFineSim   = isAnnoPassatoDash ? 11 : Math.min(11, meseInizioSim + FINESTRA_MESI - 1);
+
   let meseZero = null;
   let saldoSim = saldo;
-  const meseInizioSim = annoEff < annoCorrente ? 12 : (annoEff === annoCorrente ? meseCurr + 1 : 0);
-  for (let m = meseInizioSim; m < 12; m++) {
+  let minBalFinestra = saldo;
+  let usciteFinestra = 0;
+  for (let m = meseInizioSim; m <= meseFineSim; m++) {
     const speseM = spese.filter(s => new Date(s.data).getMonth() === m);
     const entrateM = entrate.filter(e => new Date(e.data).getMonth() === m);
     const forecastMese = speseM.filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo),0);
     const incPrevistiMese = entrateM.filter(e => e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    usciteFinestra += forecastMese;
     saldoSim += incPrevistiMese - forecastMese;
+    if (saldoSim < minBalFinestra) minBalFinestra = saldoSim;
     if (saldoSim <= 0 && meseZero === null) meseZero = m;
   }
+  const mesiFinestraEffettivi = Math.max(0, meseFineSim - meseInizioSim + 1);
 
-  // Copertura mesi futuri (runway)
-  // Usa TUTTE le spese inserite: consuntivate + preventivi aperti
-  // Cassa proiettata = saldo reale + entrate previsionali pianificate
+  // Copertura mesi futuri (runway) — usata solo per lo storico/i pallini del runway-card qui sotto
   const totSpeseFull      = spese.reduce((a,s) => a + parseFloat(s.consuntivo||s.preventivo||0), 0);
   const totEntratePrevis  = entrate.filter(e=>e.previsionale).reduce((a,e) => a + parseFloat(e.importo||0), 0);
   const cassaProiettata   = saldo + totEntratePrevis; // saldo reale + previsionali in entrata
-  // Media mensile basata sui mesi con spese inserite (usata per lo storico/i pallini del runway-card, non per il runway stesso)
+  // Media mensile basata sui mesi con spese inserite (usata per lo storico/i pallini del runway-card, non per il messaggio principale)
   const mesiConSpese      = new Set(spese.filter(s=>parseFloat(s.consuntivo||s.preventivo||0)>0).map(s=>new Date(s.data).getMonth()));
   const nMesiPianificati  = Math.max(mesiConSpese.size, 1);
   const spesaMensileMedia = totSpeseFull / nMesiPianificati;
-  // Runway: coerente con la stessa simulazione qui sopra — se la cassa non scende mai sotto
-  // zero da qui a fine anno è "coperta" (99 = mostrato come >12 mesi); altrimenti sono i mesi
-  // da oggi al momento in cui si prevede la rottura.
-  const runwayMesi = cassaProiettata <= 0
-    ? 0
-    : meseZero !== null
-    ? Math.max(1, meseZero - meseCurr)
-    : 99;
 
   // Max per scala grafico
   const maxCF = Math.max(...cashflow.map(cf=>Math.max(cf.uscite, cf.incassi)), 1);
 
-  // Alert status
-  const alertStatus = cassaProiettata < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
-  const runwayLabel = runwayMesi > 11 ? '>12 mesi' : runwayMesi + ' mesi';
-  const alertMsg = cassaProiettata < 0
-    ? `⚠️ Cassa proiettata negativa (${fmt(cassaProiettata)}) — il condominio è in deficit`
+  // Alert status e messaggio — stessa impostazione chiara/esplicita del box "Piano rate" in Entrate/Quote
+  const alertStatus = saldo < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
+  const alertMsg = saldo < 0
+    ? `⚠️ Saldo di cassa negativo (${fmt(saldo)}) — il condominio è già in deficit`
     : meseZero !== null
-    ? `⚠️ La cassa potrebbe azzerarsi a ${nomiMesi[meseZero]} — raccogli le quote ora`
-    : `✅ Situazione stabile — runway ${runwayLabel} sulle spese pianificate`;
+    ? `⚠️ Il saldo attuale (${fmt(saldo)}) non basta a coprire le spese previste da qui a ${nomiMesi[meseZero]}: rischio di andare sotto zero, minimo previsto ${fmt(minBalFinestra)}`
+    : mesiFinestraEffettivi > 0
+    ? `✅ Coperto per i prossimi ${mesiFinestraEffettivi} mesi — il saldo attuale (${fmt(saldo)}) copre le spese previsionali fino a ${nomiMesi[meseFineSim]} (${fmt(usciteFinestra)}), restando sempre sopra zero (minimo previsto ${fmt(minBalFinestra)})`
+    : `✅ Nessuna spesa previsionale nei mesi rimanenti dell'anno`;
 
   const speseConfermate = spese.filter(s=>parseFloat(s.consuntivo||0)>0);
   const spesePrevisional= spese.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
@@ -2282,14 +2285,13 @@ function renderDashboard() {
             : ''}
         </div>
       </div>
-      <div class="kpi-card kpi-amber">
-        <div class="kpi-label">Runway stimato</div>
-        <div class="kpi-value" style="color:${runwayMesi===0?'var(--red)':'var(--amber)'}">
-          ${runwayMesi > 11 ? '>12' : runwayMesi} mesi
+      <div class="kpi-card ${saldo<0||meseZero!==null?'kpi-red':'kpi-green'}">
+        <div class="kpi-label">Copertura prossimi ${mesiFinestraEffettivi || FINESTRA_MESI} mesi</div>
+        <div class="kpi-value" style="color:${saldo<0?'var(--red)':meseZero!==null?'var(--red)':'var(--green)'}">
+          ${saldo<0?'⚠️ Deficit':meseZero!==null?'⚠️ '+nomiMesi[meseZero]:'✅ Coperto'}
         </div>
         <div class="kpi-sub">
-          ${fmt(cassaProiettata)} su ${fmt(totSpeseFull)} pianificate
-          ${totEntratePrevis>0?'(incl. prev.)':''}
+          ${saldo<0?fmt(saldo):meseZero!==null?'mancherebbero circa '+fmt(Math.abs(minBalFinestra)):'minimo previsto '+fmt(minBalFinestra)}
         </div>
       </div>
     </div>
@@ -3069,9 +3071,13 @@ function renderBilancio() {
   // qui sotto lo conterebbe due volte, anticipando falsamente la rottura di cassa).
   let meseZero = null;
   let saldoSim = saldo;
+  let minBalAnno = saldo;
+  let usciteForecastAnno = 0;
   const meseInizioSimBil = isAnnoPassatoBil ? 12 : (anno === oggi.getFullYear() ? meseCurr + 1 : 0);
   for (let m = meseInizioSimBil; m < 12; m++) {
+    usciteForecastAnno += cfMensile[m].prevForecast;
     saldoSim += cfMensile[m].incPrevis - cfMensile[m].prevForecast;
+    if (saldoSim < minBalAnno) minBalAnno = saldoSim;
     if (saldoSim <= 0 && meseZero === null) meseZero = m;
   }
 
@@ -3150,8 +3156,10 @@ function renderBilancio() {
     const alertMsg = saldo < 0
       ? `⚠️ Saldo negativo di ${fmt(Math.abs(saldo))}`
       : meseZero !== null
-      ? `⚠️ Proiezione: cassa a zero a ${nomiMesi[meseZero]}`
-      : `✅ Situazione stabile — runway ${runwayMesi>11?'>12':runwayMesi} mesi`;
+      ? `⚠️ Il saldo attuale (${fmt(saldo)}) non basta a coprire le spese previsionali dell'anno: rischio di andare sotto zero a ${nomiMesi[meseZero]}, minimo previsto ${fmt(minBalAnno)}`
+      : usciteForecastAnno > 0
+      ? `✅ Anno ${anno} coperto — il saldo di cassa attuale (${fmt(saldo)}) copre già da solo le spese previsionali dell'anno (${fmt(usciteForecastAnno)}), restando sempre sopra zero (minimo previsto ${fmt(minBalAnno)})`
+      : `✅ Situazione stabile — nessuna spesa previsionale ancora da coprire`;
 
     return `
     <!-- ACTUALS -->
@@ -3178,7 +3186,7 @@ function renderBilancio() {
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Entrate (incl. prev.)</div><div class="kpi-value" style="color:#7c3aed">${fmt(totEntrateFull)}</div><div class="kpi-sub">+${fmt(totEntratePrevis)} previsionali</div></div>
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Uscite (incl. prev.)</div><div class="kpi-value" style="color:#7c3aed">${fmt(totUsciteFull)}</div><div class="kpi-sub">+${fmt(totPrevForecast)} da consuntivare</div></div>
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Saldo proiettato</div><div class="kpi-value" style="color:${saldoFull>=0?'#7c3aed':'var(--red)'}">${fmt(saldoFull)}</div><div class="kpi-sub">Con tutti i previsionali</div></div>
-      <div class="kpi-card kpi-amber"><div class="kpi-label">Runway stimato</div><div class="kpi-value" style="color:${runwayMesi===0?'var(--red)':'var(--amber)'};">${runwayMesi>11?'>12':runwayMesi} mesi</div><div class="kpi-sub">${meseZero!==null?'cassa a zero a '+nomiMesi[meseZero]:'coperto fino a fine '+anno}</div></div>
+      <div class="kpi-card kpi-amber"><div class="kpi-label">Runway stimato</div><div class="kpi-value" style="color:${runwayMesi===0?'var(--red)':'var(--amber)'};">${runwayMesi>11?'>12':runwayMesi} mesi</div><div class="kpi-sub">${meseZero!==null?'cassa a zero a '+nomiMesi[meseZero]:'coperto fino a fine '+anno+' · min. '+fmt(minBalAnno)}</div></div>
     </div>
 
     <div class="cf-zero-warn ${alertStatus}" style="margin-bottom:1rem">${alertMsg}</div>
