@@ -841,10 +841,21 @@ function save(key, val) {
   fbSaveKey(key, val);
 }
 
+// P0 urgente: queste chiavi sono filtrate per edificio in lettura (SEC-03) per
+// i non-superAdmin — se scritte con un overwrite diretto del blob condiviso,
+// cancellano silenziosamente gli altri edifici. Passano da saveBuildingData.
+const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini'];
+
 // Salva un singolo documento {key} nella collection "appdata"
 async function fbSaveKey(key, val) {
   if (!window._fb) return;
   try {
+    if (RESTRICTED_KEYS.includes(key) && !isSuperAdmin(state.user)) {
+      const { functionsInstance, httpsCallable } = window._fb;
+      const saveBuildingData = httpsCallable(functionsInstance, 'saveBuildingData');
+      await saveBuildingData({ key, records: val });
+      return;
+    }
     const { db, doc, setDoc } = window._fb;
     await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
   } catch(e) { console.warn('fbSave error', key, e); }

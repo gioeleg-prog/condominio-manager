@@ -1,5 +1,6 @@
 node_modules/
 .firebase/
+.claude/
 *.log
 
 # Script one-off già eseguito, con UID/email reali hardcoded — non serve nel repo

@@ -156,3 +156,67 @@ exports.linkMyUid = onCall(async (request) => {
 
   return { ok: true };
 });
+
+// ═══════════════════════════════════════════════════════════════
+// saveBuildingData
+// P0 URGENTE (scoperto pianificando REB-01): da quando SEC-03 filtra
+// cm_spese/cm_entrate/cm_fornitori/cm_condomini al proprio edificio per
+// i non-superAdmin, il client continua a salvare con un overwrite
+// COMPLETO del blob condiviso (fbSaveKey -> setDoc). Un adminEdificio o
+// un condomino con canEdit:true che salva qualunque cosa scrive nel
+// documento condiviso SOLO i record del proprio edificio, cancellando
+// silenziosamente quelli di tutti gli altri edifici.
+//
+// Questa function sostituisce quella scrittura diretta per i non-
+// superAdmin: legge il blob, sostituisce SOLO le righe del proprio
+// edificio con quelle inviate dal client, lascia intatto il resto.
+// Con Admin SDK, quindi può fare la fusione anche se le rules negano
+// la scrittura diretta di queste chiavi a chi non è superAdmin.
+// ═══════════════════════════════════════════════════════════════
+const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini'];
+
+exports.saveBuildingData = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
+
+  const callerRole = request.auth.token.role;
+  const callerBuildingId = request.auth.token.buildingId;
+  if (!callerRole) {
+    throw new HttpsError('permission-denied', 'Utente non provisionato (nessun ruolo assegnato).');
+  }
+
+  const { key, records } = request.data || {};
+  if (!RESTRICTED_KEYS.includes(key)) {
+    throw new HttpsError('invalid-argument', 'Chiave non valida.');
+  }
+  if (!Array.isArray(records)) {
+    throw new HttpsError('invalid-argument', 'records deve essere un array.');
+  }
+
+  const ref = db.collection('appdata').doc(key);
+  const snap = await ref.get();
+  let current = [];
+  try { current = JSON.parse(snap.data()?.value || '[]'); } catch { current = []; }
+
+  let merged;
+  if (callerRole === 'superAdmin') {
+    // Il superAdmin vede e gestisce tutti gli edifici: comportamento
+    // invariato, sostituisce l'intero array come già fa oggi.
+    merged = records;
+  } else {
+    const buildingIdStr = String(callerBuildingId || '');
+    for (const rec of records) {
+      if (rec && rec.edificioId != null && String(rec.edificioId) !== buildingIdStr) {
+        throw new HttpsError('permission-denied',
+          `Il record ${rec.id} non appartiene al tuo edificio.`);
+      }
+    }
+    // Mantiene intatto tutto ciò che NON appartiene al proprio edificio
+    // (altri edifici, e record senza edificioId come il superAdmin) —
+    // sostituisce solo la propria fetta con quella inviata dal client.
+    const others = current.filter((r) => String(r?.edificioId) !== buildingIdStr);
+    merged = [...others, ...records];
+  }
+
+  await ref.set({ value: JSON.stringify(merged) });
+  return { ok: true, count: merged.length };
+});
