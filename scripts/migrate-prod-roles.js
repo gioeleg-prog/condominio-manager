@@ -37,7 +37,8 @@ async function main() {
       continue;
     }
 
-    const role = c.superAdmin ? 'superAdmin' : (c.isAdmin ? 'adminEdificio' : 'member');
+    const role = c.superAdmin ? 'superAdmin'
+      : (c.isAdmin ? 'adminEdificio' : (c.canEdit ? 'editor' : 'member'));
     const claims = role === 'superAdmin' ? { role } : { role, buildingId: String(c.edificioId || '') };
     await auth.setCustomUserClaims(c.uid, claims);
     await db.collection('roles').doc(c.uid).set({

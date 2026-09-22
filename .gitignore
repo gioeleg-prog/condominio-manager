@@ -3,5 +3,6 @@ node_modules/
 .claude/
 *.log
 
-# Script one-off già eseguito, con UID/email reali hardcoded — non serve nel repo
+# Script one-off già eseguiti, con UID/email reali hardcoded — non servono nel repo
 scripts/seed-prod-superadmin.js
+scripts/fix-amos-editor-role.js

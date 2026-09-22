@@ -21,12 +21,22 @@ exports.setUserRole = onCall(async (request) => {
   }
 
   const { targetUid, role, buildingId } = request.data || {};
-  const validRoles = ['superAdmin', 'adminEdificio', 'member'];
+  // 'editor' (REB-01 P1): come 'member' ma può scrivere spese/entrate/
+  // fornitori del proprio edificio — mappa canEdit:true && !isAdmin.
+  const validRoles = ['superAdmin', 'adminEdificio', 'editor', 'member'];
   if (!targetUid || !validRoles.includes(role)) {
     throw new HttpsError('invalid-argument', 'targetUid e role (validi) sono obbligatori.');
   }
   if (role !== 'superAdmin' && !buildingId) {
-    throw new HttpsError('invalid-argument', 'buildingId obbligatorio per adminEdificio/member.');
+    throw new HttpsError('invalid-argument', 'buildingId obbligatorio per adminEdificio/editor/member.');
+  }
+  if (role !== 'superAdmin') {
+    const snap = await db.collection('appdata').doc('cm_edifici').get();
+    let edifici = [];
+    try { edifici = JSON.parse(snap.data()?.value || '[]'); } catch { edifici = []; }
+    if (!edifici.some((e) => String(e.id) === String(buildingId))) {
+      throw new HttpsError('invalid-argument', `Edificio ${buildingId} inesistente.`);
+    }
   }
 
   const claims = role === 'superAdmin' ? { role } : { role, buildingId };
@@ -143,7 +153,8 @@ exports.linkMyUid = onCall(async (request) => {
 
   const existingUser = await auth.getUser(uid).catch(() => null);
   if (!existingUser?.customClaims?.role) {
-    const role = record.superAdmin ? 'superAdmin' : (record.isAdmin ? 'adminEdificio' : 'member');
+    const role = record.superAdmin ? 'superAdmin'
+      : (record.isAdmin ? 'adminEdificio' : (record.canEdit ? 'editor' : 'member'));
     const claims = role === 'superAdmin' ? { role } : { role, buildingId: String(record.edificioId || '') };
     await auth.setCustomUserClaims(uid, claims);
     await db.collection('roles').doc(uid).set({
@@ -190,6 +201,22 @@ exports.saveBuildingData = onCall(async (request) => {
   }
   if (!Array.isArray(records)) {
     throw new HttpsError('invalid-argument', 'records deve essere un array.');
+  }
+
+  // cm_condomini (gestione utenti/ruoli) resta riservato ad adminEdificio/
+  // superAdmin. I dati finanziari si aprono anche a 'editor'. Un semplice
+  // 'member' (sola lettura in UI) non può scrivere nessuna delle due —
+  // altrimenti basterebbe chiamare questa function da console per
+  // bypassare un limite che l'interfaccia si limita a nascondere.
+  if (callerRole !== 'superAdmin') {
+    const canWriteCondomini = callerRole === 'adminEdificio';
+    const canWriteFinance = callerRole === 'adminEdificio' || callerRole === 'editor';
+    if (key === 'cm_condomini' && !canWriteCondomini) {
+      throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare i condomini.');
+    }
+    if (key !== 'cm_condomini' && !canWriteFinance) {
+      throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare questi dati.');
+    }
   }
 
   const ref = db.collection('appdata').doc(key);
