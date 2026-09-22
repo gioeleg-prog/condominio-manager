@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://neridarimini20.it"],
+    "method": ["GET"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": ["Content-Type"]
+  }
+]

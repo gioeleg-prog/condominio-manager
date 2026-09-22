@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#2563EB">
 
 <!-- Security Headers (XSS, clickjacking, content sniffing) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://www.gstatic.com wss://*.firebaseio.com; frame-src 'self' https://*.firebaseapp.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://www.gstatic.com https://*.cloudfunctions.net wss://*.firebaseio.com; frame-src 'self' https://*.firebaseapp.com https://firebasestorage.googleapis.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="SAMEORIGIN">
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -737,6 +737,10 @@
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
   import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider , sendPasswordResetEmail }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+  import { getFunctions, httpsCallable }
+    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js';
+  import { getStorage, ref, uploadBytes, getBytes, deleteObject }
+    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
 
   // ═══════════════════════════════════════════
   //  CONFIGURAZIONE FIREBASE
@@ -753,6 +757,8 @@
   const app = initializeApp(firebaseConfig);
   const db  = getFirestore(app);
   const auth = getAuth(app);
+  const functionsInstance = getFunctions(app);
+  const storage = getStorage(app);
 
   // ═══════════════════════════════════════════
   //  BRIDGE: espone Firebase al codice globale
@@ -762,7 +768,9 @@
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
     onSnapshot, query, orderBy, serverTimestamp,
     signInWithEmailAndPassword, signOut, onAuthStateChanged,
-    updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail
+    updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail,
+    functionsInstance, httpsCallable,
+    storage, ref, uploadBytes, getBytes, deleteObject
 
   };
   window._fbReady = true;
@@ -841,16 +849,26 @@ async function fbSaveKey(key, val) {
   } catch(e) { console.warn('fbSave error', key, e); }
 }
 
+// Tutte le chiavi note del blob "appdata". SEC-03: da quando le firestore.rules
+// distinguono i permessi di lettura per singola chiave (cm_spese/cm_entrate/
+// cm_fornitori riservate al superAdmin), una query "tutta la collection" fallisce
+// in blocco per chiunque altro — Firestore nega l'intera list query se anche un
+// solo documento potenziale non rispetta la stessa regola di tutti gli altri.
+// Si leggono quindi i documenti singolarmente: ogni get() viene valutato (e
+// filtrato) in modo indipendente, quindi le chiavi vietate falliscono da sole
+// senza bloccare le altre.
+const APPDATA_KEYS = ['cm_condomini','cm_spese','cm_entrate','cm_fornitori','cm_edifici','cm_categorie','cm_edificio_attivo','cm_login_stats','cm_config'];
+
 // Carica tutti i dati da Firestore all'avvio e popola la cache
 async function fbLoadAll() {
   if (!window._fb) return;
-  try {
-    const { db, collection, getDocs } = window._fb;
-    const snap = await getDocs(collection(db, 'appdata'));
-    snap.forEach(d => {
-      try { _cache[d.id] = JSON.parse(d.data().value); } catch {}
-    });
-  } catch(e) { console.warn('fbLoadAll error', e); }
+  const { db, doc, getDoc } = window._fb;
+  await Promise.all(APPDATA_KEYS.map(async (key) => {
+    try {
+      const snap = await getDoc(doc(db, 'appdata', key));
+      if (snap.exists()) _cache[key] = JSON.parse(snap.data().value);
+    } catch(e) { console.warn('fbLoadAll error', key, e.code || e.message); }
+  }));
 }
 
 // ===========================
@@ -1514,10 +1532,27 @@ function renderApp() {
 // ===========================
 // FILE VIEWER
 // ===========================
+// Recupera i byte di un allegato SEC-04 (storagePath) con l'SDK autenticato —
+// ogni chiamata passa dalle storage.rules — e li espone come blob URL locale,
+// mai persistito né condiviso. v.data64 (allegati legacy pre-SEC-04) è già
+// utilizzabile direttamente.
+async function fetchAllegatoBlobUrl(v) {
+  const { storage, ref, getBytes } = window._fb;
+  const bytes = await getBytes(ref(storage, v.storagePath));
+  const blob = new Blob([bytes], { type: v.mime || 'application/octet-stream' });
+  return URL.createObjectURL(blob);
+}
+
 function renderViewer() {
   const v = state.viewer;
+  if (v.loading) {
+    return `<div class="viewer-overlay" id="viewer-overlay">
+      <div class="viewer-content"><div style="color:white">Caricamento allegato…</div></div>
+    </div>`;
+  }
   const isImg = v.mime.startsWith('image/');
   const isPdf = v.mime === 'application/pdf';
+  const src = v.blobUrl || v.data64;
   return `
   <div class="viewer-overlay" id="viewer-overlay">
     <div class="viewer-bar">
@@ -1528,8 +1563,8 @@ function renderViewer() {
       </div>
     </div>
     <div class="viewer-content">
-      ${isImg ? `<img src="${v.data64}" alt="${esc(v.nome)}">` :
-        isPdf ? `<iframe src="${v.data64}" title="${esc(v.nome)}"></iframe>` :
+      ${isImg ? `<img src="${src}" alt="${esc(v.nome)}">` :
+        isPdf ? `<iframe src="${src}" title="${esc(v.nome)}"></iframe>` :
         `<div style="background:white;padding:2rem;border-radius:8px;text-align:center;color:#333">
           <div style="font-size:48px;margin-bottom:1rem">${fileEmoji(v.mime)}</div>
           <div style="font-weight:600;margin-bottom:.5rem">${esc(v.nome)}</div>
@@ -1540,22 +1575,34 @@ function renderViewer() {
   </div>`;
 }
 
+function closeViewer() {
+  if (state.viewer?.blobUrl) URL.revokeObjectURL(state.viewer.blobUrl);
+  setState({viewer:null});
+}
+
 function bindViewer() {
   const vc = document.getElementById('viewer-close');
-  if (vc) vc.onclick = () => setState({viewer:null});
+  if (vc) vc.onclick = closeViewer;
   const vov = document.getElementById('viewer-overlay');
-  if (vov) vov.onclick = e => { if(e.target===vov) setState({viewer:null}); };
+  if (vov) vov.onclick = e => { if(e.target===vov) closeViewer(); };
   const vd = document.getElementById('viewer-download');
   if (vd) vd.onclick = () => downloadAllegato(state.viewer);
   const vd2 = document.getElementById('viewer-download2');
   if (vd2) vd2.onclick = () => downloadAllegato(state.viewer);
 }
 
-function downloadAllegato(v) {
+async function downloadAllegato(v) {
+  let href = v.blobUrl || v.data64;
+  let isTemp = false;
+  if (!href && v.storagePath) {
+    try { href = await fetchAllegatoBlobUrl(v); isTemp = true; }
+    catch (err) { alert('Impossibile scaricare l\'allegato: ' + (err.message || err)); return; }
+  }
   const a = document.createElement('a');
-  a.href = v.data64;
+  a.href = href;
   a.download = v.nome;
   a.click();
+  if (isTemp) setTimeout(() => URL.revokeObjectURL(href), 30000);
 }
 
 function fileEmoji(mime) {
@@ -1581,22 +1628,28 @@ function fmtSize(bytes) {
   return (bytes/1024/1024).toFixed(1) + ' MB';
 }
 
-function readFileAsBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => resolve(e.target.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
+// SEC-04: gli allegati vanno su Firebase Storage (buildings/{edificioId}/allegati/...)
+// invece di essere incorporati come Base64 nel blob Firestore appdata/cm_spese —
+// quel blob è un unico documento condiviso da tutti gli edifici (limite 1MB) e ogni
+// save() lo riscriveva per intero, allegati compresi.
 async function handleFilesDrop(files) {
-  const MAX = 5 * 1024 * 1024; // 5MB per file
+  const MAX = 5 * 1024 * 1024; // 5MB per file (rispecchia il limite di storage.rules)
   const added = [];
   for (const file of Array.from(files)) {
     if (file.size > MAX) { alert(`Il file "${file.name}" supera il limite di 5MB.`); continue; }
-    const data64 = await readFileAsBase64(file);
-    added.push({ id: newId(), nome: file.name, mime: file.type||'application/octet-stream', size: file.size, data64 });
+    const id = newId();
+    try {
+      const { storage, ref, uploadBytes } = window._fb;
+      const storagePath = `buildings/${state.edificioAttivo}/allegati/${id}_${file.name}`;
+      const fileRef = ref(storage, storagePath);
+      await uploadBytes(fileRef, file, { contentType: file.type || 'application/octet-stream' });
+      // Non salviamo un URL pubblico: getDownloadURL() incorpora un token che
+      // funziona per chiunque lo possieda, bypassando le storage.rules. I byte si
+      // recuperano on-demand con l'SDK autenticato (getBytes), che le rispetta.
+      added.push({ id, nome: file.name, mime: file.type||'application/octet-stream', size: file.size, storagePath });
+    } catch (err) {
+      alert(`Errore caricando "${file.name}": ` + (err.message || err));
+    }
   }
   state.pendingFiles = [...state.pendingFiles, ...added];
   renderPendingFiles();
@@ -1609,8 +1662,16 @@ function renderPendingFiles() {
   if (files.length === 0) { container.innerHTML = ''; return; }
   container.innerHTML = `<div class="allegati-list">${files.map(f => renderAllegatoItem(f, true)).join('')}</div>`;
   container.querySelectorAll('[data-remove-pending]').forEach(btn => {
-    btn.onclick = () => {
-      state.pendingFiles = state.pendingFiles.filter(f => f.id !== parseInt(btn.dataset.removePending));
+    btn.onclick = async () => {
+      const id = parseInt(btn.dataset.removePending);
+      const f = state.pendingFiles.find(x => x.id === id);
+      if (f?.storagePath) {
+        try {
+          const { storage, ref, deleteObject } = window._fb;
+          await deleteObject(ref(storage, f.storagePath));
+        } catch (err) { console.warn('deleteObject (pending):', err.message); }
+      }
+      state.pendingFiles = state.pendingFiles.filter(f => f.id !== id);
       renderPendingFiles();
     };
   });
@@ -1636,14 +1697,26 @@ function renderAllegatoItem(f, isPending=false) {
 
 function bindAllegatiInTable(spese) {
   document.querySelectorAll('[data-view-allegato]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const {id} = JSON.parse(btn.dataset.viewAllegato);
       // find allegato across all spese
       let found = null;
       for (const s of spese) {
         if (s.allegati) { found = s.allegati.find(a=>a.id===id); if (found) break; }
       }
-      if (found) setState({viewer:{nome:found.nome,mime:found.mime,data64:found.data64,size:found.size}});
+      if (!found) return;
+      if (found.storagePath) {
+        setState({viewer:{nome:found.nome,mime:found.mime,size:found.size,loading:true}});
+        try {
+          const blobUrl = await fetchAllegatoBlobUrl(found);
+          setState({viewer:{nome:found.nome,mime:found.mime,size:found.size,blobUrl}});
+        } catch (err) {
+          setState({viewer:null});
+          alert('Impossibile aprire l\'allegato: ' + (err.message || err));
+        }
+      } else {
+        setState({viewer:{nome:found.nome,mime:found.mime,data64:found.data64,size:found.size}});
+      }
     };
   });
   document.querySelectorAll('[data-dl-allegato]').forEach(btn => {
@@ -1657,9 +1730,19 @@ function bindAllegatiInTable(spese) {
     };
   });
   document.querySelectorAll('[data-del-allegato]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       if (!confirm('Eliminare questo allegato?')) return;
       const {id} = JSON.parse(btn.dataset.delAllegato);
+      let toDelete = null;
+      for (const s of spese) {
+        if (s.allegati) { toDelete = s.allegati.find(a=>a.id===id); if (toDelete) break; }
+      }
+      if (toDelete?.storagePath) {
+        try {
+          const { storage, ref, deleteObject } = window._fb;
+          await deleteObject(ref(storage, toDelete.storagePath));
+        } catch (err) { console.warn('deleteObject:', err.message); }
+      }
       const nuoveSpese = state.spese.map(s => ({
         ...s,
         allegati: (s.allegati||[]).filter(a=>a.id!==id)
@@ -5563,7 +5646,7 @@ function bindPageActions() {
 
   // Ruolo select inline nelle card impostazioni
   document.querySelectorAll('.ruolo-select').forEach(sel => {
-    sel.onchange = () => {
+    sel.onchange = async () => {
       const id = parseInt(sel.dataset.ruoloId);
       const ruolo = sel.value;
       const isAdminNew    = ruolo === 'adminedificio' || ruolo === 'superadmin';
@@ -5572,6 +5655,28 @@ function bindPageActions() {
       if (superAdminNew && !confirm('Stai promuovendo questo utente a Super Admin globale. Potrà vedere e gestire TUTTI i condomini. Confermi?')) {
         sel.value = sel.dataset.prevValue || 'lettura';
         return;
+      }
+      const target = state.condomini.find(c => c.id === id);
+      if (!target?.uid) {
+        alert('Questo utente non ha ancora effettuato il primo login: il ruolo server-side verrà assegnato automaticamente al suo primo accesso.');
+        sel.value = sel.dataset.prevValue || 'lettura';
+        return;
+      }
+      // SEC-02/05 — assegna il ruolo lato server (custom claims), unico punto autorizzato
+      try {
+        const { functionsInstance, httpsCallable } = window._fb;
+        const setUserRole = httpsCallable(functionsInstance, 'setUserRole');
+        const serverRole = superAdminNew ? 'superAdmin' : (isAdminNew ? 'adminEdificio' : 'member');
+        const resp = await setUserRole({
+          targetUid: target.uid,
+          role: serverRole,
+          buildingId: String(target.edificioId || state.edificioAttivo),
+        });
+        console.log('setUserRole OK:', resp.data);
+      } catch (err) {
+        alert('Impossibile assegnare il ruolo: ' + (err.message || err));
+        sel.value = sel.dataset.prevValue || 'lettura';
+        return; // NIENTE scrittura locale se la function fallisce
       }
       sel.dataset.prevValue = ruolo;
       const condomini = state.condomini.map(c => c.id===id
@@ -7339,6 +7444,14 @@ async function initApp() {
     if (firebaseUser) {
       const wasLoggedOut = !state.user;
 
+      // SEC-03: da quando le firestore.rules leggono request.auth.token.role per
+      // decidere l'accesso a cm_spese/cm_entrate/cm_fornitori, il token ID appena
+      // ottenuto da onAuthStateChanged può non riflettere ancora un custom claim
+      // aggiornato di recente (bug reale osservato in test: fbLoadAll falliva sulle
+      // sole chiavi riservate al superAdmin subito dopo login, per poi funzionare
+      // al retry). Forziamo un refresh esplicito prima di qualunque lettura.
+      try { await firebaseUser.getIdToken(true); } catch(e) { console.warn('token refresh:', e.message); }
+
       // Ricarica SEMPRE i dati ora che l'autenticazione è confermata: se il
       // caricamento pre-login sopra è fallito per permessi, questo È il
       // tentativo che deve riuscire. Senza questo, con regole Firestore che
@@ -7384,14 +7497,42 @@ async function initApp() {
         await window._fb.signOut(auth); state.user = null; render(); return;
       }
       if (!profile.uid && profile.id !== 0) {
-        const upd = state.condomini.map(c => c.id===profile.id ? {...c,uid:firebaseUser.uid} : c);
-        state.condomini = upd; save('cm_condomini', upd);
-        profile = {...profile, uid:firebaseUser.uid};
+        // SEC-05 fix: cm_condomini è scrivibile dal client solo da admin (firestore.rules),
+        // quindi il collegamento uid al primo login passa dalla Cloud Function linkMyUid
+        // (Admin SDK, tocca solo il record dell'email del chiamante).
+        try {
+          const { functionsInstance, httpsCallable } = window._fb;
+          const linkMyUid = httpsCallable(functionsInstance, 'linkMyUid');
+          await linkMyUid();
+          const upd = state.condomini.map(c => c.id===profile.id ? {...c,uid:firebaseUser.uid} : c);
+          state.condomini = upd;
+          profile = {...profile, uid:firebaseUser.uid};
+        } catch (err) {
+          console.error('linkMyUid fallita:', err.message || err);
+        }
       }
       state.user = profile;
       if (!isSuperAdmin(profile) && profile.edificioId) {
         state.edificioAttivo = profile.edificioId;
         save('cm_edificio_attivo', profile.edificioId);
+      }
+      // SEC-03 (ponte transitorio): per i non-superAdmin, le firestore.rules non
+      // permettono più la lettura diretta di cm_spese/cm_entrate/cm_fornitori (blob
+      // con tutti gli edifici) — li richiediamo filtrati per il proprio edificio
+      // tramite la Cloud Function getBuildingData.
+      if (!isSuperAdmin(profile)) {
+        try {
+          const { functionsInstance, httpsCallable } = window._fb;
+          const getBuildingData = httpsCallable(functionsInstance, 'getBuildingData');
+          const resp = await getBuildingData();
+          const data = resp.data || {};
+          ['cm_spese','cm_entrate','cm_fornitori','cm_condomini','cm_edifici'].forEach(k => {
+            if (data[k] !== undefined) _cache[k] = data[k];
+          });
+          applyLoadedDataFromCache();
+        } catch (err) {
+          console.error('getBuildingData fallita:', err.message || err);
+        }
       }
       if (wasLoggedOut) { state.page = 'dashboard'; registraLogin(profile); }
     } else {
