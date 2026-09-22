@@ -1,0 +1,6 @@
+node_modules/
+.firebase/
+*.log
+
+# Script one-off già eseguito, con UID/email reali hardcoded — non serve nel repo
+scripts/seed-prod-superadmin.js

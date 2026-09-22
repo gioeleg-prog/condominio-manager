@@ -1,0 +1,102 @@
+rules_version = '2';
+
+// ═══════════════════════════════════════════════════════════════
+//  NERI DA RIMINI — Firestore Security Rules
+//  FASE 1 (contenimento) — lavora sopra il modello dati ATTUALE
+//  (appdata/{key} con blob JSON) senza romperlo.
+//
+//  ATTENZIONE — LIMITE STRUTTURALE ONESTO:
+//  Il modello "appdata" impacchetta TUTTI gli edifici in un unico
+//  campo stringa JSON per chiave (es. appdata/cm_spese).
+//  Le Security Rules non possono fare parsing del contenuto di un
+//  campo per applicare un controllo per-record (per-edificio).
+//  Quindi qui NON si ottiene isolamento multi-tenant reale sui dati
+//  economici — quello richiede la migrazione allo schema
+//  normalizzato "buildings/**" (in fondo a questo file, già pronto
+//  e testato, disattivo finché REB-01 non è completata) oppure il
+//  passaggio attraverso la Cloud Function `getBuildingData` come
+//  ponte transitorio (vedi functions/index.js).
+//
+//  Quello che QUESTA fase chiude davvero:
+//  - accesso non autenticato → sempre negato
+//  - scrittura di appdata/cm_config (identità del superAdmin) →
+//    solo chi ha già il custom claim role=='superAdmin'
+//  - scrittura di appdata/cm_condomini (dove oggi si promuove un
+//    ruolo, riga ~5306 di index.html) → solo ruoli admin, mai un
+//    condomino semplice
+//  - qualunque scrittura diretta dal client sulla collection
+//    `roles/*` → SEMPRE negata (la scrivono solo le Cloud
+//    Functions con Admin SDK, che bypassano le rules)
+// ═══════════════════════════════════════════════════════════════
+
+function isSignedIn() {
+  return request.auth != null;
+}
+
+function role() {
+  return request.auth.token.role; // 'superAdmin' | 'adminEdificio' | 'member' | null
+}
+
+function isSuperAdmin() {
+  return isSignedIn() && role() == 'superAdmin';
+}
+
+function isBuildingAdmin() {
+  return isSignedIn() && (role() == 'superAdmin' || role() == 'adminEdificio');
+}
+
+function myBuildingId() {
+  return request.auth.token.buildingId;
+}
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Modello ATTUALE (transitorio) ──────────────────────────
+    match /appdata/{key} {
+      // SEC-03: i dati finanziari (blob unico per tutti gli edifici) sono leggibili
+      // direttamente dal client solo dal superAdmin. Chiunque altro (member o
+      // adminEdificio) li ottiene filtrati per il proprio edificio tramite la
+      // Cloud Function getBuildingData (Admin SDK, bypassa queste rules).
+      allow read: if (key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori')
+                   ? isSuperAdmin()
+                   : isSignedIn();
+      allow write: if key == 'cm_config'
+                   ? isSuperAdmin()
+                   : (key == 'cm_condomini'
+                       ? isBuildingAdmin()
+                       : isSignedIn()); // interim: resto ancora aperto ai provisioned users
+    }
+
+    // Specchio dei custom claims, leggibile per debug/UI, scrivibile
+    // MAI dal client — solo dalla Cloud Function setUserRole (Admin SDK).
+    match /roles/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow write: if false;
+    }
+
+    // Audit trail: append-only, scritto solo da Cloud Functions.
+    match /auditEvents/{eventId} {
+      allow read: if isSuperAdmin();
+      allow write: if false;
+    }
+
+    // ─── Schema NORMALIZZATO target (REB-01) — pronto, non ancora
+    //     in uso finché la migrazione dati non è completata ────
+    match /buildings/{buildingId} {
+      allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
+      allow write: if isSuperAdmin();
+
+      match /{subcollection}/{docId} {
+        allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
+        allow write: if isSignedIn()
+                     && (isSuperAdmin() || (isBuildingAdmin() && myBuildingId() == buildingId));
+      }
+    }
+
+    // Default deny esplicito — nessun path non elencato è accessibile.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

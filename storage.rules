@@ -1,0 +1,34 @@
+rules_version = '2';
+
+// ═══════════════════════════════════════════════════════════════
+//  NERI DA RIMINI — Firebase Storage Security Rules
+//  SEC-04: gli allegati delle spese non vivono più come Base64
+//  embedded nel blob Firestore appdata/cm_spese, ma come file reali
+//  qui, sotto buildings/{buildingId}/... Stessi custom claims usati
+//  dalle firestore.rules (role, buildingId).
+//
+//  LIMITE ONESTO: i custom claims hanno solo 3 ruoli (superAdmin,
+//  adminEdificio, member) — non distinguono "lettura" da "modifica"
+//  come fa la UI lato client. Qui chiunque sia autenticato e
+//  appartenga all'edificio può leggere/scrivere i suoi allegati;
+//  la stessa granularità (o mancanza di essa) che il modello dati
+//  attuale ha sempre avuto anche per gli altri dati dell'edificio.
+// ═══════════════════════════════════════════════════════════════
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /buildings/{buildingId}/{allPaths=**} {
+      allow read: if request.auth != null &&
+        (request.auth.token.role == 'superAdmin' || request.auth.token.buildingId == buildingId);
+      allow write: if request.auth != null &&
+        (request.auth.token.role == 'superAdmin' || request.auth.token.buildingId == buildingId) &&
+        request.resource.size < 5 * 1024 * 1024;
+      allow delete: if request.auth != null &&
+        (request.auth.token.role == 'superAdmin' || request.auth.token.buildingId == buildingId);
+    }
+    // Default deny esplicito.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
