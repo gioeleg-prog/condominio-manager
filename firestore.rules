@@ -61,10 +61,16 @@ service cloud.firestore {
       allow read: if (key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori')
                    ? isSuperAdmin()
                    : isSignedIn();
+      // P0 urgente: cm_spese/cm_entrate/cm_fornitori/cm_condomini negati in
+      // scrittura diretta a chiunque non sia superAdmin — un adminEdificio/
+      // canEdit che scriveva qui sovrascriveva l'intero blob con SOLO il
+      // proprio edificio (già filtrato in lettura da SEC-03), cancellando
+      // gli altri. Passano tutti dalla Cloud Function saveBuildingData
+      // (Admin SDK, fonde solo la propria fetta, bypassa queste rules).
       allow write: if key == 'cm_config'
                    ? isSuperAdmin()
-                   : (key == 'cm_condomini'
-                       ? isBuildingAdmin()
+                   : ((key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_condomini')
+                       ? isSuperAdmin()
                        : isSignedIn()); // interim: resto ancora aperto ai provisioned users
     }
 
