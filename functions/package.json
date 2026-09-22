@@ -1,6 +1,6 @@
 {
   "name": "neridarimini-functions",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "main": "index.js",
   "type": "commonjs",
   "dependencies": {
