@@ -81,7 +81,12 @@ exports.getBuildingData = onCall(async (request) => {
     if (callerRole === 'superAdmin' || key === 'cm_edifici') {
       result[key] = arr;
     } else {
-      result[key] = arr.filter((rec) => !rec.edificioId || rec.edificioId === callerBuildingId);
+      // edificioId nei dati è numerico, buildingId nel custom claim è
+      // sempre una stringa (Firebase custom claims sono JSON, va bene
+      // qualunque tipo, ma setUserRole/linkMyUid lo scrivono come stringa
+      // per coerenza) — confronto tollerante al tipo, altrimenti === non
+      // matcha mai e il filtro esclude tutto, non solo gli altri edifici.
+      result[key] = arr.filter((rec) => !rec.edificioId || String(rec.edificioId) === String(callerBuildingId));
     }
   });
 
@@ -99,6 +104,16 @@ exports.getBuildingData = onCall(async (request) => {
 // stesso collegamento lato server con Admin SDK (bypassa le rules),
 // ma SOLO sul record che corrisponde alla email dell'utente chiamante,
 // e SOLO se quel record non è già collegato a un uid diverso.
+//
+// Bug scoperto testando in PRODUZIONE (non riproducibile su staging,
+// dove esisteva un solo utente di test già superAdmin): i condomini
+// reali esistenti non hanno mai avuto un custom claim di ruolo — solo
+// il superAdmin, seedato manualmente. getBuildingData rifiuta chiunque
+// non abbia claim (SEC-03), quindi ogni condomino normale restava
+// bloccato al primo caricamento dati. Questa function ora provisiona
+// anche il ruolo (letto dai flag legacy canEdit/isAdmin/superAdmin già
+// sul record), così il problema non si ripresenta per i prossimi primi
+// accessi. Se il claim è già presente non viene toccato.
 // ═══════════════════════════════════════════════════════════════
 exports.linkMyUid = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
@@ -119,12 +134,25 @@ exports.linkMyUid = onCall(async (request) => {
   if (arr[idx].uid && arr[idx].uid !== uid) {
     throw new HttpsError('already-exists', 'Questo profilo risulta già collegato a un altro account.');
   }
-  if (arr[idx].uid === uid) {
-    return { ok: true, alreadyLinked: true };
+
+  const record = arr[idx];
+  if (!record.uid) {
+    arr[idx] = { ...record, uid };
+    await ref.set({ value: JSON.stringify(arr) });
   }
 
-  arr[idx] = { ...arr[idx], uid };
-  await ref.set({ value: JSON.stringify(arr) });
+  const existingUser = await auth.getUser(uid).catch(() => null);
+  if (!existingUser?.customClaims?.role) {
+    const role = record.superAdmin ? 'superAdmin' : (record.isAdmin ? 'adminEdificio' : 'member');
+    const claims = role === 'superAdmin' ? { role } : { role, buildingId: String(record.edificioId || '') };
+    await auth.setCustomUserClaims(uid, claims);
+    await db.collection('roles').doc(uid).set({
+      role,
+      buildingId: claims.buildingId || null,
+      updatedAt: FieldValue.serverTimestamp(),
+      updatedBy: 'linkMyUid-auto',
+    }, { merge: true });
+  }
 
   return { ok: true };
 });
