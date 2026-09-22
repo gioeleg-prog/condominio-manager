@@ -48,13 +48,30 @@ describe('appdata — modello attuale', () => {
     await assertFails(db.collection('appdata').doc('cm_condomini').set({ value: '[]' }));
   });
 
-  it('un adminEdificio PUÒ scrivere appdata/cm_condomini', async () => {
+  // P0 (bug di sovrascrittura cross-edificio, scoperto pianificando REB-01):
+  // cm_condomini/cm_spese/cm_entrate/cm_fornitori non sono più scrivibili
+  // direttamente dal client da nessuno tranne il superAdmin — un
+  // adminEdificio o un member passano da saveBuildingData (Admin SDK), che
+  // fonde solo la propria fetta invece di sovrascrivere l'intero blob.
+  it('un adminEdificio NON può scrivere appdata/cm_condomini direttamente (passa da saveBuildingData)', async () => {
     const db = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_condomini').set({ value: '[]' }));
+    await assertFails(db.collection('appdata').doc('cm_condomini').set({ value: '[]' }));
   });
 
-  it('INTERIM: un member può ancora scrivere appdata/cm_spese (isolamento reale arriva con REB-01 / getBuildingData)', async () => {
+  it('un member NON può scrivere appdata/cm_spese direttamente (passa da saveBuildingData)', async () => {
     const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
+    await assertFails(db.collection('appdata').doc('cm_spese').set({ value: '[]' }));
+  });
+
+  it('un adminEdificio NON può scrivere appdata/cm_entrate o cm_fornitori direttamente', async () => {
+    const db = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
+    await assertFails(db.collection('appdata').doc('cm_entrate').set({ value: '[]' }));
+    await assertFails(db.collection('appdata').doc('cm_fornitori').set({ value: '[]' }));
+  });
+
+  it('un superAdmin PUÒ scrivere direttamente cm_condomini/cm_spese/cm_entrate/cm_fornitori', async () => {
+    const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertSucceeds(db.collection('appdata').doc('cm_condomini').set({ value: '[]' }));
     await assertSucceeds(db.collection('appdata').doc('cm_spese').set({ value: '[]' }));
   });
 });

@@ -1,0 +1,11 @@
+{
+  "name": "condominio-manager-tests",
+  "private": true,
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore \"mocha test/rules.spec.js --timeout 20000\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "mocha": "^10.7.3"
+  }
+}
