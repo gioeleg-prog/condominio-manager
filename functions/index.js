@@ -184,7 +184,7 @@ exports.linkMyUid = onCall(async (request) => {
 // Con Admin SDK, quindi può fare la fusione anche se le rules negano
 // la scrittura diretta di queste chiavi a chi non è superAdmin.
 // ═══════════════════════════════════════════════════════════════
-const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca'];
+const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca', 'cm_verbali'];
 
 exports.saveBuildingData = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
@@ -203,23 +203,20 @@ exports.saveBuildingData = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'records deve essere un array.');
   }
 
-  // cm_condomini (gestione utenti/ruoli) e cm_bacheca (comunicazioni
-  // ufficiali dell'amministratore) restano riservati ad adminEdificio/
-  // superAdmin. I dati finanziari si aprono anche a 'editor'. Un semplice
-  // 'member' (sola lettura in UI) non può scrivere nessuna delle due —
-  // altrimenti basterebbe chiamare questa function da console per
-  // bypassare un limite che l'interfaccia si limita a nascondere.
+  // cm_condomini (gestione utenti/ruoli), cm_bacheca (comunicazioni) e
+  // cm_verbali (atti ufficiali di assemblea) restano riservati ad
+  // adminEdificio/superAdmin. I dati finanziari si aprono anche a
+  // 'editor'. Un semplice 'member' (sola lettura in UI) non può scrivere
+  // nessuna di queste — altrimenti basterebbe chiamare questa function da
+  // console per bypassare un limite che l'interfaccia si limita a nascondere.
   if (callerRole !== 'superAdmin') {
-    const canWriteCondomini = callerRole === 'adminEdificio';
-    const canWriteBacheca = callerRole === 'adminEdificio';
+    const adminOnlyKeys = ['cm_condomini', 'cm_bacheca', 'cm_verbali'];
+    const canWriteAdminOnly = callerRole === 'adminEdificio';
     const canWriteFinance = callerRole === 'adminEdificio' || callerRole === 'editor';
-    if (key === 'cm_condomini' && !canWriteCondomini) {
-      throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare i condomini.');
+    if (adminOnlyKeys.includes(key) && !canWriteAdminOnly) {
+      throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare questi dati.');
     }
-    if (key === 'cm_bacheca' && !canWriteBacheca) {
-      throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare la bacheca.');
-    }
-    if (key !== 'cm_condomini' && key !== 'cm_bacheca' && !canWriteFinance) {
+    if (!adminOnlyKeys.includes(key) && !canWriteFinance) {
       throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare questi dati.');
     }
   }

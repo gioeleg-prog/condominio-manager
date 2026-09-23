@@ -843,7 +843,7 @@ function save(key, val) {
 // P0 urgente: queste chiavi sono filtrate per edificio in lettura (SEC-03) per
 // i non-superAdmin — se scritte con un overwrite diretto del blob condiviso,
 // cancellano silenziosamente gli altri edifici. Passano da saveBuildingData.
-const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca'];
+const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca', 'cm_verbali'];
 
 // Salva un singolo documento {key} nella collection "appdata"
 async function fbSaveKey(key, val) {
@@ -868,7 +868,7 @@ async function fbSaveKey(key, val) {
 // Si leggono quindi i documenti singolarmente: ogni get() viene valutato (e
 // filtrato) in modo indipendente, quindi le chiavi vietate falliscono da sole
 // senza bloccare le altre.
-const APPDATA_KEYS = ['cm_condomini','cm_spese','cm_entrate','cm_fornitori','cm_edifici','cm_categorie','cm_edificio_attivo','cm_login_stats','cm_config','cm_bacheca'];
+const APPDATA_KEYS = ['cm_condomini','cm_spese','cm_entrate','cm_fornitori','cm_edifici','cm_categorie','cm_edificio_attivo','cm_login_stats','cm_config','cm_bacheca','cm_verbali'];
 
 // Carica tutti i dati da Firestore all'avvio e popola la cache
 async function fbLoadAll() {
@@ -929,6 +929,7 @@ let state = {
   fornitori: load('cm_fornitori', []),
   entrate: load('cm_entrate', []),
   bacheca: load('cm_bacheca', []),
+  verbali: load('cm_verbali', []),
   loginStats: load('cm_login_stats', {}), // { condominoId: { nome, ultimoLogin, totale, mensile:{'AAAA-MM':n} } }
   modal: null,
   filterCat: 'all',
@@ -1072,6 +1073,12 @@ function getEntrateVisibili() {
 function getBachecaVisibili() {
   const edId = isSuperAdmin(state.user) ? state.edificioAttivo : getUserEdificio(state.user);
   return state.bacheca.filter(a => !a.edificioId || a.edificioId === edId);
+}
+
+// Filtra verbali visibili all'utente corrente
+function getVerbaliVisibili() {
+  const edId = isSuperAdmin(state.user) ? state.edificioAttivo : getUserEdificio(state.user);
+  return state.verbali.filter(v => !v.edificioId || v.edificioId === edId);
 }
 
 function getRuolo(u) {
@@ -1410,6 +1417,7 @@ function renderApp() {
     {id:'bilancio', label:'Bilancio', icon:svgBilancio()},
     {id:'fornitori', label:'Fornitori', icon:svgFornitori()},
     {id:'bacheca', label:'Bacheca', icon:svgBacheca()},
+    {id:'verbali', label:'Verbali', icon:svgVerbali()},
     ...(canUserAdmin(user) ? [{id:'condomini', label:'Condomini', icon:svgCondomini()}] : []),
     ...(isAdmin ? [{id:'impostazioni', label:'Impostazioni', icon:svgSettings()}] : []),
   ];
@@ -1714,14 +1722,18 @@ function renderAllegatoItem(f, isPending=false) {
   </div>`;
 }
 
-function bindAllegatiInTable(spese) {
+// Generica per qualunque entità con campo "allegati" (array) — parametrizzata
+// da records/stateKey/appdataKey invece che duplicata per ogni entità, dato
+// che la sola differenza tra Spese e Verbali qui è quale array cercare e
+// dove salvare in caso di eliminazione.
+function bindAllegatiInTable(records, stateKey, appdataKey) {
   document.querySelectorAll('[data-view-allegato]').forEach(btn => {
     btn.onclick = async () => {
       const {id} = JSON.parse(btn.dataset.viewAllegato);
-      // find allegato across all spese
+      // find allegato across all records
       let found = null;
-      for (const s of spese) {
-        if (s.allegati) { found = s.allegati.find(a=>a.id===id); if (found) break; }
+      for (const r of records) {
+        if (r.allegati) { found = r.allegati.find(a=>a.id===id); if (found) break; }
       }
       if (!found) return;
       if (found.storagePath) {
@@ -1742,8 +1754,8 @@ function bindAllegatiInTable(spese) {
     btn.onclick = () => {
       const {id} = JSON.parse(btn.dataset.dlAllegato);
       let found = null;
-      for (const s of spese) {
-        if (s.allegati) { found = s.allegati.find(a=>a.id===id); if (found) break; }
+      for (const r of records) {
+        if (r.allegati) { found = r.allegati.find(a=>a.id===id); if (found) break; }
       }
       if (found) downloadAllegato(found);
     };
@@ -1753,8 +1765,8 @@ function bindAllegatiInTable(spese) {
       if (!confirm('Eliminare questo allegato?')) return;
       const {id} = JSON.parse(btn.dataset.delAllegato);
       let toDelete = null;
-      for (const s of spese) {
-        if (s.allegati) { toDelete = s.allegati.find(a=>a.id===id); if (toDelete) break; }
+      for (const r of records) {
+        if (r.allegati) { toDelete = r.allegati.find(a=>a.id===id); if (toDelete) break; }
       }
       if (toDelete?.storagePath) {
         try {
@@ -1762,12 +1774,12 @@ function bindAllegatiInTable(spese) {
           await deleteObject(ref(storage, toDelete.storagePath));
         } catch (err) { console.warn('deleteObject:', err.message); }
       }
-      const nuoveSpese = state.spese.map(s => ({
-        ...s,
-        allegati: (s.allegati||[]).filter(a=>a.id!==id)
+      const nuoviRecords = state[stateKey].map(r => ({
+        ...r,
+        allegati: (r.allegati||[]).filter(a=>a.id!==id)
       }));
-      save('cm_spese', nuoveSpese);
-      setState({spese: nuoveSpese});
+      save(appdataKey, nuoviRecords);
+      setState({[stateKey]: nuoviRecords});
     };
   });
 }
@@ -1872,6 +1884,7 @@ function renderPage() {
     case 'bilancio': return renderBilancio();
     case 'fornitori': return renderFornitori();
     case 'bacheca': return renderBacheca();
+    case 'verbali': return renderVerbali();
     case 'condomini': return renderCondomini();
     case 'impostazioni': return canUserSeeImpostazioni(state.user) ? renderImpostazioni() : '<div class="empty"><p>Accesso non consentito.</p></div>';
     default: return renderDashboard();
@@ -2217,6 +2230,78 @@ function renderAvvisoCard(a, canManage, oggi) {
         <button class="btn btn-secondary btn-sm" data-edit-avviso="${a.id}">✏️</button>
         <button class="btn btn-danger btn-sm" data-del-avviso="${a.id}">🗑</button>
       </div>` : ''}
+    </div>
+  </div>`;
+}
+
+// ===========================
+// ARCHIVIO VERBALI ASSEMBLEE
+// ===========================
+// Scrittura/cancellazione riservata ad adminEdificio + superAdmin (atto
+// ufficiale, stesso livello di cm_bacheca/cm_condomini) — editor e member
+// sono di sola lettura.
+function renderVerbali() {
+  const canManage = canUserAdmin(state.user);
+  const tuttiVerbali = getVerbaliVisibili();
+  const anniVerbali = [...new Set(tuttiVerbali.map(v => new Date(v.data).getFullYear()))].sort((a,b)=>b-a);
+  const anno = state.filterAnno || 0;
+
+  let items = tuttiVerbali;
+  if (anno) items = items.filter(v => new Date(v.data).getFullYear() === anno);
+  if (state.searchQ) {
+    const q = state.searchQ.toLowerCase();
+    items = items.filter(v =>
+      v.titolo.toLowerCase().includes(q) || (v.argomenti||[]).some(t=>t.toLowerCase().includes(q))
+    );
+  }
+  items = items.slice().sort((a,b) => new Date(b.data) - new Date(a.data));
+
+  return `
+  <div>
+    <div class="page-header">
+      <div><div class="page-title">Verbali</div><div class="page-sub">${items.length} verbali</div></div>
+      ${canManage ? `<button class="btn btn-primary" id="btn-nuovo-verbale">+ Nuovo verbale</button>` : ''}
+    </div>
+
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem">
+      <input type="text" class="spese-filter-search" id="search-verbali" placeholder="🔍 Cerca per titolo o argomento…" value="${esc(state.searchQ)}" style="flex:0 1 260px;min-width:160px">
+      <select class="spese-filter-sel" onchange="setState({filterAnno:this.value?parseInt(this.value):0})" style="max-width:160px">
+        <option value="">Tutti gli anni</option>
+        ${anniVerbali.map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
+      </select>
+    </div>
+
+    ${items.length === 0 ? `
+    <div class="empty">${svgEmpty()}<p>Nessun verbale trovato</p></div>` : `
+    <div style="display:flex;flex-direction:column;gap:.75rem">
+      ${items.map(v => renderVerbaleCard(v, canManage)).join('')}
+    </div>`}
+  </div>`;
+}
+
+function renderVerbaleCard(v, canManage) {
+  const isStr = v.tipo === 'straordinaria';
+  const allegato = (v.allegati||[])[0];
+  return `
+  <div class="card" style="margin-bottom:0">
+    <div style="padding:1rem 1.25rem">
+      <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            <span class="badge ${isStr?'badge-purple':'badge-blue'}">${isStr?'Straordinaria':'Ordinaria'}</span>
+            <span style="font-size:12px;color:var(--text2)">${v.data}</span>
+          </div>
+          <div style="font-weight:600;font-size:15px;margin-bottom:4px">${esc(v.titolo)}</div>
+          ${(v.argomenti&&v.argomenti.length) ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${v.argomenti.map(t=>`<span class="badge badge-gray">${esc(t)}</span>`).join('')}</div>` : ''}
+          ${(v.decisioni&&v.decisioni.length) ? `<div style="font-size:13px;color:var(--text2)"><strong style="color:var(--text)">Decisioni principali:</strong><ul style="margin:4px 0 0 18px;padding:0">${v.decisioni.map(d=>`<li>${esc(d)}</li>`).join('')}</ul></div>` : ''}
+        </div>
+        ${canManage ? `
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-secondary btn-sm" data-edit-verbale="${v.id}">✏️</button>
+          <button class="btn btn-danger btn-sm" data-del-verbale="${v.id}">🗑</button>
+        </div>` : ''}
+      </div>
+      ${allegato ? `<div style="margin-top:10px" class="allegati-list">${renderAllegatoItem(allegato,false)}</div>` : ''}
     </div>
   </div>`;
 }
@@ -4601,6 +4686,68 @@ function renderModalAvviso(d) {
   </div>`;
 }
 
+function renderModalVerbale(d) {
+  const isEdit = !!d?.id;
+  const argomentiStr = (d?.argomenti||[]).join(', ');
+  const decisioniStr = (d?.decisioni||[]).join('\n');
+  return `
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" style="max-width:600px">
+      <div class="modal-header">
+        <h2>${isEdit ? '✏️ Modifica verbale' : '📋 Nuovo verbale'}</h2>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="field" style="flex:2">
+            <label>Titolo *</label>
+            <input type="text" id="vb-titolo" value="${esc(d?.titolo||'')}" placeholder="Es. Assemblea ordinaria maggio 2026">
+          </div>
+          <div class="field">
+            <label>Data *</label>
+            <input type="date" id="vb-data" value="${esc(d?.data||'')}">
+          </div>
+        </div>
+        <div class="field">
+          <label>Tipo</label>
+          <select id="vb-tipo">
+            <option value="ordinaria" ${(!d?.tipo||d.tipo==='ordinaria')?'selected':''}>Ordinaria</option>
+            <option value="straordinaria" ${d?.tipo==='straordinaria'?'selected':''}>Straordinaria</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Argomenti (separati da virgola)</label>
+          <input type="text" id="vb-argomenti" value="${esc(argomentiStr)}" placeholder="bilancio, facciata, ascensore">
+        </div>
+        <div class="field">
+          <label>Decisioni principali (una per riga)</label>
+          <textarea id="vb-decisioni" rows="3" placeholder="Approvato preventivo facciata € 42.000...">${esc(decisioniStr)}</textarea>
+        </div>
+
+        <div class="field">
+          <label>Allegato (PDF)</label>
+          <div class="dropzone" id="dropzone">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div>Trascina il PDF qui oppure <strong>clicca per selezionare</strong></div>
+            <div style="font-size:12px;margin-top:4px;opacity:.7">PDF · max 5MB</div>
+          </div>
+          <input type="file" id="file-input" accept="application/pdf" style="display:none">
+          <div id="allegati-pending"></div>
+          ${d?.allegati?.length ? `<div style="margin-top:8px"><div style="font-size:12px;color:var(--text2);margin-bottom:6px">Allegato esistente:</div><div class="allegati-list">${(d.allegati||[]).map(f=>renderAllegatoItem(f,false)).join('')}</div></div>` : ''}
+        </div>
+
+        <div id="vb-err" class="alert alert-warning" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
+        <button class="btn btn-primary" id="btn-save-verbale" data-id="${d?.id||''}">
+          💾 ${isEdit ? 'Salva modifiche' : 'Pubblica verbale'}
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderModalStoricoFornitore(f) {
   const _edFornSt = f.edificioId || getUserEdificio(state.user);
   const speseF = state.spese.filter(s=>s.fornitoreId===f.id && (!s.edificioId||s.edificioId===_edFornSt))
@@ -4895,6 +5042,7 @@ function renderModal() {
   if (m.type === 'edificio') return renderModalEdificio(m.data);
   if (m.type === 'fornitore') return renderModalFornitore(m.data);
   if (m.type === 'avviso') return renderModalAvviso(m.data);
+  if (m.type === 'verbale') return renderModalVerbale(m.data);
   if (m.type === 'storico-fornitore') return renderModalStoricoFornitore(m.data);
   if (m.type === 'change-pw') return renderModalChangePw();
   if (m.type === 'admin-reset-pw') return renderModalAdminResetPw(m.data);
@@ -5612,7 +5760,8 @@ function bindPageActions() {
   });
 
   // Allegati in tabella
-  bindAllegatiInTable(state.spese);
+  bindAllegatiInTable(state.spese, 'spese', 'cm_spese');
+  bindAllegatiInTable(state.verbali, 'verbali', 'cm_verbali');
 
   // Delete entrate
   // Piano rate: 1) "Avvia" mostra il pannello di conferma con le rate già calcolate sopra
@@ -5887,6 +6036,44 @@ Sposta o elimina prima tutti i dati associati.`);
       const bacheca = state.bacheca.filter(x=>x.id!==id);
       save('cm_bacheca', bacheca);
       setState({bacheca});
+    };
+  });
+
+  // Ricerca verbali (riusa lo stesso state.searchQ di Spese/Entrate)
+  const svb = document.getElementById('search-verbali');
+  if (svb) svb.oninput = e => setState({searchQ: e.target.value});
+
+  // Nuovo verbale
+  const bNuovoVerbale = document.getElementById('btn-nuovo-verbale');
+  if (bNuovoVerbale) bNuovoVerbale.onclick = () => setState({modal:{type:'verbale', data:null}, pendingFiles:[]});
+
+  // Modifica verbale
+  document.querySelectorAll('[data-edit-verbale]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editVerbale);
+      const v = state.verbali.find(x=>x.id===id);
+      if (v) setState({modal:{type:'verbale', data:{...v}}, pendingFiles:[]});
+    };
+  });
+
+  // Elimina verbale (e i suoi allegati su Storage)
+  document.querySelectorAll('[data-del-verbale]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = parseInt(btn.dataset.delVerbale);
+      const v = state.verbali.find(x=>x.id===id);
+      if (!v) return;
+      if (!confirm(`Eliminare il verbale "${v.titolo}"? Verranno eliminati anche gli eventuali allegati.`)) return;
+      for (const a of (v.allegati||[])) {
+        if (a.storagePath) {
+          try {
+            const { storage, ref, deleteObject } = window._fb;
+            await deleteObject(ref(storage, a.storagePath));
+          } catch (err) { console.warn('deleteObject (verbale):', err.message); }
+        }
+      }
+      const verbali = state.verbali.filter(x=>x.id!==id);
+      save('cm_verbali', verbali);
+      setState({verbali});
     };
   });
 
@@ -6790,6 +6977,43 @@ function bindModal() {
     setState({bacheca, modal:null});
   };
 
+  // Salva verbale (crea/modifica)
+  const bSaveVb = document.getElementById('btn-save-verbale');
+  if (bSaveVb) bSaveVb.onclick = () => {
+    const titolo = document.getElementById('vb-titolo')?.value?.trim();
+    const data = document.getElementById('vb-data')?.value;
+    const tipo = document.getElementById('vb-tipo')?.value || 'ordinaria';
+    const argomenti = (document.getElementById('vb-argomenti')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const decisioni = (document.getElementById('vb-decisioni')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+    const origId = bSaveVb.dataset.id;
+    const errEl = document.getElementById('vb-err');
+    errEl.style.display = 'none';
+
+    if (!titolo) { errEl.textContent='Il titolo è obbligatorio'; errEl.style.display='block'; return; }
+    if (!data)   { errEl.textContent='La data è obbligatoria'; errEl.style.display='block'; return; }
+
+    const existing = origId ? state.verbali.find(v=>v.id===parseInt(origId)) : null;
+    const allegati = [...(existing?.allegati||[]), ...state.pendingFiles];
+    const edificioIdVerbale = existing?.edificioId || getUserEdificio(state.user);
+
+    let verbali;
+    if (origId) {
+      verbali = state.verbali.map(v => v.id===parseInt(origId)
+        ? {...v, titolo, data, tipo, argomenti, decisioni, allegati, edificioId: edificioIdVerbale}
+        : v);
+    } else {
+      const verbale = {
+        id: newId(), titolo, data, tipo, argomenti, decisioni, allegati,
+        edificioId: edificioIdVerbale,
+        createdAt: new Date().toISOString(),
+        createdBy: state.user?.nome || '',
+      };
+      verbali = [...state.verbali, verbale];
+    }
+    save('cm_verbali', verbali);
+    setState({verbali, modal:null, pendingFiles:[]});
+  };
+
   // Salva categoria (crea/modifica)
   const bSaveCat = document.getElementById('btn-save-cat');
   if (bSaveCat) {
@@ -7476,6 +7700,7 @@ function svgSpese() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 function svgEntrate() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5m-7 7l7-7 7 7"/></svg>`; }
 function svgFornitori() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>`; }
 function svgBacheca() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="1.5"/><path d="M7 9h10M7 13h6"/><circle cx="12" cy="4" r="1.5" fill="currentColor" stroke="none"/></svg>`; }
+function svgVerbali() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M9 13l2 2 4-4"/></svg>`; }
 function svgBilancio() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 4-8"/></svg>`; }
 function svgCondomini() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>`; }
 function svgSettings() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`; }
