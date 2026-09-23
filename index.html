@@ -937,6 +937,11 @@ let state = {
   filterStato: 'all',
   filterFornitore: 'all',
   filterAnno: new Date().getFullYear(),
+  // Verbali ha un archivio storico spesso sparso su pochi anni: un default
+  // "anno corrente" (come Spese/Entrate) nasconderebbe silenziosamente tutto
+  // il resto con il filtro che sembra "Tutti gli anni" nel <select> — campo
+  // dedicato, non condiviso con filterAnno, che parte su "tutti gli anni".
+  filterAnnoVerbali: 0,
   sortCol: 'data',   // colonna di ordinamento spese
   sortDir: 'desc',   // 'asc' | 'desc'
   speseSelezionate: new Set(), // ids selezionate per eliminazione massiva
@@ -1722,19 +1727,30 @@ function renderAllegatoItem(f, isPending=false) {
   </div>`;
 }
 
-// Generica per qualunque entità con campo "allegati" (array) — parametrizzata
-// da records/stateKey/appdataKey invece che duplicata per ogni entità, dato
-// che la sola differenza tra Spese e Verbali qui è quale array cercare e
-// dove salvare in caso di eliminazione.
-function bindAllegatiInTable(records, stateKey, appdataKey) {
+// Generica per qualunque entità con campo "allegati" (array). Prende UNA
+// lista di sorgenti {records, stateKey, appdataKey} e si lega UNA sola
+// volta ai selettori — chiamarla più volte (una per entità) romperebbe le
+// cose, perché i tre selettori data-view/dl/del-allegato non sono scoped
+// per entità: una seconda chiamata con onclick= (non addEventListener)
+// sovrascriverebbe silenziosamente i binding della prima anche sui bottoni
+// di un'altra entità già presenti nella stessa pagina/modal.
+function bindAllegatiInTable(sources) {
+  const findIn = (id) => {
+    for (const src of sources) {
+      for (const r of src.records) {
+        if (r.allegati) {
+          const found = r.allegati.find(a=>a.id===id);
+          if (found) return { found, src };
+        }
+      }
+    }
+    return { found: null, src: null };
+  };
+
   document.querySelectorAll('[data-view-allegato]').forEach(btn => {
     btn.onclick = async () => {
       const {id} = JSON.parse(btn.dataset.viewAllegato);
-      // find allegato across all records
-      let found = null;
-      for (const r of records) {
-        if (r.allegati) { found = r.allegati.find(a=>a.id===id); if (found) break; }
-      }
+      const { found } = findIn(id);
       if (!found) return;
       if (found.storagePath) {
         setState({viewer:{nome:found.nome,mime:found.mime,size:found.size,loading:true}});
@@ -1753,10 +1769,7 @@ function bindAllegatiInTable(records, stateKey, appdataKey) {
   document.querySelectorAll('[data-dl-allegato]').forEach(btn => {
     btn.onclick = () => {
       const {id} = JSON.parse(btn.dataset.dlAllegato);
-      let found = null;
-      for (const r of records) {
-        if (r.allegati) { found = r.allegati.find(a=>a.id===id); if (found) break; }
-      }
+      const { found } = findIn(id);
       if (found) downloadAllegato(found);
     };
   });
@@ -1764,22 +1777,20 @@ function bindAllegatiInTable(records, stateKey, appdataKey) {
     btn.onclick = async () => {
       if (!confirm('Eliminare questo allegato?')) return;
       const {id} = JSON.parse(btn.dataset.delAllegato);
-      let toDelete = null;
-      for (const r of records) {
-        if (r.allegati) { toDelete = r.allegati.find(a=>a.id===id); if (toDelete) break; }
-      }
-      if (toDelete?.storagePath) {
+      const { found: toDelete, src } = findIn(id);
+      if (!toDelete || !src) return;
+      if (toDelete.storagePath) {
         try {
           const { storage, ref, deleteObject } = window._fb;
           await deleteObject(ref(storage, toDelete.storagePath));
         } catch (err) { console.warn('deleteObject:', err.message); }
       }
-      const nuoviRecords = state[stateKey].map(r => ({
+      const nuoviRecords = state[src.stateKey].map(r => ({
         ...r,
         allegati: (r.allegati||[]).filter(a=>a.id!==id)
       }));
-      save(appdataKey, nuoviRecords);
-      setState({[stateKey]: nuoviRecords});
+      save(src.appdataKey, nuoviRecords);
+      setState({[src.stateKey]: nuoviRecords});
     };
   });
 }
@@ -2244,7 +2255,7 @@ function renderVerbali() {
   const canManage = canUserAdmin(state.user);
   const tuttiVerbali = getVerbaliVisibili();
   const anniVerbali = [...new Set(tuttiVerbali.map(v => new Date(v.data).getFullYear()))].sort((a,b)=>b-a);
-  const anno = state.filterAnno || 0;
+  const anno = state.filterAnnoVerbali || 0;
 
   let items = tuttiVerbali;
   if (anno) items = items.filter(v => new Date(v.data).getFullYear() === anno);
@@ -2265,8 +2276,8 @@ function renderVerbali() {
 
     <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1rem">
       <input type="text" class="spese-filter-search" id="search-verbali" placeholder="🔍 Cerca per titolo o argomento…" value="${esc(state.searchQ)}" style="flex:0 1 260px;min-width:160px">
-      <select class="spese-filter-sel" onchange="setState({filterAnno:this.value?parseInt(this.value):0})" style="max-width:160px">
-        <option value="">Tutti gli anni</option>
+      <select class="spese-filter-sel" onchange="setState({filterAnnoVerbali:this.value?parseInt(this.value):0})" style="max-width:160px">
+        <option value="" ${anno?'':'selected'}>Tutti gli anni</option>
         ${anniVerbali.map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
       </select>
     </div>
@@ -5804,8 +5815,10 @@ function bindPageActions() {
   });
 
   // Allegati in tabella
-  bindAllegatiInTable(state.spese, 'spese', 'cm_spese');
-  bindAllegatiInTable(state.verbali, 'verbali', 'cm_verbali');
+  bindAllegatiInTable([
+    { records: state.spese, stateKey: 'spese', appdataKey: 'cm_spese' },
+    { records: state.verbali, stateKey: 'verbali', appdataKey: 'cm_verbali' },
+  ]);
 
   // Delete entrate
   // Piano rate: 1) "Avvia" mostra il pannello di conferma con le rate già calcolate sopra
@@ -7964,14 +7977,18 @@ async function initApp() {
       // SEC-03 (ponte transitorio): per i non-superAdmin, le firestore.rules non
       // permettono più la lettura diretta di cm_spese/cm_entrate/cm_fornitori (blob
       // con tutti gli edifici) — li richiediamo filtrati per il proprio edificio
-      // tramite la Cloud Function getBuildingData.
+      // tramite la Cloud Function getBuildingData. cm_bacheca/cm_verbali restano
+      // leggibili direttamente (come cm_condomini), ma senza questo bridge
+      // conterrebbero comunque TUTTI gli edifici: vanno qui per lo stesso motivo,
+      // altrimenti un adminEdificio che salva finisce per inviare anche record di
+      // altri edifici a saveBuildingData, che li rifiuta in blocco.
       if (!isSuperAdmin(profile)) {
         try {
           const { functionsInstance, httpsCallable } = window._fb;
           const getBuildingData = httpsCallable(functionsInstance, 'getBuildingData');
           const resp = await getBuildingData();
           const data = resp.data || {};
-          ['cm_spese','cm_entrate','cm_fornitori','cm_condomini','cm_edifici'].forEach(k => {
+          ['cm_spese','cm_entrate','cm_fornitori','cm_condomini','cm_edifici','cm_bacheca','cm_verbali'].forEach(k => {
             if (data[k] !== undefined) _cache[k] = data[k];
           });
           applyLoadedDataFromCache();

@@ -77,7 +77,7 @@ exports.getBuildingData = onCall(async (request) => {
     throw new HttpsError('permission-denied', 'Utente non provisionato (nessun ruolo assegnato).');
   }
 
-  const keys = ['cm_spese', 'cm_entrate', 'cm_condomini', 'cm_fornitori', 'cm_edifici'];
+  const keys = ['cm_spese', 'cm_entrate', 'cm_condomini', 'cm_fornitori', 'cm_edifici', 'cm_bacheca', 'cm_verbali'];
   const snaps = await Promise.all(
     keys.map((k) => db.collection('appdata').doc(k).get())
   );
@@ -171,12 +171,13 @@ exports.linkMyUid = onCall(async (request) => {
 // ═══════════════════════════════════════════════════════════════
 // saveBuildingData
 // P0 URGENTE (scoperto pianificando REB-01): da quando SEC-03 filtra
-// cm_spese/cm_entrate/cm_fornitori/cm_condomini al proprio edificio per
-// i non-superAdmin, il client continua a salvare con un overwrite
-// COMPLETO del blob condiviso (fbSaveKey -> setDoc). Un adminEdificio o
-// un condomino con canEdit:true che salva qualunque cosa scrive nel
-// documento condiviso SOLO i record del proprio edificio, cancellando
-// silenziosamente quelli di tutti gli altri edifici.
+// cm_spese/cm_entrate/cm_fornitori/cm_condomini (e ora anche cm_bacheca/
+// cm_verbali, stesso bridge in getBuildingData qui sotto) al proprio
+// edificio per i non-superAdmin, il client continua a salvare con un
+// overwrite COMPLETO del blob condiviso (fbSaveKey -> setDoc). Un
+// adminEdificio o un condomino con canEdit:true che salva qualunque cosa
+// scrive nel documento condiviso SOLO i record del proprio edificio,
+// cancellando silenziosamente quelli di tutti gli altri edifici.
 //
 // Questa function sostituisce quella scrittura diretta per i non-
 // superAdmin: legge il blob, sostituisce SOLO le righe del proprio
