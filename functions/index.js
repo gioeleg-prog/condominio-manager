@@ -77,7 +77,7 @@ exports.getBuildingData = onCall(async (request) => {
     throw new HttpsError('permission-denied', 'Utente non provisionato (nessun ruolo assegnato).');
   }
 
-  const keys = ['cm_spese', 'cm_entrate', 'cm_condomini', 'cm_fornitori', 'cm_edifici', 'cm_bacheca', 'cm_verbali'];
+  const keys = ['cm_spese', 'cm_entrate', 'cm_condomini', 'cm_fornitori', 'cm_edifici', 'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_delibere'];
   const snaps = await Promise.all(
     keys.map((k) => db.collection('appdata').doc(k).get())
   );
@@ -185,7 +185,7 @@ exports.linkMyUid = onCall(async (request) => {
 // Con Admin SDK, quindi può fare la fusione anche se le rules negano
 // la scrittura diretta di queste chiavi a chi non è superAdmin.
 // ═══════════════════════════════════════════════════════════════
-const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca', 'cm_verbali'];
+const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_delibere'];
 
 exports.saveBuildingData = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
@@ -204,14 +204,18 @@ exports.saveBuildingData = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'records deve essere un array.');
   }
 
-  // cm_condomini (gestione utenti/ruoli), cm_bacheca (comunicazioni) e
-  // cm_verbali (atti ufficiali di assemblea) restano riservati ad
-  // adminEdificio/superAdmin. I dati finanziari si aprono anche a
-  // 'editor'. Un semplice 'member' (sola lettura in UI) non può scrivere
-  // nessuna di queste — altrimenti basterebbe chiamare questa function da
-  // console per bypassare un limite che l'interfaccia si limita a nascondere.
+  // cm_condomini (gestione utenti/ruoli), cm_bacheca (comunicazioni),
+  // cm_verbali (atti ufficiali di assemblea), cm_lavori (checklist lavori)
+  // e cm_delibere (registro decisioni) restano riservati ad adminEdificio/
+  // superAdmin — su richiesta esplicita: per tutte le sezioni introdotte
+  // dopo Spese/Entrate/Fornitori, 'editor' resta sola lettura come
+  // 'member', a differenza dei dati finanziari storici che si aprono
+  // anche a 'editor'. Un semplice 'member' (sola lettura in UI) non può
+  // scrivere nessuna di queste — altrimenti basterebbe chiamare questa
+  // function da console per bypassare un limite che l'interfaccia si
+  // limita a nascondere.
   if (callerRole !== 'superAdmin') {
-    const adminOnlyKeys = ['cm_condomini', 'cm_bacheca', 'cm_verbali'];
+    const adminOnlyKeys = ['cm_condomini', 'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_delibere'];
     const canWriteAdminOnly = callerRole === 'adminEdificio';
     const canWriteFinance = callerRole === 'adminEdificio' || callerRole === 'editor';
     if (adminOnlyKeys.includes(key) && !canWriteAdminOnly) {

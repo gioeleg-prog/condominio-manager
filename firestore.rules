@@ -67,7 +67,9 @@ service cloud.firestore {
       // direttamente dal client solo dal superAdmin. Chiunque altro (member o
       // adminEdificio) li ottiene filtrati per il proprio edificio tramite la
       // Cloud Function getBuildingData (Admin SDK, bypassa queste rules).
-      allow read: if (key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori')
+      // cm_delibere si aggiunge a questo gruppo: budget e responsabile sono
+      // dati sensibili quanto spese/entrate, stesso trattamento.
+      allow read: if (key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_delibere')
                    ? isSuperAdmin()
                    : isSignedIn();
       // P0 urgente: cm_spese/cm_entrate/cm_fornitori/cm_condomini negati in
@@ -76,12 +78,12 @@ service cloud.firestore {
       // proprio edificio (già filtrato in lettura da SEC-03), cancellando
       // gli altri. Passano tutti dalla Cloud Function saveBuildingData
       // (Admin SDK, fonde solo la propria fetta, bypassa queste rules).
-      // cm_bacheca e cm_verbali seguono lo stesso trattamento: comunicazioni
-      // e atti ufficiali dell'amministratore, non un blob "interim"
-      // scrivibile da chiunque.
+      // cm_bacheca, cm_verbali, cm_lavori e cm_delibere seguono lo stesso
+      // trattamento in scrittura: comunicazioni e atti ufficiali
+      // dell'amministratore, non un blob "interim" scrivibile da chiunque.
       allow write: if key == 'cm_config'
                    ? isSuperAdmin()
-                   : ((key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_condomini' || key == 'cm_bacheca' || key == 'cm_verbali')
+                   : ((key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_condomini' || key == 'cm_bacheca' || key == 'cm_verbali' || key == 'cm_lavori' || key == 'cm_delibere')
                        ? isSuperAdmin()
                        : isSignedIn()); // interim: resto ancora aperto ai provisioned users
     }

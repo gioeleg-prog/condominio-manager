@@ -122,6 +122,57 @@ describe('appdata — modello attuale', () => {
     const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
     await assertSucceeds(db.collection('appdata').doc('cm_verbali').set({ value: '[]' }));
   });
+
+  // cm_lavori (checklist lavori, dato operativo): stesso trattamento di
+  // cm_bacheca/cm_verbali — lettura aperta, scrittura solo adminEdificio/
+  // superAdmin.
+  it('un member PUÒ leggere appdata/cm_lavori', async () => {
+    const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
+    await assertSucceeds(db.collection('appdata').doc('cm_lavori').get());
+  });
+
+  it('un editor NON può scrivere appdata/cm_lavori direttamente (passa da saveBuildingData)', async () => {
+    const db = testEnv.authenticatedContext('u_editor', { role: 'editor', buildingId: 'b1' }).firestore();
+    await assertFails(db.collection('appdata').doc('cm_lavori').set({ value: '[]' }));
+  });
+
+  it('un adminEdificio NON può scrivere appdata/cm_lavori direttamente (passa da saveBuildingData)', async () => {
+    const db = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
+    await assertFails(db.collection('appdata').doc('cm_lavori').set({ value: '[]' }));
+  });
+
+  it('un superAdmin PUÒ scrivere direttamente appdata/cm_lavori', async () => {
+    const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertSucceeds(db.collection('appdata').doc('cm_lavori').set({ value: '[]' }));
+  });
+
+  // cm_delibere (atto formale + budget): stesso trattamento di cm_spese —
+  // lettura ristretta al superAdmin (gli altri via getBuildingData),
+  // scrittura solo adminEdificio/superAdmin.
+  it('un member NON può leggere direttamente appdata/cm_delibere (dato economico, passa da getBuildingData)', async () => {
+    const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
+    await assertFails(db.collection('appdata').doc('cm_delibere').get());
+  });
+
+  it('un superAdmin PUÒ leggere direttamente appdata/cm_delibere', async () => {
+    const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertSucceeds(db.collection('appdata').doc('cm_delibere').get());
+  });
+
+  it('un editor NON può scrivere appdata/cm_delibere direttamente (passa da saveBuildingData)', async () => {
+    const db = testEnv.authenticatedContext('u_editor', { role: 'editor', buildingId: 'b1' }).firestore();
+    await assertFails(db.collection('appdata').doc('cm_delibere').set({ value: '[]' }));
+  });
+
+  it('un adminEdificio NON può scrivere appdata/cm_delibere direttamente (passa da saveBuildingData)', async () => {
+    const db = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
+    await assertFails(db.collection('appdata').doc('cm_delibere').set({ value: '[]' }));
+  });
+
+  it('un superAdmin PUÒ scrivere direttamente appdata/cm_delibere', async () => {
+    const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertSucceeds(db.collection('appdata').doc('cm_delibere').set({ value: '[]' }));
+  });
 });
 
 describe('roles/{uid} — mai scrivibile dal client', () => {
