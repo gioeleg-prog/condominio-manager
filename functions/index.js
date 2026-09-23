@@ -21,12 +21,22 @@ exports.setUserRole = onCall(async (request) => {
   }
 
   const { targetUid, role, buildingId } = request.data || {};
-  const validRoles = ['superAdmin', 'adminEdificio', 'member'];
+  // 'editor' (REB-01 P1): come 'member' ma può scrivere spese/entrate/
+  // fornitori del proprio edificio — mappa canEdit:true && !isAdmin.
+  const validRoles = ['superAdmin', 'adminEdificio', 'editor', 'member'];
   if (!targetUid || !validRoles.includes(role)) {
     throw new HttpsError('invalid-argument', 'targetUid e role (validi) sono obbligatori.');
   }
   if (role !== 'superAdmin' && !buildingId) {
-    throw new HttpsError('invalid-argument', 'buildingId obbligatorio per adminEdificio/member.');
+    throw new HttpsError('invalid-argument', 'buildingId obbligatorio per adminEdificio/editor/member.');
+  }
+  if (role !== 'superAdmin') {
+    const snap = await db.collection('appdata').doc('cm_edifici').get();
+    let edifici = [];
+    try { edifici = JSON.parse(snap.data()?.value || '[]'); } catch { edifici = []; }
+    if (!edifici.some((e) => String(e.id) === String(buildingId))) {
+      throw new HttpsError('invalid-argument', `Edificio ${buildingId} inesistente.`);
+    }
   }
 
   const claims = role === 'superAdmin' ? { role } : { role, buildingId };
@@ -67,7 +77,7 @@ exports.getBuildingData = onCall(async (request) => {
     throw new HttpsError('permission-denied', 'Utente non provisionato (nessun ruolo assegnato).');
   }
 
-  const keys = ['cm_spese', 'cm_entrate', 'cm_condomini', 'cm_fornitori', 'cm_edifici'];
+  const keys = ['cm_spese', 'cm_entrate', 'cm_condomini', 'cm_fornitori', 'cm_edifici', 'cm_bacheca', 'cm_verbali'];
   const snaps = await Promise.all(
     keys.map((k) => db.collection('appdata').doc(k).get())
   );
@@ -143,7 +153,8 @@ exports.linkMyUid = onCall(async (request) => {
 
   const existingUser = await auth.getUser(uid).catch(() => null);
   if (!existingUser?.customClaims?.role) {
-    const role = record.superAdmin ? 'superAdmin' : (record.isAdmin ? 'adminEdificio' : 'member');
+    const role = record.superAdmin ? 'superAdmin'
+      : (record.isAdmin ? 'adminEdificio' : (record.canEdit ? 'editor' : 'member'));
     const claims = role === 'superAdmin' ? { role } : { role, buildingId: String(record.edificioId || '') };
     await auth.setCustomUserClaims(uid, claims);
     await db.collection('roles').doc(uid).set({
@@ -160,12 +171,13 @@ exports.linkMyUid = onCall(async (request) => {
 // ═══════════════════════════════════════════════════════════════
 // saveBuildingData
 // P0 URGENTE (scoperto pianificando REB-01): da quando SEC-03 filtra
-// cm_spese/cm_entrate/cm_fornitori/cm_condomini al proprio edificio per
-// i non-superAdmin, il client continua a salvare con un overwrite
-// COMPLETO del blob condiviso (fbSaveKey -> setDoc). Un adminEdificio o
-// un condomino con canEdit:true che salva qualunque cosa scrive nel
-// documento condiviso SOLO i record del proprio edificio, cancellando
-// silenziosamente quelli di tutti gli altri edifici.
+// cm_spese/cm_entrate/cm_fornitori/cm_condomini (e ora anche cm_bacheca/
+// cm_verbali, stesso bridge in getBuildingData qui sotto) al proprio
+// edificio per i non-superAdmin, il client continua a salvare con un
+// overwrite COMPLETO del blob condiviso (fbSaveKey -> setDoc). Un
+// adminEdificio o un condomino con canEdit:true che salva qualunque cosa
+// scrive nel documento condiviso SOLO i record del proprio edificio,
+// cancellando silenziosamente quelli di tutti gli altri edifici.
 //
 // Questa function sostituisce quella scrittura diretta per i non-
 // superAdmin: legge il blob, sostituisce SOLO le righe del proprio
@@ -173,7 +185,7 @@ exports.linkMyUid = onCall(async (request) => {
 // Con Admin SDK, quindi può fare la fusione anche se le rules negano
 // la scrittura diretta di queste chiavi a chi non è superAdmin.
 // ═══════════════════════════════════════════════════════════════
-const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini'];
+const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca', 'cm_verbali'];
 
 exports.saveBuildingData = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
@@ -190,6 +202,24 @@ exports.saveBuildingData = onCall(async (request) => {
   }
   if (!Array.isArray(records)) {
     throw new HttpsError('invalid-argument', 'records deve essere un array.');
+  }
+
+  // cm_condomini (gestione utenti/ruoli), cm_bacheca (comunicazioni) e
+  // cm_verbali (atti ufficiali di assemblea) restano riservati ad
+  // adminEdificio/superAdmin. I dati finanziari si aprono anche a
+  // 'editor'. Un semplice 'member' (sola lettura in UI) non può scrivere
+  // nessuna di queste — altrimenti basterebbe chiamare questa function da
+  // console per bypassare un limite che l'interfaccia si limita a nascondere.
+  if (callerRole !== 'superAdmin') {
+    const adminOnlyKeys = ['cm_condomini', 'cm_bacheca', 'cm_verbali'];
+    const canWriteAdminOnly = callerRole === 'adminEdificio';
+    const canWriteFinance = callerRole === 'adminEdificio' || callerRole === 'editor';
+    if (adminOnlyKeys.includes(key) && !canWriteAdminOnly) {
+      throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare questi dati.');
+    }
+    if (!adminOnlyKeys.includes(key) && !canWriteFinance) {
+      throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare questi dati.');
+    }
   }
 
   const ref = db.collection('appdata').doc(key);

@@ -34,7 +34,7 @@ function isSignedIn() {
 }
 
 function role() {
-  return request.auth.token.role; // 'superAdmin' | 'adminEdificio' | 'member' | null
+  return request.auth.token.role; // 'superAdmin' | 'adminEdificio' | 'editor' | 'member' | null
 }
 
 function isSuperAdmin() {
@@ -43,6 +43,15 @@ function isSuperAdmin() {
 
 function isBuildingAdmin() {
   return isSignedIn() && (role() == 'superAdmin' || role() == 'adminEdificio');
+}
+
+// REB-01 P1: 'editor' può scrivere i dati finanziari (spese/entrate/
+// fornitori) del proprio edificio ma non gestire condomini/edificio —
+// a differenza di 'member' che oggi è di sola lettura in UI. Introdotto
+// perché il blocco buildings/** sotto, a differenza delle regole interim
+// di appdata/{key}, non concede scritture a 'member' di default.
+function isEditor() {
+  return isSignedIn() && (role() == 'superAdmin' || role() == 'adminEdificio' || role() == 'editor');
 }
 
 function myBuildingId() {
@@ -67,9 +76,12 @@ service cloud.firestore {
       // proprio edificio (già filtrato in lettura da SEC-03), cancellando
       // gli altri. Passano tutti dalla Cloud Function saveBuildingData
       // (Admin SDK, fonde solo la propria fetta, bypassa queste rules).
+      // cm_bacheca e cm_verbali seguono lo stesso trattamento: comunicazioni
+      // e atti ufficiali dell'amministratore, non un blob "interim"
+      // scrivibile da chiunque.
       allow write: if key == 'cm_config'
                    ? isSuperAdmin()
-                   : ((key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_condomini')
+                   : ((key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_condomini' || key == 'cm_bacheca' || key == 'cm_verbali')
                        ? isSuperAdmin()
                        : isSignedIn()); // interim: resto ancora aperto ai provisioned users
     }
@@ -90,13 +102,66 @@ service cloud.firestore {
     // ─── Schema NORMALIZZATO target (REB-01) — pronto, non ancora
     //     in uso finché la migrazione dati non è completata ────
     match /buildings/{buildingId} {
+      // Mai in list per i non-superAdmin: una query su tutta la collection
+      // buildings fallirebbe in blocco per loro (stesso comportamento già
+      // visto su appdata quando le regole non sono uniformi per ogni
+      // documento) — il client deve sempre fare getDoc sul proprio id,
+      // mai getDocs(collection(...)), tranne che da superAdmin.
       allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
       allow write: if isSuperAdmin();
 
-      match /{subcollection}/{docId} {
+      // Gestione condomini/membri: riservata ad adminEdificio/superAdmin,
+      // mai a 'editor' o 'member' — stessa politica di cm_condomini oggi.
+      // Blocco separato ed esclusivo (non un wildcard generico): in
+      // Firestore i match che si sovrappongono sulla stessa collection si
+      // sommano (OR), quindi un wildcard "tutte le sottocollection" qui
+      // accanto lascerebbe scrivere anche i condomini a un 'editor'.
+      match /members/{memberId} {
         allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
-        allow write: if isSignedIn()
-                     && (isSuperAdmin() || (isBuildingAdmin() && myBuildingId() == buildingId));
+        allow write: if isSuperAdmin()
+                     || (isBuildingAdmin() && myBuildingId() == buildingId);
+      }
+
+      // Dati finanziari: anche 'editor' può scriverli nel proprio edificio.
+      // Tre blocchi identici ed espliciti invece di un wildcard, per lo
+      // stesso motivo di sopra — mai un pattern che includa anche members.
+      match /expenses/{docId} {
+        allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
+        allow write: if isSuperAdmin() || (isEditor() && myBuildingId() == buildingId);
+      }
+      match /payments/{docId} {
+        allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
+        allow write: if isSuperAdmin() || (isEditor() && myBuildingId() == buildingId);
+      }
+      match /suppliers/{docId} {
+        allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
+        allow write: if isSuperAdmin() || (isEditor() && myBuildingId() == buildingId);
+      }
+    }
+
+    // Profilo whoami/bootstrap: ognuno legge/scrive solo il proprio.
+    // Non contiene flag di ruolo autorevoli (quelli sono nel custom claim
+    // e nello specchio roles/{uid}, mai scrivibili dal client).
+    match /users/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+      allow read: if isSuperAdmin();
+    }
+
+    // Impostazioni globali (categorie condivise, feature flag di
+    // migrazione, residuo di cm_config): leggibili da chiunque sia
+    // autenticato, scrivibili solo dal superAdmin.
+    match /appSettings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin();
+    }
+
+    // Tracciamento del backfill: mai accessibile dal client, solo dagli
+    // script Admin SDK che bypassano le rules.
+    match /migrationJobs/{jobId} {
+      allow read, write: if false;
+
+      match /{document=**} {
+        allow read, write: if false;
       }
     }
 
