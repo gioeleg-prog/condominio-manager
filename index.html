@@ -11,7 +11,7 @@
 <meta name="theme-color" content="#2563EB">
 
 <!-- Security Headers (XSS, clickjacking, content sniffing) -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://www.gstatic.com https://*.cloudfunctions.net wss://*.firebaseio.com; frame-src 'self' https://*.firebaseapp.com https://firebasestorage.googleapis.com; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://www.googleapis.com https://apis.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firebase.com https://www.gstatic.com https://*.cloudfunctions.net wss://*.firebaseio.com; frame-src 'self' https://*.firebaseapp.com https://firebasestorage.googleapis.com blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
 <meta http-equiv="X-Frame-Options" content="SAMEORIGIN">
 <meta name="referrer" content="strict-origin-when-cross-origin">
@@ -5677,7 +5677,10 @@ function bindPageActions() {
       try {
         const { functionsInstance, httpsCallable } = window._fb;
         const setUserRole = httpsCallable(functionsInstance, 'setUserRole');
-        const serverRole = superAdminNew ? 'superAdmin' : (isAdminNew ? 'adminEdificio' : 'member');
+        // 'editor' (REB-01 P1): canEdit:true ma non admin. Prima di questo fix
+        // veniva sempre inviato 'member' anche per "Modifica", disallineando il
+        // claim server-side dal ruolo mostrato in UI.
+        const serverRole = superAdminNew ? 'superAdmin' : (isAdminNew ? 'adminEdificio' : (canEditNew ? 'editor' : 'member'));
         const resp = await setUserRole({
           targetUid: target.uid,
           role: serverRole,
@@ -7515,6 +7518,12 @@ async function initApp() {
           const { functionsInstance, httpsCallable } = window._fb;
           const linkMyUid = httpsCallable(functionsInstance, 'linkMyUid');
           await linkMyUid();
+          // linkMyUid può aver appena assegnato il custom claim di ruolo per la
+          // prima volta (provisioning automatico dai flag legacy) — il token
+          // già in mano al client, refreshato PRIMA di questa chiamata, non lo
+          // riflette ancora. Senza questo refresh, la getBuildingData qui sotto
+          // fallirebbe con "Utente non provisionato" al primissimo login.
+          await firebaseUser.getIdToken(true);
           const upd = state.condomini.map(c => c.id===profile.id ? {...c,uid:firebaseUser.uid} : c);
           state.condomini = upd;
           profile = {...profile, uid:firebaseUser.uid};
