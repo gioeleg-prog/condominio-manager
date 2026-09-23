@@ -840,10 +840,47 @@ function save(key, val) {
   fbSaveKey(key, val);
 }
 
-// P0 urgente: queste chiavi sono filtrate per edificio in lettura (SEC-03) per
-// i non-superAdmin — se scritte con un overwrite diretto del blob condiviso,
-// cancellano silenziosamente gli altri edifici. Passano da saveBuildingData.
-const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_delibere'];
+// ═══════════════════════════════════════════════════════════════
+// APPDATA_CONFIG — unica fonte, in questo runtime, di quali chiavi del
+// blob "appdata" esistono, se sono a scrittura ristretta (e per chi:
+// 'adminOnly' = solo adminEdificio/superAdmin, 'finance' = anche editor)
+// e in quale campo di state vanno sincronizzate dopo il caricamento da
+// Firestore (stateProp — assente per le chiavi che non hanno un campo
+// state dedicato, come cm_categorie/cm_config, lette on-demand con
+// load()). Deriva RESTRICTED_KEYS, APPDATA_KEYS, il bridge di
+// getBuildingData e il corpo di applyLoadedDataFromCache qui sotto.
+//
+// functions/index.js ha la propria copia equivalente (runtime separato,
+// non importabile da qui) — aggiungere o togliere una chiave va fatto in
+// entrambe. firestore.rules resta sincronizzata a mano: è un linguaggio
+// dichiarativo che non può importare questo oggetto, quindi i suoi due
+// elenchi (lettura e scrittura) vanno aggiornati a mano in coppia con
+// questo file. Le chiavi a lettura diretta ristretta al superAdmin
+// (cm_spese/cm_entrate/cm_fornitori/cm_delibere) sono una decisione
+// presa SOLO in firestore.rules — non influenzano nessuna derivazione
+// qui sotto (SEC-03: da quando le rules distinguono i permessi di
+// lettura per singola chiave, una query "tutta la collection" fallirebbe
+// in blocco per chi non è superAdmin; per questo fbLoadAll legge ogni
+// chiave singolarmente, così quelle vietate falliscono da sole senza
+// bloccare le altre).
+// ═══════════════════════════════════════════════════════════════
+const APPDATA_CONFIG = {
+  cm_condomini:       { writeRole: 'adminOnly', stateProp: 'condomini' },
+  cm_spese:           { writeRole: 'finance',   stateProp: 'spese' },
+  cm_entrate:         { writeRole: 'finance',   stateProp: 'entrate' },
+  cm_fornitori:       { writeRole: 'finance',   stateProp: 'fornitori' },
+  cm_bacheca:         { writeRole: 'adminOnly', stateProp: 'bacheca' },
+  cm_verbali:         { writeRole: 'adminOnly', stateProp: 'verbali' },
+  cm_lavori:          { writeRole: 'adminOnly', stateProp: 'lavori' },
+  cm_delibere:        { writeRole: 'adminOnly', stateProp: 'delibere' },
+  cm_edifici:         { stateProp: 'edifici' },
+  cm_categorie:       {},
+  cm_edificio_attivo: { stateProp: 'edificioAttivo' },
+  cm_login_stats:     { stateProp: 'loginStats' },
+  cm_config:          {},
+};
+const RESTRICTED_KEYS = Object.keys(APPDATA_CONFIG).filter(k => APPDATA_CONFIG[k].writeRole);
+const APPDATA_KEYS = Object.keys(APPDATA_CONFIG);
 
 // Salva un singolo documento {key} nella collection "appdata"
 async function fbSaveKey(key, val) {
@@ -859,16 +896,6 @@ async function fbSaveKey(key, val) {
     await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
   } catch(e) { console.warn('fbSave error', key, e); }
 }
-
-// Tutte le chiavi note del blob "appdata". SEC-03: da quando le firestore.rules
-// distinguono i permessi di lettura per singola chiave (cm_spese/cm_entrate/
-// cm_fornitori riservate al superAdmin), una query "tutta la collection" fallisce
-// in blocco per chiunque altro — Firestore nega l'intera list query se anche un
-// solo documento potenziale non rispetta la stessa regola di tutti gli altri.
-// Si leggono quindi i documenti singolarmente: ogni get() viene valutato (e
-// filtrato) in modo indipendente, quindi le chiavi vietate falliscono da sole
-// senza bloccare le altre.
-const APPDATA_KEYS = ['cm_condomini','cm_spese','cm_entrate','cm_fornitori','cm_edifici','cm_categorie','cm_edificio_attivo','cm_login_stats','cm_config','cm_bacheca','cm_verbali','cm_lavori','cm_delibere'];
 
 // Carica tutti i dati da Firestore all'avvio e popola la cache
 async function fbLoadAll() {
@@ -8236,33 +8263,18 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 // Fattorizzata per poter essere richiamata sia al boot (best-effort) sia
 // dopo l'autenticazione (autoritativa — è qui che DEVE riuscire).
 function applyLoadedDataFromCache() {
-  const savedCondomini = load('cm_condomini', null);
-  const savedSpese     = load('cm_spese', null);
-  const savedEntrate   = load('cm_entrate', null);
-  const savedFornitori = load('cm_fornitori', null);
-  const savedEdifici   = load('cm_edifici', null);
-  const savedEdAttivo  = load('cm_edificio_attivo', null);
-  const savedLoginStats = load('cm_login_stats', null);
-  // Bug corretto: mancavano qui, quindi le pagine restavano vuote dopo il
-  // login finché non si creava un elemento nella sessione corrente (lo
-  // stato in memoria veniva aggiornato solo dai save handler, mai dal
-  // caricamento iniziale dei dati esistenti su Firestore).
-  const savedBacheca  = load('cm_bacheca', null);
-  const savedVerbali  = load('cm_verbali', null);
-  const savedLavori   = load('cm_lavori', null);
-  const savedDelibere = load('cm_delibere', null);
-
-  if (savedCondomini) state.condomini = savedCondomini;
-  if (savedSpese)     state.spese     = savedSpese;
-  if (savedEntrate)   state.entrate   = savedEntrate;
-  if (savedFornitori) state.fornitori = savedFornitori;
-  if (savedEdifici)   state.edifici   = savedEdifici;
-  if (savedEdAttivo)  state.edificioAttivo = savedEdAttivo;
-  if (savedLoginStats) state.loginStats = savedLoginStats;
-  if (savedBacheca)   state.bacheca   = savedBacheca;
-  if (savedVerbali)   state.verbali   = savedVerbali;
-  if (savedLavori)    state.lavori    = savedLavori;
-  if (savedDelibere)  state.delibere  = savedDelibere;
+  // Guidato da APPDATA_CONFIG (stateProp) invece di un elenco manuale per
+  // chiave — bug corretto: prima di questo loop, cm_bacheca/cm_verbali
+  // (poi anche cm_lavori/cm_delibere) non comparivano qui, quindi le
+  // pagine restavano vuote dopo il login finché non si creava un elemento
+  // nella sessione corrente (lo stato in memoria veniva aggiornato solo
+  // dai save handler, mai dal caricamento iniziale da Firestore). Con il
+  // loop, una nuova chiave con stateProp viene sincronizzata automaticamente.
+  Object.entries(APPDATA_CONFIG).forEach(([key, cfg]) => {
+    if (!cfg.stateProp) return;
+    const saved = load(key, null);
+    if (saved) state[cfg.stateProp] = saved;
+  });
 
   // Dopo il caricamento: imposta filterAnno all'anno con più dati se quello corrente è vuoto
   const currYear = new Date().getFullYear();
@@ -8437,23 +8449,23 @@ async function initApp() {
         save('cm_edificio_attivo', profile.edificioId);
       }
       // SEC-03 (ponte transitorio): per i non-superAdmin, le firestore.rules non
-      // permettono più la lettura diretta di cm_spese/cm_entrate/cm_fornitori (blob
-      // con tutti gli edifici) — li richiediamo filtrati per il proprio edificio
-      // tramite la Cloud Function getBuildingData. cm_bacheca/cm_verbali/
-      // cm_lavori restano leggibili direttamente (come cm_condomini), ma
-      // senza questo bridge conterrebbero comunque TUTTI gli edifici: vanno
-      // qui per lo stesso motivo, altrimenti un adminEdificio che salva
-      // finisce per inviare anche record di altri edifici a
-      // saveBuildingData, che li rifiuta in blocco. cm_delibere invece è
-      // proprio a lettura diretta negata (come cm_spese, budget compreso),
-      // quindi per i non-superAdmin passa SOLO da qui.
+      // permettono più la lettura diretta di cm_spese/cm_entrate/cm_fornitori/
+      // cm_delibere (blob con tutti gli edifici) — li richiediamo filtrati per
+      // il proprio edificio tramite la Cloud Function getBuildingData. Le altre
+      // chiavi di RESTRICTED_KEYS (cm_condomini/cm_bacheca/cm_verbali/cm_lavori)
+      // restano leggibili direttamente, ma senza questo bridge conterrebbero
+      // comunque TUTTI gli edifici: vanno qui per lo stesso motivo, altrimenti
+      // un adminEdificio che salva finisce per inviare anche record di altri
+      // edifici a saveBuildingData, che li rifiuta in blocco. Stessa lista di
+      // RESTRICTED_KEYS (APPDATA_CONFIG) + 'cm_edifici', sempre incluso e mai
+      // filtrato per edificio (vedi getBuildingData lato server).
       if (!isSuperAdmin(profile)) {
         try {
           const { functionsInstance, httpsCallable } = window._fb;
           const getBuildingData = httpsCallable(functionsInstance, 'getBuildingData');
           const resp = await getBuildingData();
           const data = resp.data || {};
-          ['cm_spese','cm_entrate','cm_fornitori','cm_condomini','cm_edifici','cm_bacheca','cm_verbali','cm_lavori','cm_delibere'].forEach(k => {
+          [...RESTRICTED_KEYS, 'cm_edifici'].forEach(k => {
             if (data[k] !== undefined) _cache[k] = data[k];
           });
           applyLoadedDataFromCache();

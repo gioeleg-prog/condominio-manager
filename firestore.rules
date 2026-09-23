@@ -27,6 +27,16 @@ rules_version = '2';
 //  - qualunque scrittura diretta dal client sulla collection
 //    `roles/*` → SEMPRE negata (la scrivono solo le Cloud
 //    Functions con Admin SDK, che bypassano le rules)
+//
+//  SINCRONIZZAZIONE CHIAVI appdata — questo file resta l'UNICA eccezione
+//  sincronizzata a mano: functions/index.js (APPDATA_RESTRICTED_CONFIG) e
+//  index.html (APPDATA_CONFIG) derivano le proprie liste da un unico
+//  oggetto di configurazione JS per runtime — qui non è possibile, perché
+//  le Security Rules sono un linguaggio dichiarativo che non può
+//  importare quell'oggetto. Aggiungere o togliere una chiave "ristretta"
+//  richiede di aggiornare a mano, in coppia: gli elenchi di lettura (riga
+//  ~70) e scrittura (riga ~86) qui sotto, APPDATA_RESTRICTED_CONFIG in
+//  functions/index.js, e APPDATA_CONFIG in index.html.
 // ═══════════════════════════════════════════════════════════════
 
 function isSignedIn() {
