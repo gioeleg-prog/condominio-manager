@@ -2485,6 +2485,15 @@ function renderDashboard() {
   const ultimeForecast   = [...spesePrevisional].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,6);
   const ultimeEntrate = [...entrate].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,6);
 
+  // Bacheca/Verbali — riepilogo per la dashboard (fase 3, MVP ridotto):
+  // solo gli ultimi 3, "Vedi tutti" rimanda alla pagina completa.
+  const ultimiAvvisi = getBachecaVisibili().slice()
+    .sort((a,b) => (b.prioritaria?1:0)-(a.prioritaria?1:0) || new Date(b.createdAt||0)-new Date(a.createdAt||0))
+    .slice(0,3);
+  const ultimiVerbali = getVerbaliVisibili().slice()
+    .sort((a,b) => new Date(b.data)-new Date(a.data))
+    .slice(0,3);
+
   return `
   <div>
     <div class="page-header">
@@ -2495,6 +2504,41 @@ function renderDashboard() {
       <select style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;" id="anno-filter">
         ${anni.map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
       </select>
+    </div>
+
+    <!-- BACHECA & VERBALI -->
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
+      <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
+        <div class="card-header">
+          <h3>📌 Annunci recenti</h3>
+          <a data-page="bacheca" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+        </div>
+        <div style="padding:.25rem 1.25rem .75rem">
+          ${ultimiAvvisi.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessun avviso in bacheca</div>` :
+          ultimiAvvisi.map(a => `
+          <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:6px">
+              ${a.prioritaria ? `<span class="badge badge-amber" style="padding:1px 6px;font-size:10px">!</span>` : ''}
+              <span style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.titolo)}</span>
+            </div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${a.createdAt ? new Date(a.createdAt).toLocaleDateString('it-IT') : ''}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
+        <div class="card-header">
+          <h3>📋 Ultimi verbali</h3>
+          <a data-page="verbali" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+        </div>
+        <div style="padding:.25rem 1.25rem .75rem">
+          ${ultimiVerbali.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessun verbale pubblicato</div>` :
+          ultimiVerbali.map(v => `
+          <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
+            <div style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.titolo)}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${v.data}</div>
+          </div>`).join('')}
+        </div>
+      </div>
     </div>
 
     <!-- KPI STRIP -->
