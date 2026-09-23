@@ -76,9 +76,11 @@ service cloud.firestore {
       // proprio edificio (già filtrato in lettura da SEC-03), cancellando
       // gli altri. Passano tutti dalla Cloud Function saveBuildingData
       // (Admin SDK, fonde solo la propria fetta, bypassa queste rules).
+      // cm_bacheca segue lo stesso trattamento: comunicazioni ufficiali
+      // dell'amministratore, non un blob "interim" scrivibile da chiunque.
       allow write: if key == 'cm_config'
                    ? isSuperAdmin()
-                   : ((key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_condomini')
+                   : ((key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_condomini' || key == 'cm_bacheca')
                        ? isSuperAdmin()
                        : isSignedIn()); // interim: resto ancora aperto ai provisioned users
     }
