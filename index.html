@@ -983,6 +983,7 @@ let state = {
   wizardData: {},
   bilancioTab: 'overview',
   bilancioCondId: null,  // id condomino selezionato per dettaglio
+  vitaTab: 'bacheca',    // tab attiva nella pagina "Vita condominiale"
   pianoRateConferma: null, // anno per cui è in attesa di conferma la generazione/rigenerazione del piano rate
   loginEmail: '',
   loginStep: 1,
@@ -1462,10 +1463,7 @@ function renderApp() {
     {id:'entrate', label:'Entrate / Quote', icon:svgEntrate()},
     {id:'bilancio', label:'Bilancio', icon:svgBilancio()},
     {id:'fornitori', label:'Fornitori', icon:svgFornitori()},
-    {id:'bacheca', label:'Bacheca', icon:svgBacheca()},
-    {id:'verbali', label:'Verbali', icon:svgVerbali()},
-    {id:'lavori', label:'Lavori', icon:svgLavori()},
-    {id:'delibere', label:'Delibere', icon:svgDelibere()},
+    {id:'vita', label:'Vita condominiale', icon:svgVita()},
     ...(canUserAdmin(user) ? [{id:'condomini', label:'Condomini', icon:svgCondomini()}] : []),
     ...(isAdmin ? [{id:'impostazioni', label:'Impostazioni', icon:svgSettings()}] : []),
   ];
@@ -1937,10 +1935,7 @@ function renderPage() {
     case 'entrate': return renderEntrate();
     case 'bilancio': return renderBilancio();
     case 'fornitori': return renderFornitori();
-    case 'bacheca': return renderBacheca();
-    case 'verbali': return renderVerbali();
-    case 'lavori': return renderLavori();
-    case 'delibere': return renderDelibere();
+    case 'vita': return renderVita();
     case 'condomini': return renderCondomini();
     case 'impostazioni': return canUserSeeImpostazioni(state.user) ? renderImpostazioni() : '<div class="empty"><p>Accesso non consentito.</p></div>';
     default: return renderDashboard();
@@ -2240,12 +2235,45 @@ function renderFornitoreCard(f, canEdit, archived=false) {
 }
 
 // ===========================
+// VITA CONDOMINIALE — Bacheca, Verbali, Lavori, Delibere raggruppate in
+// un'unica pagina con tab interne, stesso pattern già usato da Bilancio
+// (.bil-tabs/.bil-tab, state.bilancioTab) — nessun componente nuovo.
+// ===========================
+const VITA_TABS = [
+  {id:'bacheca',  label:'📌 Bacheca'},
+  {id:'verbali',  label:'📋 Verbali'},
+  {id:'lavori',   label:'🛠️ Lavori'},
+  {id:'delibere', label:'📜 Delibere'},
+];
+
+function renderVita() {
+  const tab = state.vitaTab || 'bacheca';
+  const tabFn = {
+    bacheca: renderBachecaTab,
+    verbali: renderVerbaliTab,
+    lavori: renderLavoriTab,
+    delibere: renderDelibereTab,
+  }[tab] || renderBachecaTab;
+
+  return `
+  <div>
+    <div class="page-header">
+      <div><div class="page-title">Vita condominiale</div><div class="page-sub">Bacheca, verbali, lavori e delibere</div></div>
+    </div>
+    <div class="bil-tabs">
+      ${VITA_TABS.map(t=>`<button class="bil-tab vita-tab ${tab===t.id?'active':''}" data-vita-tab="${t.id}">${t.label}</button>`).join('')}
+    </div>
+    ${tabFn()}
+  </div>`;
+}
+
+// ===========================
 // BACHECA COMUNICAZIONI
 // ===========================
 // Scrittura/cancellazione riservata ad adminEdificio + superAdmin
 // (canUserAdmin) — editor e member sono di sola lettura, a differenza
 // di Spese/Entrate/Fornitori dove editor può scrivere.
-function renderBacheca() {
+function renderBachecaTab() {
   const canManage = canUserAdmin(state.user);
   const oggi = new Date().toISOString().slice(0,10);
   const items = getBachecaVisibili().slice().sort((a,b) =>
@@ -2253,9 +2281,8 @@ function renderBacheca() {
   );
 
   return `
-  <div>
-    <div class="page-header">
-      <div><div class="page-title">Bacheca</div><div class="page-sub">${items.length} avvisi</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem">
+      <div class="page-sub" style="margin:0">${items.length} avvisi</div>
       ${canManage ? `<button class="btn btn-primary" id="btn-nuovo-avviso">+ Nuovo avviso</button>` : ''}
     </div>
 
@@ -2264,7 +2291,7 @@ function renderBacheca() {
     <div style="display:flex;flex-direction:column;gap:.75rem">
       ${items.map(a => renderAvvisoCard(a, canManage, oggi)).join('')}
     </div>`}
-  </div>`;
+  `;
 }
 
 function renderAvvisoCard(a, canManage, oggi) {
@@ -2296,7 +2323,7 @@ function renderAvvisoCard(a, canManage, oggi) {
 // Scrittura/cancellazione riservata ad adminEdificio + superAdmin (atto
 // ufficiale, stesso livello di cm_bacheca/cm_condomini) — editor e member
 // sono di sola lettura.
-function renderVerbali() {
+function renderVerbaliTab() {
   const canManage = canUserAdmin(state.user);
   const tuttiVerbali = getVerbaliVisibili();
   const anniVerbali = [...new Set(tuttiVerbali.map(v => new Date(v.data).getFullYear()))].sort((a,b)=>b-a);
@@ -2313,9 +2340,8 @@ function renderVerbali() {
   items = items.slice().sort((a,b) => new Date(b.data) - new Date(a.data));
 
   return `
-  <div>
-    <div class="page-header">
-      <div><div class="page-title">Verbali</div><div class="page-sub">${items.length} verbali</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+      <div class="page-sub" style="margin:0">${items.length} verbali</div>
       ${canManage ? `<button class="btn btn-primary" id="btn-nuovo-verbale">+ Nuovo verbale</button>` : ''}
     </div>
 
@@ -2332,7 +2358,7 @@ function renderVerbali() {
     <div style="display:flex;flex-direction:column;gap:.75rem">
       ${items.map(v => renderVerbaleCard(v, canManage)).join('')}
     </div>`}
-  </div>`;
+  `;
 }
 
 function renderVerbaleCard(v, canManage) {
@@ -2381,7 +2407,7 @@ const LAVORI_STATO_ORDER = {in_corso:0, da_avviare:1, sospeso:2, completato:3};
 const LAVORI_STATO_LABEL = {da_avviare:'Da avviare', in_corso:'In corso', completato:'Completato', sospeso:'Sospeso'};
 const LAVORI_STATO_BADGE = {da_avviare:'badge-gray', in_corso:'badge-blue', completato:'badge-green', sospeso:'badge-amber'};
 
-function renderLavori() {
+function renderLavoriTab() {
   const canManage = canUserAdmin(state.user);
   const items = getLavoriVisibili().slice().sort((a,b) =>
     (LAVORI_STATO_ORDER[a.stato]??9) - (LAVORI_STATO_ORDER[b.stato]??9)
@@ -2389,9 +2415,8 @@ function renderLavori() {
   );
 
   return `
-  <div>
-    <div class="page-header">
-      <div><div class="page-title">Lavori</div><div class="page-sub">${items.length} lavori</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem">
+      <div class="page-sub" style="margin:0">${items.length} lavori</div>
       ${canManage ? `<button class="btn btn-primary" id="btn-nuovo-lavoro">+ Nuovo lavoro</button>` : ''}
     </div>
 
@@ -2400,7 +2425,7 @@ function renderLavori() {
     <div style="display:flex;flex-direction:column;gap:.75rem">
       ${items.map(l => renderLavoroCard(l, canManage)).join('')}
     </div>`}
-  </div>`;
+  `;
 }
 
 function renderLavoroCard(l, canManage) {
@@ -2408,6 +2433,7 @@ function renderLavoroCard(l, canManage) {
   const statoBadge = LAVORI_STATO_BADGE[l.stato] || 'badge-gray';
   const pct = Math.max(0, Math.min(100, parseInt(l.percentuale)||0));
   const storico = (l.storicoAggiornamenti||[]).slice().sort((a,b)=>new Date(b.data)-new Date(a.data));
+  const deliberaRif = l.delibereRifId ? getDelibereVisibili().find(d => d.id === l.delibereRifId) : null;
 
   return `
   <div class="card" style="margin-bottom:0">
@@ -2434,6 +2460,7 @@ function renderLavoroCard(l, canManage) {
         <strong style="color:var(--text)">Ultimo aggiornamento:</strong>
         <div style="margin-top:2px">${esc(storico[0].nota)} <span style="opacity:.7">— ${esc(storico[0].autore||'')}, ${storico[0].data}</span></div>
       </div>` : ''}
+      ${deliberaRif ? `<div style="margin-top:8px;font-size:12px"><span onclick="setState({page:'vita',vitaTab:'delibere',sidebarOpen:false})" style="color:var(--accent);cursor:pointer">📜 Da delibera: ${esc(deliberaRif.descrizioneSintetica)}</span></div>` : ''}
     </div>
   </div>`;
 }
@@ -2447,14 +2474,13 @@ function renderLavoroCard(l, canManage) {
 const DELIBERE_STATO_LABEL = {approvata:'Approvata', in_corso:'In corso', completata:'Completata', sospesa:'Sospesa'};
 const DELIBERE_STATO_BADGE = {approvata:'badge-blue', in_corso:'badge-amber', completata:'badge-green', sospesa:'badge-gray'};
 
-function renderDelibere() {
+function renderDelibereTab() {
   const canManage = canUserAdmin(state.user);
   const items = getDelibereVisibili().slice().sort((a,b) => new Date(b.dataApprovazione) - new Date(a.dataApprovazione));
 
   return `
-  <div>
-    <div class="page-header">
-      <div><div class="page-title">Delibere</div><div class="page-sub">${items.length} decisioni</div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem">
+      <div class="page-sub" style="margin:0">${items.length} decisioni</div>
       ${canManage ? `<button class="btn btn-primary" id="btn-nuova-delibera">+ Nuova delibera</button>` : ''}
     </div>
 
@@ -2463,12 +2489,13 @@ function renderDelibere() {
     <div style="display:flex;flex-direction:column;gap:.75rem">
       ${items.map(d => renderDeliberaCard(d, canManage)).join('')}
     </div>`}
-  </div>`;
+  `;
 }
 
 function renderDeliberaCard(d, canManage) {
   const statoLabel = DELIBERE_STATO_LABEL[d.stato] || d.stato;
   const statoBadge = DELIBERE_STATO_BADGE[d.stato] || 'badge-gray';
+  const verbaleRif = d.verbaleRifId ? getVerbaliVisibili().find(v => v.id === d.verbaleRifId) : null;
   return `
   <div class="card" style="margin-bottom:0">
     <div style="padding:1rem 1.25rem">
@@ -2484,6 +2511,7 @@ function renderDeliberaCard(d, canManage) {
             ${d.budgetPrevisto ? `<span>💰 ${fmt(d.budgetPrevisto)}</span>` : ''}
           </div>
           ${d.note ? `<div style="font-size:13px;color:var(--text2);margin-top:6px;white-space:pre-wrap">${esc(d.note)}</div>` : ''}
+          ${verbaleRif ? `<div style="margin-top:8px;font-size:12px"><span onclick="setState({page:'vita',vitaTab:'verbali',sidebarOpen:false})" style="color:var(--accent);cursor:pointer">📋 Da verbale: ${esc(verbaleRif.titolo)} (${verbaleRif.data})</span></div>` : ''}
         </div>
         ${canManage ? `
         <div style="display:flex;gap:6px;flex-shrink:0">
@@ -2708,7 +2736,7 @@ function renderDashboard() {
       <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
         <div class="card-header">
           <h3>📌 Annunci recenti</h3>
-          <a data-page="bacheca" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+          <a onclick="setState({page:'vita',vitaTab:'bacheca',sidebarOpen:false})" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
         </div>
         <div style="padding:.25rem 1.25rem .75rem">
           ${ultimiAvvisi.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessun avviso in bacheca</div>` :
@@ -2725,7 +2753,7 @@ function renderDashboard() {
       <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
         <div class="card-header">
           <h3>📋 Ultimi verbali</h3>
-          <a data-page="verbali" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+          <a onclick="setState({page:'vita',vitaTab:'verbali',sidebarOpen:false})" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
         </div>
         <div style="padding:.25rem 1.25rem .75rem">
           ${ultimiVerbali.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessun verbale pubblicato</div>` :
@@ -2743,7 +2771,7 @@ function renderDashboard() {
       <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
         <div class="card-header">
           <h3>🛠️ Lavori in corso</h3>
-          <a data-page="lavori" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+          <a onclick="setState({page:'vita',vitaTab:'lavori',sidebarOpen:false})" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
         </div>
         <div style="padding:.25rem 1.25rem .75rem">
           ${lavoriInCorso.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessun lavoro in corso</div>` :
@@ -2760,7 +2788,7 @@ function renderDashboard() {
       <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
         <div class="card-header">
           <h3>📜 Decisioni in attesa</h3>
-          <a data-page="delibere" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+          <a onclick="setState({page:'vita',vitaTab:'delibere',sidebarOpen:false})" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
         </div>
         <div style="padding:.25rem 1.25rem .75rem">
           ${decisioniInAttesa.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessuna decisione in attesa</div>` :
@@ -5027,6 +5055,7 @@ function renderModalVerbale(d) {
 function renderModalLavoro(d) {
   const isEdit = !!d?.id;
   const storico = (d?.storicoAggiornamenti||[]).slice().sort((a,b)=>new Date(b.data)-new Date(a.data));
+  const delibereOpzioni = getDelibereVisibili().slice().sort((a,b)=>new Date(b.dataApprovazione)-new Date(a.dataApprovazione));
   return `
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal" style="max-width:560px">
@@ -5058,6 +5087,14 @@ function renderModalLavoro(d) {
           <label>Data prevista completamento</label>
           <input type="date" id="lv-data-prevista" value="${esc(d?.dataPrevistaCompletamento||'')}">
         </div>
+        <div class="field">
+          <label>Delibera di riferimento (opzionale)</label>
+          <select id="lv-delibera-rif">
+            <option value="">— Nessuna —</option>
+            ${delibereOpzioni.map(dl=>`<option value="${dl.id}" ${String(d?.delibereRifId)===String(dl.id)?'selected':''}>${esc(dl.descrizioneSintetica)}</option>`).join('')}
+          </select>
+          <p class="hint">La delibera che ha approvato questo lavoro, se vuoi tenerne traccia</p>
+        </div>
         ${storico.length ? `
         <div class="field">
           <label>Storico aggiornamenti</label>
@@ -5084,6 +5121,7 @@ function renderModalLavoro(d) {
 
 function renderModalDelibera(d) {
   const isEdit = !!d?.id;
+  const verbaliOpzioni = getVerbaliVisibili().slice().sort((a,b)=>new Date(b.data)-new Date(a.data));
   return `
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal" style="max-width:560px">
@@ -5120,6 +5158,14 @@ function renderModalDelibera(d) {
             <label>Budget previsto (€)</label>
             <input type="number" id="dl-budget" min="0" step="0.01" value="${d?.budgetPrevisto ?? ''}">
           </div>
+        </div>
+        <div class="field">
+          <label>Verbale di riferimento (opzionale)</label>
+          <select id="dl-verbale-rif">
+            <option value="">— Nessuno —</option>
+            ${verbaliOpzioni.map(v=>`<option value="${v.id}" ${String(d?.verbaleRifId)===String(v.id)?'selected':''}>${esc(v.titolo)} (${v.data})</option>`).join('')}
+          </select>
+          <p class="hint">Il verbale d'assemblea in cui è stata approvata questa delibera, se vuoi tenerne traccia</p>
         </div>
         <div class="field">
           <label>Note</label>
@@ -6080,8 +6126,13 @@ function bindPageActions() {
 
   const ab = document.getElementById('anno-bilancio');
   if (ab) ab.onchange = e => setState({filterAnno: parseInt(e.target.value)||new Date().getFullYear()});
-  document.querySelectorAll('.bil-tab').forEach(t => {
+  document.querySelectorAll('.bil-tab:not(.vita-tab)').forEach(t => {
     t.onclick = () => setState({bilancioTab: t.dataset.tab});
+  });
+
+  // Tab della pagina "Vita condominiale" (Bacheca/Verbali/Lavori/Delibere)
+  document.querySelectorAll('[data-vita-tab]').forEach(t => {
+    t.onclick = () => setState({vitaTab: t.dataset.vitaTab});
   });
 
   // Spese filters
@@ -7471,6 +7522,8 @@ function bindModal() {
     const stato = document.getElementById('lv-stato')?.value || 'da_avviare';
     const percentuale = Math.max(0, Math.min(100, parseInt(document.getElementById('lv-percentuale')?.value) || 0));
     const dataPrevistaCompletamento = document.getElementById('lv-data-prevista')?.value || '';
+    const delibereRifIdRaw = document.getElementById('lv-delibera-rif')?.value;
+    const delibereRifId = delibereRifIdRaw ? parseInt(delibereRifIdRaw) : null;
     const nota = document.getElementById('lv-nota')?.value?.trim();
     const origId = bSaveLv.dataset.id;
     const errEl = document.getElementById('lv-err');
@@ -7488,11 +7541,11 @@ function bindModal() {
     let lavori;
     if (origId) {
       lavori = state.lavori.map(l => l.id===parseInt(origId)
-        ? {...l, titolo, stato, percentuale, dataPrevistaCompletamento, storicoAggiornamenti, edificioId: edificioIdLavoro}
+        ? {...l, titolo, stato, percentuale, dataPrevistaCompletamento, delibereRifId, storicoAggiornamenti, edificioId: edificioIdLavoro}
         : l);
     } else {
       const lavoro = {
-        id: newId(), titolo, stato, percentuale, dataPrevistaCompletamento, storicoAggiornamenti,
+        id: newId(), titolo, stato, percentuale, dataPrevistaCompletamento, delibereRifId, storicoAggiornamenti,
         edificioId: edificioIdLavoro,
         createdAt: new Date().toISOString(),
         createdBy: state.user?.nome || '',
@@ -7511,6 +7564,8 @@ function bindModal() {
     const stato = document.getElementById('dl-stato')?.value || 'approvata';
     const responsabile = document.getElementById('dl-responsabile')?.value?.trim();
     const budgetPrevisto = document.getElementById('dl-budget')?.value;
+    const verbaleRifIdRaw = document.getElementById('dl-verbale-rif')?.value;
+    const verbaleRifId = verbaleRifIdRaw ? parseInt(verbaleRifIdRaw) : null;
     const note = document.getElementById('dl-note')?.value?.trim();
     const origId = bSaveDl.dataset.id;
     const errEl = document.getElementById('dl-err');
@@ -7525,11 +7580,11 @@ function bindModal() {
     let delibere;
     if (origId) {
       delibere = state.delibere.map(d => d.id===parseInt(origId)
-        ? {...d, descrizioneSintetica, dataApprovazione, stato, responsabile, budgetPrevisto, note, edificioId: edificioIdDelibera}
+        ? {...d, descrizioneSintetica, dataApprovazione, stato, responsabile, budgetPrevisto, verbaleRifId, note, edificioId: edificioIdDelibera}
         : d);
     } else {
       const delibera = {
-        id: newId(), descrizioneSintetica, dataApprovazione, stato, responsabile, budgetPrevisto, note,
+        id: newId(), descrizioneSintetica, dataApprovazione, stato, responsabile, budgetPrevisto, verbaleRifId, note,
         edificioId: edificioIdDelibera,
         createdAt: new Date().toISOString(),
         createdBy: state.user?.nome || '',
@@ -8225,10 +8280,11 @@ function svgDashboard() { return `<svg viewBox="0 0 24 24" fill="none" stroke="c
 function svgSpese() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v1m0 8v1M9.5 9.5a2.5 2.5 0 015 0c0 1.5-1.5 2-2.5 2.5s-2.5 1-2.5 2.5a2.5 2.5 0 005 0"/></svg>`; }
 function svgEntrate() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5m-7 7l7-7 7 7"/></svg>`; }
 function svgFornitori() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>`; }
-function svgBacheca() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="1.5"/><path d="M7 9h10M7 13h6"/><circle cx="12" cy="4" r="1.5" fill="currentColor" stroke="none"/></svg>`; }
-function svgVerbali() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M9 13l2 2 4-4"/></svg>`; }
-function svgLavori() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`; }
-function svgDelibere() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.9.37 4.14 1.02"/><path d="M21 3l-9 9"/></svg>`; }
+// Un'unica icona "layers" per la pagina Vita condominiale (Bacheca,
+// Verbali, Lavori, Delibere raggruppate con tab interne) — le 4 icone
+// dedicate non servono più una volta che le sezioni non sono più voci
+// di menu separate.
+function svgVita() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><polygon points="12,3 21,8 12,13 3,8"/><polyline points="3,13 12,18 21,13"/></svg>`; }
 function svgBilancio() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 4-8"/></svg>`; }
 function svgCondomini() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>`; }
 function svgSettings() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`; }
