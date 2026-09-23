@@ -840,10 +840,47 @@ function save(key, val) {
   fbSaveKey(key, val);
 }
 
-// P0 urgente: queste chiavi sono filtrate per edificio in lettura (SEC-03) per
-// i non-superAdmin — se scritte con un overwrite diretto del blob condiviso,
-// cancellano silenziosamente gli altri edifici. Passano da saveBuildingData.
-const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca', 'cm_verbali'];
+// ═══════════════════════════════════════════════════════════════
+// APPDATA_CONFIG — unica fonte, in questo runtime, di quali chiavi del
+// blob "appdata" esistono, se sono a scrittura ristretta (e per chi:
+// 'adminOnly' = solo adminEdificio/superAdmin, 'finance' = anche editor)
+// e in quale campo di state vanno sincronizzate dopo il caricamento da
+// Firestore (stateProp — assente per le chiavi che non hanno un campo
+// state dedicato, come cm_categorie/cm_config, lette on-demand con
+// load()). Deriva RESTRICTED_KEYS, APPDATA_KEYS, il bridge di
+// getBuildingData e il corpo di applyLoadedDataFromCache qui sotto.
+//
+// functions/index.js ha la propria copia equivalente (runtime separato,
+// non importabile da qui) — aggiungere o togliere una chiave va fatto in
+// entrambe. firestore.rules resta sincronizzata a mano: è un linguaggio
+// dichiarativo che non può importare questo oggetto, quindi i suoi due
+// elenchi (lettura e scrittura) vanno aggiornati a mano in coppia con
+// questo file. Le chiavi a lettura diretta ristretta al superAdmin
+// (cm_spese/cm_entrate/cm_fornitori/cm_delibere) sono una decisione
+// presa SOLO in firestore.rules — non influenzano nessuna derivazione
+// qui sotto (SEC-03: da quando le rules distinguono i permessi di
+// lettura per singola chiave, una query "tutta la collection" fallirebbe
+// in blocco per chi non è superAdmin; per questo fbLoadAll legge ogni
+// chiave singolarmente, così quelle vietate falliscono da sole senza
+// bloccare le altre).
+// ═══════════════════════════════════════════════════════════════
+const APPDATA_CONFIG = {
+  cm_condomini:       { writeRole: 'adminOnly', stateProp: 'condomini' },
+  cm_spese:           { writeRole: 'finance',   stateProp: 'spese' },
+  cm_entrate:         { writeRole: 'finance',   stateProp: 'entrate' },
+  cm_fornitori:       { writeRole: 'finance',   stateProp: 'fornitori' },
+  cm_bacheca:         { writeRole: 'adminOnly', stateProp: 'bacheca' },
+  cm_verbali:         { writeRole: 'adminOnly', stateProp: 'verbali' },
+  cm_lavori:          { writeRole: 'adminOnly', stateProp: 'lavori' },
+  cm_delibere:        { writeRole: 'adminOnly', stateProp: 'delibere' },
+  cm_edifici:         { stateProp: 'edifici' },
+  cm_categorie:       {},
+  cm_edificio_attivo: { stateProp: 'edificioAttivo' },
+  cm_login_stats:     { stateProp: 'loginStats' },
+  cm_config:          {},
+};
+const RESTRICTED_KEYS = Object.keys(APPDATA_CONFIG).filter(k => APPDATA_CONFIG[k].writeRole);
+const APPDATA_KEYS = Object.keys(APPDATA_CONFIG);
 
 // Salva un singolo documento {key} nella collection "appdata"
 async function fbSaveKey(key, val) {
@@ -859,16 +896,6 @@ async function fbSaveKey(key, val) {
     await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
   } catch(e) { console.warn('fbSave error', key, e); }
 }
-
-// Tutte le chiavi note del blob "appdata". SEC-03: da quando le firestore.rules
-// distinguono i permessi di lettura per singola chiave (cm_spese/cm_entrate/
-// cm_fornitori riservate al superAdmin), una query "tutta la collection" fallisce
-// in blocco per chiunque altro — Firestore nega l'intera list query se anche un
-// solo documento potenziale non rispetta la stessa regola di tutti gli altri.
-// Si leggono quindi i documenti singolarmente: ogni get() viene valutato (e
-// filtrato) in modo indipendente, quindi le chiavi vietate falliscono da sole
-// senza bloccare le altre.
-const APPDATA_KEYS = ['cm_condomini','cm_spese','cm_entrate','cm_fornitori','cm_edifici','cm_categorie','cm_edificio_attivo','cm_login_stats','cm_config','cm_bacheca','cm_verbali'];
 
 // Carica tutti i dati da Firestore all'avvio e popola la cache
 async function fbLoadAll() {
@@ -930,6 +957,8 @@ let state = {
   entrate: load('cm_entrate', []),
   bacheca: load('cm_bacheca', []),
   verbali: load('cm_verbali', []),
+  lavori: load('cm_lavori', []),
+  delibere: load('cm_delibere', []),
   loginStats: load('cm_login_stats', {}), // { condominoId: { nome, ultimoLogin, totale, mensile:{'AAAA-MM':n} } }
   modal: null,
   filterCat: 'all',
@@ -1084,6 +1113,18 @@ function getBachecaVisibili() {
 function getVerbaliVisibili() {
   const edId = isSuperAdmin(state.user) ? state.edificioAttivo : getUserEdificio(state.user);
   return state.verbali.filter(v => !v.edificioId || v.edificioId === edId);
+}
+
+// Filtra lavori visibili all'utente corrente
+function getLavoriVisibili() {
+  const edId = isSuperAdmin(state.user) ? state.edificioAttivo : getUserEdificio(state.user);
+  return state.lavori.filter(l => !l.edificioId || l.edificioId === edId);
+}
+
+// Filtra delibere visibili all'utente corrente
+function getDelibereVisibili() {
+  const edId = isSuperAdmin(state.user) ? state.edificioAttivo : getUserEdificio(state.user);
+  return state.delibere.filter(d => !d.edificioId || d.edificioId === edId);
 }
 
 function getRuolo(u) {
@@ -1423,6 +1464,8 @@ function renderApp() {
     {id:'fornitori', label:'Fornitori', icon:svgFornitori()},
     {id:'bacheca', label:'Bacheca', icon:svgBacheca()},
     {id:'verbali', label:'Verbali', icon:svgVerbali()},
+    {id:'lavori', label:'Lavori', icon:svgLavori()},
+    {id:'delibere', label:'Delibere', icon:svgDelibere()},
     ...(canUserAdmin(user) ? [{id:'condomini', label:'Condomini', icon:svgCondomini()}] : []),
     ...(isAdmin ? [{id:'impostazioni', label:'Impostazioni', icon:svgSettings()}] : []),
   ];
@@ -1896,6 +1939,8 @@ function renderPage() {
     case 'fornitori': return renderFornitori();
     case 'bacheca': return renderBacheca();
     case 'verbali': return renderVerbali();
+    case 'lavori': return renderLavori();
+    case 'delibere': return renderDelibere();
     case 'condomini': return renderCondomini();
     case 'impostazioni': return canUserSeeImpostazioni(state.user) ? renderImpostazioni() : '<div class="empty"><p>Accesso non consentito.</p></div>';
     default: return renderDashboard();
@@ -2292,7 +2337,9 @@ function renderVerbali() {
 
 function renderVerbaleCard(v, canManage) {
   const isStr = v.tipo === 'straordinaria';
-  const allegato = (v.allegati||[])[0];
+  const allegati = v.allegati || [];
+  const primiAllegati = allegati.slice(0, 3);
+  const altriAllegati = allegati.slice(3);
   return `
   <div class="card" style="margin-bottom:0">
     <div style="padding:1rem 1.25rem">
@@ -2312,7 +2359,138 @@ function renderVerbaleCard(v, canManage) {
           <button class="btn btn-danger btn-sm" data-del-verbale="${v.id}">🗑</button>
         </div>` : ''}
       </div>
-      ${allegato ? `<div style="margin-top:10px" class="allegati-list">${renderAllegatoItem(allegato,false)}</div>` : ''}
+      ${allegati.length ? `<div style="margin-top:10px" class="allegati-list">
+        ${primiAllegati.map(a => renderAllegatoItem(a,false)).join('')}
+        ${altriAllegati.length ? `<details style="margin-top:4px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--accent);padding:4px 0">+ ${altriAllegati.length} altri allegati</summary>
+          <div class="allegati-list" style="margin-top:6px">${altriAllegati.map(a => renderAllegatoItem(a,false)).join('')}</div>
+        </details>` : ''}
+      </div>` : ''}
+    </div>
+  </div>`;
+}
+
+// ===========================
+// CHECKLIST LAVORI CONDOMINIALI
+// ===========================
+// Scrittura/cancellazione riservata ad adminEdificio + superAdmin — editor
+// e member sola lettura, stessa politica di Bacheca/Verbali (semplificata
+// su richiesta esplicita rispetto all'ipotesi originale di dare a editor
+// scrittura sui dati operativi).
+const LAVORI_STATO_ORDER = {in_corso:0, da_avviare:1, sospeso:2, completato:3};
+const LAVORI_STATO_LABEL = {da_avviare:'Da avviare', in_corso:'In corso', completato:'Completato', sospeso:'Sospeso'};
+const LAVORI_STATO_BADGE = {da_avviare:'badge-gray', in_corso:'badge-blue', completato:'badge-green', sospeso:'badge-amber'};
+
+function renderLavori() {
+  const canManage = canUserAdmin(state.user);
+  const items = getLavoriVisibili().slice().sort((a,b) =>
+    (LAVORI_STATO_ORDER[a.stato]??9) - (LAVORI_STATO_ORDER[b.stato]??9)
+    || new Date(a.dataPrevistaCompletamento||'9999-12-31') - new Date(b.dataPrevistaCompletamento||'9999-12-31')
+  );
+
+  return `
+  <div>
+    <div class="page-header">
+      <div><div class="page-title">Lavori</div><div class="page-sub">${items.length} lavori</div></div>
+      ${canManage ? `<button class="btn btn-primary" id="btn-nuovo-lavoro">+ Nuovo lavoro</button>` : ''}
+    </div>
+
+    ${items.length === 0 ? `
+    <div class="empty">${svgEmpty()}<p>Nessun lavoro registrato</p></div>` : `
+    <div style="display:flex;flex-direction:column;gap:.75rem">
+      ${items.map(l => renderLavoroCard(l, canManage)).join('')}
+    </div>`}
+  </div>`;
+}
+
+function renderLavoroCard(l, canManage) {
+  const statoLabel = LAVORI_STATO_LABEL[l.stato] || l.stato;
+  const statoBadge = LAVORI_STATO_BADGE[l.stato] || 'badge-gray';
+  const pct = Math.max(0, Math.min(100, parseInt(l.percentuale)||0));
+  const storico = (l.storicoAggiornamenti||[]).slice().sort((a,b)=>new Date(b.data)-new Date(a.data));
+
+  return `
+  <div class="card" style="margin-bottom:0">
+    <div style="padding:1rem 1.25rem">
+      <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+            <span class="badge ${statoBadge}">${statoLabel}</span>
+            ${l.dataPrevistaCompletamento ? `<span style="font-size:12px;color:var(--text2)">Previsto: ${l.dataPrevistaCompletamento}</span>` : ''}
+          </div>
+          <div style="font-weight:600;font-size:15px;margin-bottom:8px">${esc(l.titolo)}</div>
+          <div style="display:flex;align-items:center;gap:8px;max-width:320px">
+            <div class="progress-wrap" style="flex:1"><div class="progress-fill" style="width:${pct}%;background:var(--accent)"></div></div>
+            <span style="font-size:12px;font-weight:600;color:var(--text2);min-width:32px;text-align:right">${pct}%</span>
+          </div>
+        </div>
+        ${canManage ? `
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-secondary btn-sm" data-edit-lavoro="${l.id}">✏️</button>
+          <button class="btn btn-danger btn-sm" data-del-lavoro="${l.id}">🗑</button>
+        </div>` : ''}
+      </div>
+      ${storico.length ? `<div style="margin-top:10px;font-size:12.5px;color:var(--text2)">
+        <strong style="color:var(--text)">Ultimo aggiornamento:</strong>
+        <div style="margin-top:2px">${esc(storico[0].nota)} <span style="opacity:.7">— ${esc(storico[0].autore||'')}, ${storico[0].data}</span></div>
+      </div>` : ''}
+    </div>
+  </div>`;
+}
+
+// ===========================
+// REGISTRO DECISIONI APPROVATE
+// ===========================
+// Stesso trattamento di Verbali: atto formale + dato economico (budget) —
+// scrittura solo adminEdificio/superAdmin, lettura ristretta come le spese
+// (vedi firestore.rules e il bridge getBuildingData).
+const DELIBERE_STATO_LABEL = {approvata:'Approvata', in_corso:'In corso', completata:'Completata', sospesa:'Sospesa'};
+const DELIBERE_STATO_BADGE = {approvata:'badge-blue', in_corso:'badge-amber', completata:'badge-green', sospesa:'badge-gray'};
+
+function renderDelibere() {
+  const canManage = canUserAdmin(state.user);
+  const items = getDelibereVisibili().slice().sort((a,b) => new Date(b.dataApprovazione) - new Date(a.dataApprovazione));
+
+  return `
+  <div>
+    <div class="page-header">
+      <div><div class="page-title">Delibere</div><div class="page-sub">${items.length} decisioni</div></div>
+      ${canManage ? `<button class="btn btn-primary" id="btn-nuova-delibera">+ Nuova delibera</button>` : ''}
+    </div>
+
+    ${items.length === 0 ? `
+    <div class="empty">${svgEmpty()}<p>Nessuna delibera registrata</p></div>` : `
+    <div style="display:flex;flex-direction:column;gap:.75rem">
+      ${items.map(d => renderDeliberaCard(d, canManage)).join('')}
+    </div>`}
+  </div>`;
+}
+
+function renderDeliberaCard(d, canManage) {
+  const statoLabel = DELIBERE_STATO_LABEL[d.stato] || d.stato;
+  const statoBadge = DELIBERE_STATO_BADGE[d.stato] || 'badge-gray';
+  return `
+  <div class="card" style="margin-bottom:0">
+    <div style="padding:1rem 1.25rem">
+      <div style="display:flex;justify-content:space-between;gap:.75rem;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+            <span class="badge ${statoBadge}">${statoLabel}</span>
+            <span style="font-size:12px;color:var(--text2)">${d.dataApprovazione}</span>
+          </div>
+          <div style="font-weight:600;font-size:15px;margin-bottom:4px">${esc(d.descrizioneSintetica)}</div>
+          <div style="font-size:13px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
+            ${d.responsabile ? `<span>👤 ${esc(d.responsabile)}</span>` : ''}
+            ${d.budgetPrevisto ? `<span>💰 ${fmt(d.budgetPrevisto)}</span>` : ''}
+          </div>
+          ${d.note ? `<div style="font-size:13px;color:var(--text2);margin-top:6px;white-space:pre-wrap">${esc(d.note)}</div>` : ''}
+        </div>
+        ${canManage ? `
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-secondary btn-sm" data-edit-delibera="${d.id}">✏️</button>
+          <button class="btn btn-danger btn-sm" data-del-delibera="${d.id}">🗑</button>
+        </div>` : ''}
+      </div>
     </div>
   </div>`;
 }
@@ -2504,6 +2682,14 @@ function renderDashboard() {
   const ultimiVerbali = getVerbaliVisibili().slice()
     .sort((a,b) => new Date(b.data)-new Date(a.data))
     .slice(0,3);
+  const lavoriInCorso = getLavoriVisibili()
+    .filter(l => l.stato !== 'completato')
+    .sort((a,b) => (LAVORI_STATO_ORDER[a.stato]??9) - (LAVORI_STATO_ORDER[b.stato]??9))
+    .slice(0,3);
+  const decisioniInAttesa = getDelibereVisibili()
+    .filter(d => d.stato !== 'completata')
+    .sort((a,b) => new Date(b.dataApprovazione)-new Date(a.dataApprovazione))
+    .slice(0,3);
 
   return `
   <div>
@@ -2547,6 +2733,41 @@ function renderDashboard() {
           <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
             <div style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.titolo)}</div>
             <div style="font-size:11px;color:var(--text2);margin-top:2px">${v.data}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+
+    <!-- LAVORI & DELIBERE -->
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
+      <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
+        <div class="card-header">
+          <h3>🛠️ Lavori in corso</h3>
+          <a data-page="lavori" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+        </div>
+        <div style="padding:.25rem 1.25rem .75rem">
+          ${lavoriInCorso.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessun lavoro in corso</div>` :
+          lavoriInCorso.map(l => { const pct = Math.max(0, Math.min(100, parseInt(l.percentuale)||0)); return `
+          <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+              <span style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.titolo)}</span>
+              <span style="font-size:11px;color:var(--text2);flex-shrink:0">${pct}%</span>
+            </div>
+            <div class="progress-wrap" style="margin-top:4px"><div class="progress-fill" style="width:${pct}%;background:var(--accent)"></div></div>
+          </div>`; }).join('')}
+        </div>
+      </div>
+      <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
+        <div class="card-header">
+          <h3>📜 Decisioni in attesa</h3>
+          <a data-page="delibere" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+        </div>
+        <div style="padding:.25rem 1.25rem .75rem">
+          ${decisioniInAttesa.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessuna decisione in attesa</div>` :
+          decisioniInAttesa.map(d => `
+          <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
+            <div style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.descrizioneSintetica)}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${DELIBERE_STATO_LABEL[d.stato]||d.stato}${d.responsabile ? ' · '+esc(d.responsabile) : ''}</div>
           </div>`).join('')}
         </div>
       </div>
@@ -4788,7 +5009,7 @@ function renderModalVerbale(d) {
           </div>
           <input type="file" id="file-input" accept="application/pdf" style="display:none">
           <div id="allegati-pending"></div>
-          ${d?.allegati?.length ? `<div style="margin-top:8px"><div style="font-size:12px;color:var(--text2);margin-bottom:6px">Allegato esistente:</div><div class="allegati-list">${(d.allegati||[]).map(f=>renderAllegatoItem(f,false)).join('')}</div></div>` : ''}
+          ${d?.allegati?.length ? `<div style="margin-top:8px"><div style="font-size:12px;color:var(--text2);margin-bottom:6px">${d.allegati.length===1?'Allegato esistente:':`Allegati esistenti (${d.allegati.length}):`}</div><div class="allegati-list">${(d.allegati||[]).map(f=>renderAllegatoItem(f,false)).join('')}</div></div>` : ''}
         </div>
 
         <div id="vb-err" class="alert alert-warning" style="display:none"></div>
@@ -4797,6 +5018,119 @@ function renderModalVerbale(d) {
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
         <button class="btn btn-primary" id="btn-save-verbale" data-id="${d?.id||''}">
           💾 ${isEdit ? 'Salva modifiche' : 'Pubblica verbale'}
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderModalLavoro(d) {
+  const isEdit = !!d?.id;
+  const storico = (d?.storicoAggiornamenti||[]).slice().sort((a,b)=>new Date(b.data)-new Date(a.data));
+  return `
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <h2>${isEdit ? '✏️ Modifica lavoro' : '🛠️ Nuovo lavoro'}</h2>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Titolo *</label>
+          <input type="text" id="lv-titolo" value="${esc(d?.titolo||'')}" placeholder="Es. Rifacimento facciata cortile interno">
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>Stato</label>
+            <select id="lv-stato">
+              <option value="da_avviare" ${(!d?.stato||d.stato==='da_avviare')?'selected':''}>Da avviare</option>
+              <option value="in_corso" ${d?.stato==='in_corso'?'selected':''}>In corso</option>
+              <option value="completato" ${d?.stato==='completato'?'selected':''}>Completato</option>
+              <option value="sospeso" ${d?.stato==='sospeso'?'selected':''}>Sospeso</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Percentuale avanzamento</label>
+            <input type="number" id="lv-percentuale" min="0" max="100" step="5" value="${d?.percentuale ?? 0}">
+          </div>
+        </div>
+        <div class="field">
+          <label>Data prevista completamento</label>
+          <input type="date" id="lv-data-prevista" value="${esc(d?.dataPrevistaCompletamento||'')}">
+        </div>
+        ${storico.length ? `
+        <div class="field">
+          <label>Storico aggiornamenti</label>
+          <div style="max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:12.5px;color:var(--text2)">
+            ${storico.map(s=>`<div style="padding:3px 0">${esc(s.nota)} <span style="opacity:.7">— ${esc(s.autore||'')}, ${s.data}</span></div>`).join('')}
+          </div>
+        </div>` : ''}
+        <div class="field">
+          <label>Aggiungi nota (opzionale)</label>
+          <textarea id="lv-nota" rows="2" placeholder="Es. Ponteggio montato, lavori avviati..."></textarea>
+          <p class="hint">Si aggiunge allo storico, non sostituisce le note precedenti</p>
+        </div>
+        <div id="lv-err" class="alert alert-warning" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
+        <button class="btn btn-primary" id="btn-save-lavoro" data-id="${d?.id||''}">
+          💾 ${isEdit ? 'Salva modifiche' : 'Aggiungi lavoro'}
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderModalDelibera(d) {
+  const isEdit = !!d?.id;
+  return `
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <h2>${isEdit ? '✏️ Modifica delibera' : '📜 Nuova delibera'}</h2>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Descrizione sintetica *</label>
+          <input type="text" id="dl-descrizione" value="${esc(d?.descrizioneSintetica||'')}" placeholder="Es. Rifacimento facciata cortile interno">
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>Data approvazione *</label>
+            <input type="date" id="dl-data" value="${esc(d?.dataApprovazione||'')}">
+          </div>
+          <div class="field">
+            <label>Stato</label>
+            <select id="dl-stato">
+              <option value="approvata" ${(!d?.stato||d.stato==='approvata')?'selected':''}>Approvata</option>
+              <option value="in_corso" ${d?.stato==='in_corso'?'selected':''}>In corso</option>
+              <option value="completata" ${d?.stato==='completata'?'selected':''}>Completata</option>
+              <option value="sospesa" ${d?.stato==='sospesa'?'selected':''}>Sospesa</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>Responsabile</label>
+            <input type="text" id="dl-responsabile" value="${esc(d?.responsabile||'')}" placeholder="Es. Studio Tecnico Rossi">
+          </div>
+          <div class="field">
+            <label>Budget previsto (€)</label>
+            <input type="number" id="dl-budget" min="0" step="0.01" value="${d?.budgetPrevisto ?? ''}">
+          </div>
+        </div>
+        <div class="field">
+          <label>Note</label>
+          <textarea id="dl-note" rows="2" placeholder="Note aggiuntive...">${esc(d?.note||'')}</textarea>
+        </div>
+        <div id="dl-err" class="alert alert-warning" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
+        <button class="btn btn-primary" id="btn-save-delibera" data-id="${d?.id||''}">
+          💾 ${isEdit ? 'Salva modifiche' : 'Registra delibera'}
         </button>
       </div>
     </div>
@@ -5098,6 +5432,8 @@ function renderModal() {
   if (m.type === 'fornitore') return renderModalFornitore(m.data);
   if (m.type === 'avviso') return renderModalAvviso(m.data);
   if (m.type === 'verbale') return renderModalVerbale(m.data);
+  if (m.type === 'lavoro') return renderModalLavoro(m.data);
+  if (m.type === 'delibera') return renderModalDelibera(m.data);
   if (m.type === 'storico-fornitore') return renderModalStoricoFornitore(m.data);
   if (m.type === 'change-pw') return renderModalChangePw();
   if (m.type === 'admin-reset-pw') return renderModalAdminResetPw(m.data);
@@ -6137,6 +6473,58 @@ Sposta o elimina prima tutti i dati associati.`);
     };
   });
 
+  // Nuovo lavoro
+  const bNuovoLavoro = document.getElementById('btn-nuovo-lavoro');
+  if (bNuovoLavoro) bNuovoLavoro.onclick = () => setState({modal:{type:'lavoro', data:null}});
+
+  // Modifica lavoro
+  document.querySelectorAll('[data-edit-lavoro]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editLavoro);
+      const l = state.lavori.find(x=>x.id===id);
+      if (l) setState({modal:{type:'lavoro', data:{...l}}});
+    };
+  });
+
+  // Elimina lavoro
+  document.querySelectorAll('[data-del-lavoro]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.delLavoro);
+      const l = state.lavori.find(x=>x.id===id);
+      if (!l) return;
+      if (!confirm(`Eliminare il lavoro "${l.titolo}"?`)) return;
+      const lavori = state.lavori.filter(x=>x.id!==id);
+      save('cm_lavori', lavori);
+      setState({lavori});
+    };
+  });
+
+  // Nuova delibera
+  const bNuovaDelibera = document.getElementById('btn-nuova-delibera');
+  if (bNuovaDelibera) bNuovaDelibera.onclick = () => setState({modal:{type:'delibera', data:null}});
+
+  // Modifica delibera
+  document.querySelectorAll('[data-edit-delibera]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editDelibera);
+      const d = state.delibere.find(x=>x.id===id);
+      if (d) setState({modal:{type:'delibera', data:{...d}}});
+    };
+  });
+
+  // Elimina delibera
+  document.querySelectorAll('[data-del-delibera]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.delDelibera);
+      const d = state.delibere.find(x=>x.id===id);
+      if (!d) return;
+      if (!confirm(`Eliminare la delibera "${d.descrizioneSintetica}"?`)) return;
+      const delibere = state.delibere.filter(x=>x.id!==id);
+      save('cm_delibere', delibere);
+      setState({delibere});
+    };
+  });
+
   // Edit fornitore
   document.querySelectorAll('[data-edit-fornitore]').forEach(btn => {
     btn.onclick = () => {
@@ -7074,6 +7462,84 @@ function bindModal() {
     setState({verbali, modal:null, pendingFiles:[]});
   };
 
+  // Salva lavoro (crea/modifica) — lo storico è append-only: la nota nuova
+  // si aggiunge, non sostituisce mai quelle già salvate (vedi criticità
+  // "race condition su storico lavori" nel blueprint).
+  const bSaveLv = document.getElementById('btn-save-lavoro');
+  if (bSaveLv) bSaveLv.onclick = () => {
+    const titolo = document.getElementById('lv-titolo')?.value?.trim();
+    const stato = document.getElementById('lv-stato')?.value || 'da_avviare';
+    const percentuale = Math.max(0, Math.min(100, parseInt(document.getElementById('lv-percentuale')?.value) || 0));
+    const dataPrevistaCompletamento = document.getElementById('lv-data-prevista')?.value || '';
+    const nota = document.getElementById('lv-nota')?.value?.trim();
+    const origId = bSaveLv.dataset.id;
+    const errEl = document.getElementById('lv-err');
+    errEl.style.display = 'none';
+
+    if (!titolo) { errEl.textContent='Il titolo è obbligatorio'; errEl.style.display='block'; return; }
+
+    const existing = origId ? state.lavori.find(l=>l.id===parseInt(origId)) : null;
+    const storicoAggiornamenti = [...(existing?.storicoAggiornamenti||[])];
+    if (nota) {
+      storicoAggiornamenti.push({ data: new Date().toISOString().slice(0,10), autore: state.user?.nome||'', nota });
+    }
+    const edificioIdLavoro = existing?.edificioId || getUserEdificio(state.user);
+
+    let lavori;
+    if (origId) {
+      lavori = state.lavori.map(l => l.id===parseInt(origId)
+        ? {...l, titolo, stato, percentuale, dataPrevistaCompletamento, storicoAggiornamenti, edificioId: edificioIdLavoro}
+        : l);
+    } else {
+      const lavoro = {
+        id: newId(), titolo, stato, percentuale, dataPrevistaCompletamento, storicoAggiornamenti,
+        edificioId: edificioIdLavoro,
+        createdAt: new Date().toISOString(),
+        createdBy: state.user?.nome || '',
+      };
+      lavori = [...state.lavori, lavoro];
+    }
+    save('cm_lavori', lavori);
+    setState({lavori, modal:null});
+  };
+
+  // Salva delibera (crea/modifica)
+  const bSaveDl = document.getElementById('btn-save-delibera');
+  if (bSaveDl) bSaveDl.onclick = () => {
+    const descrizioneSintetica = document.getElementById('dl-descrizione')?.value?.trim();
+    const dataApprovazione = document.getElementById('dl-data')?.value;
+    const stato = document.getElementById('dl-stato')?.value || 'approvata';
+    const responsabile = document.getElementById('dl-responsabile')?.value?.trim();
+    const budgetPrevisto = document.getElementById('dl-budget')?.value;
+    const note = document.getElementById('dl-note')?.value?.trim();
+    const origId = bSaveDl.dataset.id;
+    const errEl = document.getElementById('dl-err');
+    errEl.style.display = 'none';
+
+    if (!descrizioneSintetica) { errEl.textContent='La descrizione è obbligatoria'; errEl.style.display='block'; return; }
+    if (!dataApprovazione)     { errEl.textContent='La data di approvazione è obbligatoria'; errEl.style.display='block'; return; }
+
+    const existing = origId ? state.delibere.find(d=>d.id===parseInt(origId)) : null;
+    const edificioIdDelibera = existing?.edificioId || getUserEdificio(state.user);
+
+    let delibere;
+    if (origId) {
+      delibere = state.delibere.map(d => d.id===parseInt(origId)
+        ? {...d, descrizioneSintetica, dataApprovazione, stato, responsabile, budgetPrevisto, note, edificioId: edificioIdDelibera}
+        : d);
+    } else {
+      const delibera = {
+        id: newId(), descrizioneSintetica, dataApprovazione, stato, responsabile, budgetPrevisto, note,
+        edificioId: edificioIdDelibera,
+        createdAt: new Date().toISOString(),
+        createdBy: state.user?.nome || '',
+      };
+      delibere = [...state.delibere, delibera];
+    }
+    save('cm_delibere', delibere);
+    setState({delibere, modal:null});
+  };
+
   // Salva categoria (crea/modifica)
   const bSaveCat = document.getElementById('btn-save-cat');
   if (bSaveCat) {
@@ -7761,6 +8227,8 @@ function svgEntrate() { return `<svg viewBox="0 0 24 24" fill="none" stroke="cur
 function svgFornitori() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>`; }
 function svgBacheca() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="14" rx="1.5"/><path d="M7 9h10M7 13h6"/><circle cx="12" cy="4" r="1.5" fill="currentColor" stroke="none"/></svg>`; }
 function svgVerbali() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><path d="M9 13l2 2 4-4"/></svg>`; }
+function svgLavori() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>`; }
+function svgDelibere() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.5 0 2.9.37 4.14 1.02"/><path d="M21 3l-9 9"/></svg>`; }
 function svgBilancio() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 4-8"/></svg>`; }
 function svgCondomini() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>`; }
 function svgSettings() { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>`; }
@@ -7795,21 +8263,18 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 // Fattorizzata per poter essere richiamata sia al boot (best-effort) sia
 // dopo l'autenticazione (autoritativa — è qui che DEVE riuscire).
 function applyLoadedDataFromCache() {
-  const savedCondomini = load('cm_condomini', null);
-  const savedSpese     = load('cm_spese', null);
-  const savedEntrate   = load('cm_entrate', null);
-  const savedFornitori = load('cm_fornitori', null);
-  const savedEdifici   = load('cm_edifici', null);
-  const savedEdAttivo  = load('cm_edificio_attivo', null);
-  const savedLoginStats = load('cm_login_stats', null);
-
-  if (savedCondomini) state.condomini = savedCondomini;
-  if (savedSpese)     state.spese     = savedSpese;
-  if (savedEntrate)   state.entrate   = savedEntrate;
-  if (savedFornitori) state.fornitori = savedFornitori;
-  if (savedEdifici)   state.edifici   = savedEdifici;
-  if (savedEdAttivo)  state.edificioAttivo = savedEdAttivo;
-  if (savedLoginStats) state.loginStats = savedLoginStats;
+  // Guidato da APPDATA_CONFIG (stateProp) invece di un elenco manuale per
+  // chiave — bug corretto: prima di questo loop, cm_bacheca/cm_verbali
+  // (poi anche cm_lavori/cm_delibere) non comparivano qui, quindi le
+  // pagine restavano vuote dopo il login finché non si creava un elemento
+  // nella sessione corrente (lo stato in memoria veniva aggiornato solo
+  // dai save handler, mai dal caricamento iniziale da Firestore). Con il
+  // loop, una nuova chiave con stateProp viene sincronizzata automaticamente.
+  Object.entries(APPDATA_CONFIG).forEach(([key, cfg]) => {
+    if (!cfg.stateProp) return;
+    const saved = load(key, null);
+    if (saved) state[cfg.stateProp] = saved;
+  });
 
   // Dopo il caricamento: imposta filterAnno all'anno con più dati se quello corrente è vuoto
   const currYear = new Date().getFullYear();
@@ -7984,20 +8449,23 @@ async function initApp() {
         save('cm_edificio_attivo', profile.edificioId);
       }
       // SEC-03 (ponte transitorio): per i non-superAdmin, le firestore.rules non
-      // permettono più la lettura diretta di cm_spese/cm_entrate/cm_fornitori (blob
-      // con tutti gli edifici) — li richiediamo filtrati per il proprio edificio
-      // tramite la Cloud Function getBuildingData. cm_bacheca/cm_verbali restano
-      // leggibili direttamente (come cm_condomini), ma senza questo bridge
-      // conterrebbero comunque TUTTI gli edifici: vanno qui per lo stesso motivo,
-      // altrimenti un adminEdificio che salva finisce per inviare anche record di
-      // altri edifici a saveBuildingData, che li rifiuta in blocco.
+      // permettono più la lettura diretta di cm_spese/cm_entrate/cm_fornitori/
+      // cm_delibere (blob con tutti gli edifici) — li richiediamo filtrati per
+      // il proprio edificio tramite la Cloud Function getBuildingData. Le altre
+      // chiavi di RESTRICTED_KEYS (cm_condomini/cm_bacheca/cm_verbali/cm_lavori)
+      // restano leggibili direttamente, ma senza questo bridge conterrebbero
+      // comunque TUTTI gli edifici: vanno qui per lo stesso motivo, altrimenti
+      // un adminEdificio che salva finisce per inviare anche record di altri
+      // edifici a saveBuildingData, che li rifiuta in blocco. Stessa lista di
+      // RESTRICTED_KEYS (APPDATA_CONFIG) + 'cm_edifici', sempre incluso e mai
+      // filtrato per edificio (vedi getBuildingData lato server).
       if (!isSuperAdmin(profile)) {
         try {
           const { functionsInstance, httpsCallable } = window._fb;
           const getBuildingData = httpsCallable(functionsInstance, 'getBuildingData');
           const resp = await getBuildingData();
           const data = resp.data || {};
-          ['cm_spese','cm_entrate','cm_fornitori','cm_condomini','cm_edifici','cm_bacheca','cm_verbali'].forEach(k => {
+          [...RESTRICTED_KEYS, 'cm_edifici'].forEach(k => {
             if (data[k] !== undefined) _cache[k] = data[k];
           });
           applyLoadedDataFromCache();

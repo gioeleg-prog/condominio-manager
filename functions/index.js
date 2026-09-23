@@ -8,6 +8,39 @@ const db = getFirestore();
 const auth = getAuth();
 
 // ═══════════════════════════════════════════════════════════════
+// APPDATA_RESTRICTED_CONFIG — unica fonte, in questo runtime, per le
+// chiavi del blob appdata che passano da saveBuildingData/getBuildingData
+// invece che da una scrittura/lettura diretta sul documento. writeRole:
+// 'adminOnly' (solo adminEdificio/superAdmin) o 'finance' (anche editor).
+// Deriva RESTRICTED_KEYS e ADMIN_ONLY_KEYS qui sotto, ed è la base del
+// `keys` di getBuildingData (+ 'cm_edifici', sempre incluso e mai
+// filtrato per edificio).
+//
+// index.html ha la propria copia equivalente (runtime separato, non
+// importabile da qui) — aggiungere o togliere una chiave va fatto in
+// entrambe. firestore.rules resta sincronizzata a mano: è un linguaggio
+// dichiarativo che non può importare questo oggetto, quindi i suoi due
+// elenchi (lettura e scrittura) vanno aggiornati a mano in coppia con
+// questo file. Le chiavi a lettura diretta ristretta al superAdmin
+// (cm_spese/cm_entrate/cm_fornitori/cm_delibere) sono una decisione
+// presa SOLO in firestore.rules — non influenzano nessuna derivazione
+// qui sotto, perché getBuildingData filtra per edificio allo stesso modo
+// tutte le chiavi diverse da cm_edifici, ristrette o no.
+// ═══════════════════════════════════════════════════════════════
+const APPDATA_RESTRICTED_CONFIG = {
+  cm_condomini: { writeRole: 'adminOnly' },
+  cm_spese:     { writeRole: 'finance' },
+  cm_entrate:   { writeRole: 'finance' },
+  cm_fornitori: { writeRole: 'finance' },
+  cm_bacheca:   { writeRole: 'adminOnly' },
+  cm_verbali:   { writeRole: 'adminOnly' },
+  cm_lavori:    { writeRole: 'adminOnly' },
+  cm_delibere:  { writeRole: 'adminOnly' },
+};
+const RESTRICTED_KEYS = Object.keys(APPDATA_RESTRICTED_CONFIG);
+const ADMIN_ONLY_KEYS = RESTRICTED_KEYS.filter((k) => APPDATA_RESTRICTED_CONFIG[k].writeRole === 'adminOnly');
+
+// ═══════════════════════════════════════════════════════════════
 // setUserRole
 // Unico punto autorizzato ad assegnare superAdmin / adminEdificio /
 // member. Sostituisce la scrittura diretta di index.html riga ~5306
@@ -77,7 +110,7 @@ exports.getBuildingData = onCall(async (request) => {
     throw new HttpsError('permission-denied', 'Utente non provisionato (nessun ruolo assegnato).');
   }
 
-  const keys = ['cm_spese', 'cm_entrate', 'cm_condomini', 'cm_fornitori', 'cm_edifici', 'cm_bacheca', 'cm_verbali'];
+  const keys = [...RESTRICTED_KEYS, 'cm_edifici'];
   const snaps = await Promise.all(
     keys.map((k) => db.collection('appdata').doc(k).get())
   );
@@ -170,14 +203,13 @@ exports.linkMyUid = onCall(async (request) => {
 
 // ═══════════════════════════════════════════════════════════════
 // saveBuildingData
-// P0 URGENTE (scoperto pianificando REB-01): da quando SEC-03 filtra
-// cm_spese/cm_entrate/cm_fornitori/cm_condomini (e ora anche cm_bacheca/
-// cm_verbali, stesso bridge in getBuildingData qui sotto) al proprio
-// edificio per i non-superAdmin, il client continua a salvare con un
-// overwrite COMPLETO del blob condiviso (fbSaveKey -> setDoc). Un
-// adminEdificio o un condomino con canEdit:true che salva qualunque cosa
-// scrive nel documento condiviso SOLO i record del proprio edificio,
-// cancellando silenziosamente quelli di tutti gli altri edifici.
+// P0 URGENTE (scoperto pianificando REB-01): da quando SEC-03 filtra le
+// chiavi di APPDATA_RESTRICTED_CONFIG al proprio edificio per i non-
+// superAdmin, il client continua a salvare con un overwrite COMPLETO del
+// blob condiviso (fbSaveKey -> setDoc). Un adminEdificio o un condomino
+// con canEdit:true che salva qualunque cosa scrive nel documento
+// condiviso SOLO i record del proprio edificio, cancellando
+// silenziosamente quelli di tutti gli altri edifici.
 //
 // Questa function sostituisce quella scrittura diretta per i non-
 // superAdmin: legge il blob, sostituisce SOLO le righe del proprio
@@ -185,8 +217,6 @@ exports.linkMyUid = onCall(async (request) => {
 // Con Admin SDK, quindi può fare la fusione anche se le rules negano
 // la scrittura diretta di queste chiavi a chi non è superAdmin.
 // ═══════════════════════════════════════════════════════════════
-const RESTRICTED_KEYS = ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini', 'cm_bacheca', 'cm_verbali'];
-
 exports.saveBuildingData = onCall(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
 
@@ -204,20 +234,22 @@ exports.saveBuildingData = onCall(async (request) => {
     throw new HttpsError('invalid-argument', 'records deve essere un array.');
   }
 
-  // cm_condomini (gestione utenti/ruoli), cm_bacheca (comunicazioni) e
-  // cm_verbali (atti ufficiali di assemblea) restano riservati ad
-  // adminEdificio/superAdmin. I dati finanziari si aprono anche a
-  // 'editor'. Un semplice 'member' (sola lettura in UI) non può scrivere
-  // nessuna di queste — altrimenti basterebbe chiamare questa function da
-  // console per bypassare un limite che l'interfaccia si limita a nascondere.
+  // ADMIN_ONLY_KEYS (cm_condomini, cm_bacheca, cm_verbali, cm_lavori,
+  // cm_delibere — derivate da APPDATA_RESTRICTED_CONFIG in cima al file)
+  // restano riservate ad adminEdificio/superAdmin — su richiesta
+  // esplicita: per tutte le sezioni introdotte dopo Spese/Entrate/
+  // Fornitori, 'editor' resta sola lettura come 'member', a differenza
+  // dei dati finanziari storici che si aprono anche a 'editor'. Un
+  // semplice 'member' (sola lettura in UI) non può scrivere nessuna di
+  // queste — altrimenti basterebbe chiamare questa function da console
+  // per bypassare un limite che l'interfaccia si limita a nascondere.
   if (callerRole !== 'superAdmin') {
-    const adminOnlyKeys = ['cm_condomini', 'cm_bacheca', 'cm_verbali'];
     const canWriteAdminOnly = callerRole === 'adminEdificio';
     const canWriteFinance = callerRole === 'adminEdificio' || callerRole === 'editor';
-    if (adminOnlyKeys.includes(key) && !canWriteAdminOnly) {
+    if (ADMIN_ONLY_KEYS.includes(key) && !canWriteAdminOnly) {
       throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare questi dati.');
     }
-    if (!adminOnlyKeys.includes(key) && !canWriteFinance) {
+    if (!ADMIN_ONLY_KEYS.includes(key) && !canWriteFinance) {
       throw new HttpsError('permission-denied', 'Il tuo ruolo non può modificare questi dati.');
     }
   }
