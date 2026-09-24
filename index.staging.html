@@ -8440,50 +8440,42 @@ async function initApp() {
       }
       await loadSuperAdminConfig();
 
-      let profile = state.condomini.find(u => u.uid === firebaseUser.uid)
-                 || state.condomini.find(u => u.email && u.email.toLowerCase() === firebaseUser.email.toLowerCase());
-
-      // SuperAdmin: riconosci per UID O per email
-      const isSA = (SUPER_ADMIN_UID && firebaseUser.uid === SUPER_ADMIN_UID)
-                || (SUPER_ADMIN_EMAIL && firebaseUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase());
-
-      if (!profile && isSA) {
-        profile = { id:0, uid:firebaseUser.uid, nome:firebaseUser.displayName||'Super Admin',
-          email:firebaseUser.email, appartamento:'Admin',
-          superAdmin:true, isAdmin:true, canEdit:true, color:'#1B2A4A' };
-      }
-
-      if (!profile) {
+      // Audit 2026-09 (lettura cross-edificio): il profilo non si cerca più
+      // dentro l'intero cm_condomini (che le rules ora non lasciano leggere ai
+      // non-superAdmin), ma tramite la Cloud Function whoami — che lo cerca
+      // lato server, restituisce SOLO il proprio record, collega l'uid e
+      // provisiona il ruolo al primo accesso.
+      let profile;
+      try {
+        const { functionsInstance, httpsCallable } = window._fb;
+        const whoami = httpsCallable(functionsInstance, 'whoami');
+        const resp = await whoami();
+        profile = resp.data?.profile;
+        // whoami può aver appena assegnato il custom claim (primo accesso): il
+        // token in mano al client non lo riflette ancora, la getBuildingData
+        // qui sotto fallirebbe con "Utente non provisionato". Forziamo il refresh.
+        await firebaseUser.getIdToken(true);
+      } catch (err) {
+        const code = err.code || err.message || '';
         await window._fb.signOut(auth);
         state.user = null; render();
         const b = document.getElementById('btn-login');
         if (b) { b.disabled=false; b.textContent='Accedi'; }
-        showLoginErr('Account non configurato. Contatta l amministratore.');
+        // Messaggi noti da whoami; qualunque altro errore → generico.
+        const msg = /not-found/.test(code) ? "Account non configurato. Contatta l'amministratore."
+          : /already-exists/.test(code) ? "Questo profilo risulta già collegato a un altro account."
+          : /failed-precondition/.test(code) ? (err.message || "Impossibile completare l'accesso.")
+          : "Impossibile completare l'accesso. Riprova.";
+        showLoginErr(msg);
         return;
       }
-      if (profile.disabled) {
-        await window._fb.signOut(auth); state.user = null; render(); return;
-      }
-      if (!profile.uid && profile.id !== 0) {
-        // SEC-05 fix: cm_condomini è scrivibile dal client solo da admin (firestore.rules),
-        // quindi il collegamento uid al primo login passa dalla Cloud Function linkMyUid
-        // (Admin SDK, tocca solo il record dell'email del chiamante).
-        try {
-          const { functionsInstance, httpsCallable } = window._fb;
-          const linkMyUid = httpsCallable(functionsInstance, 'linkMyUid');
-          await linkMyUid();
-          // linkMyUid può aver appena assegnato il custom claim di ruolo per la
-          // prima volta (provisioning automatico dai flag legacy) — il token
-          // già in mano al client, refreshato PRIMA di questa chiamata, non lo
-          // riflette ancora. Senza questo refresh, la getBuildingData qui sotto
-          // fallirebbe con "Utente non provisionato" al primissimo login.
-          await firebaseUser.getIdToken(true);
-          const upd = state.condomini.map(c => c.id===profile.id ? {...c,uid:firebaseUser.uid} : c);
-          state.condomini = upd;
-          profile = {...profile, uid:firebaseUser.uid};
-        } catch (err) {
-          console.error('linkMyUid fallita:', err.message || err);
-        }
+
+      if (!profile || profile.disabled) {
+        await window._fb.signOut(auth); state.user = null; render();
+        const b = document.getElementById('btn-login');
+        if (b) { b.disabled=false; b.textContent='Accedi'; }
+        if (!profile) showLoginErr("Account non configurato. Contatta l'amministratore.");
+        return;
       }
       state.user = profile;
       if (!isSuperAdmin(profile) && profile.edificioId) {

@@ -191,11 +191,27 @@ describe('appdata — modello attuale', () => {
     }
   });
 
-  it('un member PUÒ ancora leggere le chiavi necessarie al login (cm_condomini, cm_edifici, cm_categorie, cm_edificio_attivo, cm_config)', async () => {
+  it('un member PUÒ ancora leggere le chiavi necessarie al login (cm_edifici, cm_categorie, cm_edificio_attivo, cm_config)', async () => {
     const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    for (const k of ['cm_condomini', 'cm_edifici', 'cm_categorie', 'cm_edificio_attivo', 'cm_login_stats', 'cm_config']) {
+    for (const k of ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo', 'cm_login_stats', 'cm_config']) {
       await assertSucceeds(db.collection('appdata').doc(k).get());
     }
+  });
+
+  // Audit 2026-09: cm_condomini non è più leggibile direttamente dai non-
+  // superAdmin (esponeva nomi/email di tutti gli edifici). Il login usa la
+  // Cloud Function whoami; i condomini del proprio edificio arrivano da
+  // getBuildingData. Entrambe con Admin SDK, bypassano queste rules.
+  it('un member/adminEdificio/editor NON può leggere direttamente cm_condomini (passa da whoami/getBuildingData)', async () => {
+    for (const [uid, role] of [['u_member', 'member'], ['u_admin', 'adminEdificio'], ['u_editor', 'editor']]) {
+      const db = testEnv.authenticatedContext(uid, { role, buildingId: 'b1' }).firestore();
+      await assertFails(db.collection('appdata').doc('cm_condomini').get());
+    }
+  });
+
+  it('il superAdmin PUÒ leggere direttamente cm_condomini', async () => {
+    const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertSucceeds(db.collection('appdata').doc('cm_condomini').get());
   });
 
   it('adminEdificio/editor/member NON possono scrivere cm_edifici, cm_categorie, cm_edificio_attivo', async () => {

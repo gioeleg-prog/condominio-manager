@@ -87,12 +87,14 @@ service cloud.firestore {
       // dati sensibili quanto spese/entrate, stesso trattamento. Anche
       // cm_bacheca/cm_verbali/cm_lavori: arrivano già filtrati da
       // getBuildingData, la lettura diretta esponeva quelli degli altri edifici.
-      // cm_condomini resta leggibile da tutti SOLO perché il login cerca il
-      // proprio profilo nel blob prima di avere un ruolo (vedi REB-01, whoami).
+      // Audit 2026-09: cm_condomini aggiunto al gruppo superAdmin-only. Il
+      // login non cerca più il profilo nel blob (esponeva nomi/email di tutti
+      // gli edifici) ma tramite la Cloud Function whoami; i non-superAdmin
+      // ottengono i condomini del proprio edificio via getBuildingData.
       allow read: if key in ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_delibere',
-                             'cm_bacheca', 'cm_verbali', 'cm_lavori']
+                             'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_condomini']
                    ? isSuperAdmin()
-                   : (isSignedIn() && key in ['cm_condomini', 'cm_edifici', 'cm_categorie',
+                   : (isSignedIn() && key in ['cm_edifici', 'cm_categorie',
                                               'cm_edificio_attivo', 'cm_login_stats', 'cm_config']);
       // P0 urgente: le chiavi per edificio (spese/entrate/fornitori/condomini/
       // bacheca/verbali/lavori/delibere) sono negate in scrittura diretta a
