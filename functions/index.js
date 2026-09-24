@@ -166,23 +166,29 @@ exports.linkMyUid = onCall(async (request) => {
 
   const uid = request.auth.uid;
   const ref = db.collection('appdata').doc('cm_condomini');
-  const snap = await ref.get();
-  let arr = [];
-  try { arr = JSON.parse(snap.data()?.value || '[]'); } catch { arr = []; }
+  // Transazione: cm_condomini è scritto anche da saveBuildingData (un admin
+  // che modifica i condomini) — senza, un primo login concorrente poteva
+  // annullare la modifica dell'admin, o viceversa perdere il collegamento uid.
+  const record = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    let arr = [];
+    try { arr = JSON.parse(snap.data()?.value || '[]'); } catch { arr = []; }
 
-  const idx = arr.findIndex((c) => c.email && c.email.toLowerCase() === email.toLowerCase());
-  if (idx === -1) {
-    throw new HttpsError('not-found', 'Nessun condomino associato a questa email. Contatta l\'amministratore.');
-  }
-  if (arr[idx].uid && arr[idx].uid !== uid) {
-    throw new HttpsError('already-exists', 'Questo profilo risulta già collegato a un altro account.');
-  }
+    const idx = arr.findIndex((c) => c.email && c.email.toLowerCase() === email.toLowerCase());
+    if (idx === -1) {
+      throw new HttpsError('not-found', 'Nessun condomino associato a questa email. Contatta l\'amministratore.');
+    }
+    if (arr[idx].uid && arr[idx].uid !== uid) {
+      throw new HttpsError('already-exists', 'Questo profilo risulta già collegato a un altro account.');
+    }
 
-  const record = arr[idx];
-  if (!record.uid) {
-    arr[idx] = { ...record, uid };
-    await ref.set({ value: JSON.stringify(arr) });
-  }
+    const rec = arr[idx];
+    if (!rec.uid) {
+      arr[idx] = { ...rec, uid };
+      tx.set(ref, { value: JSON.stringify(arr) });
+    }
+    return rec;
+  });
 
   const existingUser = await auth.getUser(uid).catch(() => null);
   if (!existingUser?.customClaims?.role) {
@@ -254,31 +260,37 @@ exports.saveBuildingData = onCall(async (request) => {
     }
   }
 
-  const ref = db.collection('appdata').doc(key);
-  const snap = await ref.get();
-  let current = [];
-  try { current = JSON.parse(snap.data()?.value || '[]'); } catch { current = []; }
-
-  let merged;
   if (callerRole === 'superAdmin') {
     // Il superAdmin vede e gestisce tutti gli edifici: comportamento
     // invariato, sostituisce l'intero array come già fa oggi.
-    merged = records;
-  } else {
-    const buildingIdStr = String(callerBuildingId || '');
-    for (const rec of records) {
-      if (rec && rec.edificioId != null && String(rec.edificioId) !== buildingIdStr) {
-        throw new HttpsError('permission-denied',
-          `Il record ${rec.id} non appartiene al tuo edificio.`);
-      }
+    await db.collection('appdata').doc(key).set({ value: JSON.stringify(records) });
+    return { ok: true, count: records.length };
+  }
+
+  const buildingIdStr = String(callerBuildingId || '');
+  for (const rec of records) {
+    if (rec && rec.edificioId != null && String(rec.edificioId) !== buildingIdStr) {
+      throw new HttpsError('permission-denied',
+        `Il record ${rec.id} non appartiene al tuo edificio.`);
     }
+  }
+
+  // Transazione: senza, due salvataggi quasi simultanei di edifici diversi
+  // leggevano entrambi lo stesso blob e il secondo a scrivere cancellava la
+  // fetta appena salvata dal primo. Ora Firestore riprova la lettura se il
+  // documento è cambiato nel frattempo.
+  const ref = db.collection('appdata').doc(key);
+  const count = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    let current = [];
+    try { current = JSON.parse(snap.data()?.value || '[]'); } catch { current = []; }
     // Mantiene intatto tutto ciò che NON appartiene al proprio edificio
     // (altri edifici, e record senza edificioId come il superAdmin) —
     // sostituisce solo la propria fetta con quella inviata dal client.
     const others = current.filter((r) => String(r?.edificioId) !== buildingIdStr);
-    merged = [...others, ...records];
-  }
-
-  await ref.set({ value: JSON.stringify(merged) });
-  return { ok: true, count: merged.length };
+    const merged = [...others, ...records];
+    tx.set(ref, { value: JSON.stringify(merged) });
+    return merged.length;
+  });
+  return { ok: true, count };
 });

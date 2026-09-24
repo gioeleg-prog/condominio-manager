@@ -34,8 +34,9 @@ rules_version = '2';
 //  oggetto di configurazione JS per runtime — qui non è possibile, perché
 //  le Security Rules sono un linguaggio dichiarativo che non può
 //  importare quell'oggetto. Aggiungere o togliere una chiave "ristretta"
-//  richiede di aggiornare a mano, in coppia: gli elenchi di lettura (riga
-//  ~70) e scrittura (riga ~86) qui sotto, APPDATA_RESTRICTED_CONFIG in
+//  richiede di aggiornare a mano, in coppia: gli elenchi di lettura e
+//  scrittura di match /appdata/{key} qui sotto (lista chiusa: una chiave
+//  nuova non elencata è negata a tutti), APPDATA_RESTRICTED_CONFIG in
 //  functions/index.js, e APPDATA_CONFIG in index.html.
 // ═══════════════════════════════════════════════════════════════
 
@@ -72,30 +73,42 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ─── Modello ATTUALE (transitorio) ──────────────────────────
+    // Lista CHIUSA di chiavi: una chiave non elencata qui sotto (es. i
+    // residui del vecchio login cm_passwords/cm_reset_tokens, rimasti in
+    // produzione) non è né leggibile né scrivibile da nessuno, superAdmin
+    // compreso. Prima di questo hardening il ramo "else" era isSignedIn(),
+    // quindi qualunque chiave sconosciuta era leggibile da ogni condomino.
     match /appdata/{key} {
       // SEC-03: i dati finanziari (blob unico per tutti gli edifici) sono leggibili
       // direttamente dal client solo dal superAdmin. Chiunque altro (member o
       // adminEdificio) li ottiene filtrati per il proprio edificio tramite la
       // Cloud Function getBuildingData (Admin SDK, bypassa queste rules).
       // cm_delibere si aggiunge a questo gruppo: budget e responsabile sono
-      // dati sensibili quanto spese/entrate, stesso trattamento.
-      allow read: if (key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_delibere')
+      // dati sensibili quanto spese/entrate, stesso trattamento. Anche
+      // cm_bacheca/cm_verbali/cm_lavori: arrivano già filtrati da
+      // getBuildingData, la lettura diretta esponeva quelli degli altri edifici.
+      // cm_condomini resta leggibile da tutti SOLO perché il login cerca il
+      // proprio profilo nel blob prima di avere un ruolo (vedi REB-01, whoami).
+      allow read: if key in ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_delibere',
+                             'cm_bacheca', 'cm_verbali', 'cm_lavori']
                    ? isSuperAdmin()
-                   : isSignedIn();
-      // P0 urgente: cm_spese/cm_entrate/cm_fornitori/cm_condomini negati in
-      // scrittura diretta a chiunque non sia superAdmin — un adminEdificio/
-      // canEdit che scriveva qui sovrascriveva l'intero blob con SOLO il
-      // proprio edificio (già filtrato in lettura da SEC-03), cancellando
-      // gli altri. Passano tutti dalla Cloud Function saveBuildingData
-      // (Admin SDK, fonde solo la propria fetta, bypassa queste rules).
-      // cm_bacheca, cm_verbali, cm_lavori e cm_delibere seguono lo stesso
-      // trattamento in scrittura: comunicazioni e atti ufficiali
-      // dell'amministratore, non un blob "interim" scrivibile da chiunque.
-      allow write: if key == 'cm_config'
-                   ? isSuperAdmin()
-                   : ((key == 'cm_spese' || key == 'cm_entrate' || key == 'cm_fornitori' || key == 'cm_condomini' || key == 'cm_bacheca' || key == 'cm_verbali' || key == 'cm_lavori' || key == 'cm_delibere')
-                       ? isSuperAdmin()
-                       : isSignedIn()); // interim: resto ancora aperto ai provisioned users
+                   : (isSignedIn() && key in ['cm_condomini', 'cm_edifici', 'cm_categorie',
+                                              'cm_edificio_attivo', 'cm_login_stats', 'cm_config']);
+      // P0 urgente: le chiavi per edificio (spese/entrate/fornitori/condomini/
+      // bacheca/verbali/lavori/delibere) sono negate in scrittura diretta a
+      // chiunque non sia superAdmin — un adminEdificio/editor che scriveva qui
+      // sovrascriveva l'intero blob con SOLO il proprio edificio, cancellando
+      // gli altri. Passano dalla Cloud Function saveBuildingData (Admin SDK,
+      // fonde solo la propria fetta, bypassa queste rules).
+      // cm_edifici/cm_categorie/cm_edificio_attivo/cm_config: in UI li
+      // gestisce solo il superAdmin, ora anche lato server.
+      // cm_login_stats resta scrivibile da chiunque sia autenticato: ogni
+      // login aggiorna il contatore (registraLogin in index.html).
+      allow write: if key == 'cm_login_stats'
+                   ? isSignedIn()
+                   : (isSuperAdmin() && key in ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini',
+                                                'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_delibere',
+                                                'cm_edifici', 'cm_categorie', 'cm_edificio_attivo', 'cm_config']);
     }
 
     // Specchio dei custom claims, leggibile per debug/UI, scrivibile

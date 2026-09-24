@@ -80,9 +80,12 @@ describe('appdata — modello attuale', () => {
   // scrittura diretta dal client per gli altri, sempre tramite
   // saveBuildingData. Lettura resta aperta a isSignedIn() (non è dato
   // economico come cm_spese/cm_entrate/cm_fornitori).
-  it('un member PUÒ leggere appdata/cm_bacheca', async () => {
+  // Hardening: la lettura diretta di cm_bacheca/cm_verbali/cm_lavori non è
+  // più aperta — il blob contiene tutti gli edifici, i non-superAdmin li
+  // ricevono già filtrati da getBuildingData.
+  it('un member NON può leggere direttamente appdata/cm_bacheca (passa da getBuildingData)', async () => {
     const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_bacheca').get());
+    await assertFails(db.collection('appdata').doc('cm_bacheca').get());
   });
 
   it('un editor NON può scrivere appdata/cm_bacheca direttamente (passa da saveBuildingData)', async () => {
@@ -103,9 +106,9 @@ describe('appdata — modello attuale', () => {
   // cm_verbali (atti ufficiali di assemblea): stesso trattamento di
   // cm_bacheca/cm_condomini — solo adminEdificio/superAdmin, mai
   // scrittura diretta dal client per gli altri.
-  it('un member PUÒ leggere appdata/cm_verbali', async () => {
+  it('un member NON può leggere direttamente appdata/cm_verbali (passa da getBuildingData)', async () => {
     const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_verbali').get());
+    await assertFails(db.collection('appdata').doc('cm_verbali').get());
   });
 
   it('un editor NON può scrivere appdata/cm_verbali direttamente (passa da saveBuildingData)', async () => {
@@ -126,9 +129,9 @@ describe('appdata — modello attuale', () => {
   // cm_lavori (checklist lavori, dato operativo): stesso trattamento di
   // cm_bacheca/cm_verbali — lettura aperta, scrittura solo adminEdificio/
   // superAdmin.
-  it('un member PUÒ leggere appdata/cm_lavori', async () => {
+  it('un member NON può leggere direttamente appdata/cm_lavori (passa da getBuildingData)', async () => {
     const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_lavori').get());
+    await assertFails(db.collection('appdata').doc('cm_lavori').get());
   });
 
   it('un editor NON può scrivere appdata/cm_lavori direttamente (passa da saveBuildingData)', async () => {
@@ -172,6 +175,50 @@ describe('appdata — modello attuale', () => {
   it('un superAdmin PUÒ scrivere direttamente appdata/cm_delibere', async () => {
     const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
     await assertSucceeds(db.collection('appdata').doc('cm_delibere').set({ value: '[]' }));
+  });
+
+  // Hardening: lista chiusa di chiavi. I residui del vecchio login
+  // (cm_passwords, cm_reset_tokens) erano leggibili da chiunque fosse
+  // autenticato, perché ogni chiave non elencata ricadeva in isSignedIn().
+  it('nessuno legge o scrive chiavi non elencate (cm_passwords, cm_reset_tokens), superAdmin compreso', async () => {
+    const member = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
+    const superA = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    for (const k of ['cm_passwords', 'cm_reset_tokens', 'cm_chiave_inventata']) {
+      await assertFails(member.collection('appdata').doc(k).get());
+      await assertFails(member.collection('appdata').doc(k).set({ value: '{}' }));
+      await assertFails(superA.collection('appdata').doc(k).get());
+      await assertFails(superA.collection('appdata').doc(k).set({ value: '{}' }));
+    }
+  });
+
+  it('un member PUÒ ancora leggere le chiavi necessarie al login (cm_condomini, cm_edifici, cm_categorie, cm_edificio_attivo, cm_config)', async () => {
+    const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
+    for (const k of ['cm_condomini', 'cm_edifici', 'cm_categorie', 'cm_edificio_attivo', 'cm_login_stats', 'cm_config']) {
+      await assertSucceeds(db.collection('appdata').doc(k).get());
+    }
+  });
+
+  it('adminEdificio/editor/member NON possono scrivere cm_edifici, cm_categorie, cm_edificio_attivo', async () => {
+    for (const [uid, role] of [['u_admin', 'adminEdificio'], ['u_editor', 'editor'], ['u_member', 'member']]) {
+      const db = testEnv.authenticatedContext(uid, { role, buildingId: 'b1' }).firestore();
+      for (const k of ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo']) {
+        await assertFails(db.collection('appdata').doc(k).set({ value: '[]' }));
+      }
+    }
+  });
+
+  it('un superAdmin PUÒ scrivere cm_edifici, cm_categorie, cm_edificio_attivo', async () => {
+    const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    for (const k of ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo']) {
+      await assertSucceeds(db.collection('appdata').doc(k).set({ value: '[]' }));
+    }
+  });
+
+  it('chiunque sia autenticato PUÒ scrivere cm_login_stats (contatore di login), un anonimo no', async () => {
+    const member = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
+    await assertSucceeds(member.collection('appdata').doc('cm_login_stats').set({ value: '{}' }));
+    const anon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(anon.collection('appdata').doc('cm_login_stats').set({ value: '{}' }));
   });
 });
 

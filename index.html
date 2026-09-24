@@ -1359,11 +1359,15 @@ async function cambiaEdificio(id, closeModal) {
   // Ricarica dati freschi da Firestore — garantisce dati corretti per nuovo edificio
   if (window._fb) {
     await fbLoadAll();
-    const _c = load('cm_condomini', null);  if (_c) state.condomini  = _c;
-    const _s = load('cm_spese', null);      if (_s) state.spese      = _s;
-    const _e = load('cm_entrate', null);    if (_e) state.entrate    = _e;
-    const _f = load('cm_fornitori', null);  if (_f) state.fornitori  = _f;
-    const _ed= load('cm_edifici', null);    if (_ed && _ed.length) state.edifici = _ed;
+    // Tutte le chiavi con stateProp (incluse bacheca/verbali/lavori/delibere),
+    // tranne edificioAttivo: fbLoadAll può aver riletto il valore precedente
+    // prima che la save() qui sopra arrivasse su Firestore.
+    Object.entries(APPDATA_CONFIG).forEach(([key, cfg]) => {
+      if (!cfg.stateProp || cfg.stateProp === 'edificioAttivo') return;
+      const v = load(key, null);
+      if (v && !(key === 'cm_edifici' && !v.length)) state[cfg.stateProp] = v;
+    });
+    _cache.cm_edificio_attivo = id;
   }
   // Se veniva dal modal switcher → vai a dashboard; altrimenti resta nella pagina corrente
   const targetPage = closeModal ? 'dashboard' : state.page;
@@ -1401,20 +1405,19 @@ window.avviaMigrazioneClick = async function() {
 // ===========================
 // BACKUP / RESTORE
 // ===========================
+// Backup e ripristino iterano APPDATA_CONFIG invece di un elenco a mano:
+// l'elenco fisso non includeva bacheca/verbali/lavori/delibere, quindi il
+// backup JSON le perdeva senza avvisare.
 window.esportaDati = function() {
+  const data = {};
+  Object.entries(APPDATA_CONFIG).forEach(([key, cfg]) => {
+    data[key] = cfg.stateProp ? state[cfg.stateProp] : load(key, null);
+  });
   const backup = {
-    version: 2,
+    version: 3,
     timestamp: new Date().toISOString(),
     edificioAttivo: state.edificioAttivo,
-    data: {
-      cm_condomini:      state.condomini,
-      cm_spese:          state.spese,
-      cm_entrate:        state.entrate,
-      cm_fornitori:      state.fornitori,
-      cm_edifici:        state.edifici,
-      cm_edificio_attivo:state.edificioAttivo,
-      cm_categorie:      load('cm_categorie', null),
-    }
+    data,
   };
   const json = JSON.stringify(backup, null, 2);
   const blob = new Blob([json], {type:'application/json'});
@@ -1437,13 +1440,13 @@ window.importaDati = function(file) {
       if (!confirm('Importare il backup del ' + (backup.timestamp||'data sconosciuta') + '?\n\nQuesta operazione SOVRASCRIVE tutti i dati attuali.')) return;
       const d = backup.data;
       // Salva su Firebase
-      if (d.cm_condomini)       { state.condomini  = d.cm_condomini;       save('cm_condomini',  d.cm_condomini); }
-      if (d.cm_spese)           { state.spese      = d.cm_spese;           save('cm_spese',      d.cm_spese); }
-      if (d.cm_entrate)         { state.entrate    = d.cm_entrate;         save('cm_entrate',    d.cm_entrate); }
-      if (d.cm_fornitori)       { state.fornitori  = d.cm_fornitori;       save('cm_fornitori',  d.cm_fornitori); }
-      if (d.cm_edifici)         { state.edifici    = d.cm_edifici;         save('cm_edifici',    d.cm_edifici); }
-      if (d.cm_categorie)       { save('cm_categorie', d.cm_categorie); }
-      if (d.cm_edificio_attivo) { state.edificioAttivo = d.cm_edificio_attivo; save('cm_edificio_attivo', d.cm_edificio_attivo); }
+      // Solo le chiavi presenti nel file: un backup v2 (prima di bacheca/
+      // verbali/lavori/delibere) non azzera le sezioni che non conteneva.
+      Object.entries(APPDATA_CONFIG).forEach(([key, cfg]) => {
+        if (d[key] == null) return;
+        if (cfg.stateProp) state[cfg.stateProp] = d[key];
+        save(key, d[key]);
+      });
       setState({page:'dashboard'});
       alert('✅ Dati ripristinati con successo!');
     } catch(err) {
@@ -4715,14 +4718,17 @@ function renderImpostazioni() {
       </div>
     </div>
 
-    <!-- DATI E RESET -->
+    <!-- DATI E RESET (solo superAdmin: reset e categorie sono dati globali,
+         firestore.rules ne nega comunque la scrittura agli altri ruoli) -->
+    ${isSuperAdmin(state.user) ? `
     <div class="section-divider"><h3>⚠️ Zona pericolosa</h3></div>
     <div style="background:var(--red-light);border:1px solid #fecaca;border-radius:var(--radius);padding:1.25rem;max-width:480px">
       <div style="font-weight:600;margin-bottom:.4rem;color:var(--red)">Reset completo dati</div>
-      <div style="font-size:13px;color:#7f1d1d;margin-bottom:.75rem">Elimina tutte le spese, le entrate e ripristina i condomini ai valori predefiniti. Questa operazione è irreversibile.</div>
+      <div style="font-size:13px;color:#7f1d1d;margin-bottom:.75rem">Elimina spese, entrate, fornitori, bacheca, verbali, lavori e delibere di TUTTI i condomini e ripristina i condomini ai valori predefiniti. Questa operazione è irreversibile.</div>
       <button class="btn btn-danger" id="btn-reset">🗑 Reset tutti i dati</button>
       <button class="btn btn-danger" id="btn-reset-cats" style="background:var(--amber-light);color:var(--amber);border-color:#fde68a">↩ Ripristina categorie default</button>
     </div>
+    ` : ''}
   </div>`;
 }
 
@@ -6747,15 +6753,16 @@ Sposta o elimina prima tutti i dati associati.`);
 
   const bReset = document.getElementById('btn-reset');
   if (bReset) bReset.onclick = () => {
+    if (!isSuperAdmin(state.user)) return;
     // Prima conferma
     if (!confirm(
-      '⚠️ ATTENZIONE — Reset completo dei dati.\n\n' +
+      '⚠️ ATTENZIONE — Reset completo dei dati di TUTTI i condomini.\n\n' +
       'Verranno CANCELLATI:\n' +
       '• Tutte le spese\n' +
       '• Tutti i versamenti\n' +
       '• Tutti i fornitori\n' +
-      '• Tutti i condomini (sostituiti con i 6 default)\n' +
-      '• Tutte le password offline\n\n' +
+      '• Bacheca, verbali, lavori e delibere\n' +
+      '• Tutti i condomini (sostituiti con i 6 default)\n\n' +
       'Verranno MANTENUTI:\n' +
       '• Edifici (condomini)\n' +
       '• Categorie di spesa\n' +
@@ -6777,9 +6784,12 @@ Sposta o elimina prima tutti i dati associati.`);
     save('cm_spese',      []);
     save('cm_entrate',    []);
     save('cm_fornitori',  []);
+    save('cm_bacheca',    []);
+    save('cm_verbali',    []);
+    save('cm_lavori',     []);
+    save('cm_delibere',   []);
     save('cm_condomini',  CONDOMINI_DEFAULT);
-    // cm_passwords non più usato — password solo su Firebase Auth
-    setState({spese:[], entrate:[], fornitori:[], condomini:CONDOMINI_DEFAULT});
+    setState({spese:[], entrate:[], fornitori:[], bacheca:[], verbali:[], lavori:[], delibere:[], condomini:CONDOMINI_DEFAULT});
     alert('✅ Reset completato. Puoi ricominciare da zero.');
   };
 
@@ -8503,7 +8513,11 @@ async function initApp() {
       state.user = profile;
       if (!isSuperAdmin(profile) && profile.edificioId) {
         state.edificioAttivo = profile.edificioId;
-        save('cm_edificio_attivo', profile.edificioId);
+        // Solo in cache (applyLoadedDataFromCache qui sotto la rilegge), mai
+        // su Firestore: cm_edificio_attivo è un documento unico condiviso, e
+        // scriverlo qui cambiava l'edificio mostrato al superAdmin al suo
+        // accesso successivo. Ora firestore.rules lo riserva al superAdmin.
+        _cache.cm_edificio_attivo = profile.edificioId;
       }
       // SEC-03 (ponte transitorio): per i non-superAdmin, le firestore.rules non
       // permettono più la lettura diretta di cm_spese/cm_entrate/cm_fornitori/
