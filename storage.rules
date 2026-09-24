@@ -7,24 +7,45 @@ rules_version = '2';
 //  qui, sotto buildings/{buildingId}/... Stessi custom claims usati
 //  dalle firestore.rules (role, buildingId).
 //
-//  LIMITE ONESTO: i custom claims hanno solo 3 ruoli (superAdmin,
-//  adminEdificio, member) — non distinguono "lettura" da "modifica"
-//  come fa la UI lato client. Qui chiunque sia autenticato e
-//  appartenga all'edificio può leggere/scrivere i suoi allegati;
-//  la stessa granularità (o mancanza di essa) che il modello dati
-//  attuale ha sempre avuto anche per gli altri dati dell'edificio.
+//  Audit 2026-09: prima chiunque appartenesse all'edificio, anche un
+//  'member' di sola lettura, poteva caricare e CANCELLARE qualunque
+//  allegato (compresi i PDF dei verbali), di qualunque tipo. Ora:
+//  - lettura: chi appartiene all'edificio (invariato);
+//  - scrittura/cancellazione: superAdmin, adminEdificio ed editor del
+//    proprio edificio (editor serve per gli allegati delle spese; gli
+//    allegati di verbali/delibere condividono lo stesso percorso, e
+//    l'interfaccia li mostra solo agli amministratori);
+//  - solo tipi di file attesi: immagini (non SVG, che può contenere
+//    script), PDF, documenti Office/OpenDocument, testo semplice/CSV, e
+//    application/octet-stream (tipo sconosciuto, es. fatture .p7m —
+//    l'app lo offre solo in download, mai visualizzato in pagina).
 // ═══════════════════════════════════════════════════════════════
+
+function inBuilding(buildingId) {
+  return request.auth != null &&
+    (request.auth.token.role == 'superAdmin' || request.auth.token.buildingId == buildingId);
+}
+
+function canWrite(buildingId) {
+  return inBuilding(buildingId) &&
+    request.auth.token.role in ['superAdmin', 'adminEdificio', 'editor'];
+}
+
+function allowedType() {
+  return request.resource.contentType.matches('image/(png|jpe?g|gif|webp|heic|heif|bmp|tiff)') ||
+    request.resource.contentType.matches('application/(pdf|octet-stream|msword|rtf|zip)') ||
+    request.resource.contentType.matches('application/vnd\\.(ms-excel|ms-powerpoint|openxmlformats-officedocument\\..*|oasis\\.opendocument\\..*)') ||
+    request.resource.contentType.matches('text/(plain|csv)');
+}
 
 service firebase.storage {
   match /b/{bucket}/o {
     match /buildings/{buildingId}/{allPaths=**} {
-      allow read: if request.auth != null &&
-        (request.auth.token.role == 'superAdmin' || request.auth.token.buildingId == buildingId);
-      allow write: if request.auth != null &&
-        (request.auth.token.role == 'superAdmin' || request.auth.token.buildingId == buildingId) &&
-        request.resource.size < 5 * 1024 * 1024;
-      allow delete: if request.auth != null &&
-        (request.auth.token.role == 'superAdmin' || request.auth.token.buildingId == buildingId);
+      allow read: if inBuilding(buildingId);
+      allow create, update: if canWrite(buildingId) &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        allowedType();
+      allow delete: if canWrite(buildingId);
     }
     // Default deny esplicito.
     match /{allPaths=**} {

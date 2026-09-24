@@ -129,7 +129,10 @@ exports.getBuildingData = onCall(async (request) => {
       // qualunque tipo, ma setUserRole/linkMyUid lo scrivono come stringa
       // per coerenza) — confronto tollerante al tipo, altrimenti === non
       // matcha mai e il filtro esclude tutto, non solo gli altri edifici.
-      result[key] = arr.filter((rec) => !rec.edificioId || String(rec.edificioId) === String(callerBuildingId));
+      // Audit 2026-09: i record senza edificioId non vengono più mostrati a
+      // tutti gli edifici (in produzione non ne esistono, e saveBuildingData
+      // ora li assegna sempre al proprio edificio).
+      result[key] = arr.filter((rec) => rec && rec.edificioId != null && String(rec.edificioId) === String(callerBuildingId));
     }
   });
 
@@ -190,11 +193,17 @@ exports.linkMyUid = onCall(async (request) => {
     return rec;
   });
 
+  // Audit 2026-09: il ruolo superAdmin NON viene mai assegnato da qui.
+  // Il flag superAdmin sul record è scrivibile da un adminEdificio tramite
+  // saveBuildingData (ora filtrato, ma resta un dato del blob, non una
+  // fonte autorevole): trasformarlo in claim permetteva a un adminEdificio
+  // di creare un condomino superAdmin e prenderne l'account. Il superAdmin
+  // si assegna solo con setUserRole (da un superAdmin) o con gli script
+  // Admin SDK. Stesso motivo per i record senza edificio: niente claim.
   const existingUser = await auth.getUser(uid).catch(() => null);
-  if (!existingUser?.customClaims?.role) {
-    const role = record.superAdmin ? 'superAdmin'
-      : (record.isAdmin ? 'adminEdificio' : (record.canEdit ? 'editor' : 'member'));
-    const claims = role === 'superAdmin' ? { role } : { role, buildingId: String(record.edificioId || '') };
+  if (!existingUser?.customClaims?.role && !record.superAdmin && record.edificioId != null) {
+    const role = record.isAdmin ? 'adminEdificio' : (record.canEdit ? 'editor' : 'member');
+    const claims = { role, buildingId: String(record.edificioId) };
     await auth.setCustomUserClaims(uid, claims);
     await db.collection('roles').doc(uid).set({
       role,
@@ -268,10 +277,39 @@ exports.saveBuildingData = onCall(async (request) => {
   }
 
   const buildingIdStr = String(callerBuildingId || '');
+  if (!buildingIdStr) {
+    throw new HttpsError('permission-denied', 'Nessun edificio associato al tuo ruolo.');
+  }
+  // edificioId nei dati è numerico (id legacy): il valore assegnato ai
+  // record che ne sono privi deve restare dello stesso tipo, altrimenti i
+  // confronti === lato client (state.edificioAttivo) non li trovano più.
+  const ownEdificioId = /^\d+$/.test(buildingIdStr) ? Number(buildingIdStr) : buildingIdStr;
+
   for (const rec of records) {
-    if (rec && rec.edificioId != null && String(rec.edificioId) !== buildingIdStr) {
+    if (!rec || typeof rec !== 'object' || Array.isArray(rec)) {
+      throw new HttpsError('invalid-argument', 'Record non valido.');
+    }
+    if (rec.edificioId != null && String(rec.edificioId) !== buildingIdStr) {
       throw new HttpsError('permission-denied',
         `Il record ${rec.id} non appartiene al tuo edificio.`);
+    }
+    // Audit 2026-09 (XSS memorizzata): nessun dato applicativo legittimo
+    // contiene < o > (verificato sui dati di produzione), mentre vari punti
+    // dell'interfaccia inseriscono questi campi nell'HTML. Il client ora fa
+    // l'escape, questo è il secondo livello per chi scrive dalla console.
+    if (/[<>]/.test(JSON.stringify(rec))) {
+      throw new HttpsError('invalid-argument', 'I caratteri < e > non sono ammessi.');
+    }
+    // id e colori finiscono in attributi HTML (data-id, style) senza
+    // escape in decine di punti: formato vincolato. Gli id generati
+    // dall'app (newId) sono numeri.
+    if (!(Number.isFinite(rec.id) || (typeof rec.id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(rec.id)))) {
+      throw new HttpsError('invalid-argument', 'Id record non valido.');
+    }
+    for (const f of ['color', 'colore']) {
+      if (rec[f] != null && !/^#[0-9A-Fa-f]{3,8}$/.test(String(rec[f]))) {
+        throw new HttpsError('invalid-argument', `Colore non valido (${f}).`);
+      }
     }
   }
 
@@ -288,7 +326,33 @@ exports.saveBuildingData = onCall(async (request) => {
     // (altri edifici, e record senza edificioId come il superAdmin) —
     // sostituisce solo la propria fetta con quella inviata dal client.
     const others = current.filter((r) => String(r?.edificioId) !== buildingIdStr);
-    const merged = [...others, ...records];
+    const mine = new Map(current.filter((r) => String(r?.edificioId) === buildingIdStr).map((r) => [String(r.id), r]));
+    const otherIds = new Set(others.map((r) => String(r?.id)));
+
+    const cleaned = records.map((rec) => {
+      // Un id già usato da un record di un altro edificio creerebbe un
+      // duplicato che poi si confonde con l'originale (modifica/cancellazione).
+      if (otherIds.has(String(rec.id))) {
+        throw new HttpsError('permission-denied', `Id ${rec.id} già in uso in un altro edificio.`);
+      }
+      // Audit 2026-09: un record senza edificioId finiva visibile a tutti gli
+      // edifici (getBuildingData lo includeva ovunque) e nessun adminEdificio
+      // poteva più rimuoverlo. Ora viene sempre assegnato al proprio edificio.
+      const out = { ...rec, edificioId: ownEdificioId };
+      if (key === 'cm_condomini') {
+        // superAdmin e uid non sono modificabili da un non-superAdmin: il
+        // primo è il privilegio massimo (escalation dimostrata in audit), il
+        // secondo collega un account Firebase al profilo. Si conserva il
+        // valore già salvato; un condomino nuovo non ne ha.
+        const prev = mine.get(String(rec.id));
+        delete out.superAdmin;
+        delete out.uid;
+        if (prev?.superAdmin) out.superAdmin = prev.superAdmin;
+        if (prev?.uid) out.uid = prev.uid;
+      }
+      return out;
+    });
+    const merged = [...others, ...cleaned];
     tx.set(ref, { value: JSON.stringify(merged) });
     return merged.length;
   });
