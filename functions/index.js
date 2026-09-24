@@ -217,6 +217,96 @@ exports.linkMyUid = onCall(async (request) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// whoami
+// Audit 2026-09: prima il client, al login, leggeva TUTTO cm_condomini
+// (nomi/email di ogni edificio) per cercarci dentro il proprio profilo —
+// e le firestore.rules dovevano quindi lasciare quel documento leggibile
+// a chiunque fosse autenticato. Questa function sposta la ricerca lato
+// server (Admin SDK): restituisce SOLO il record del chiamante, così le
+// rules possono chiudere la lettura diretta di cm_condomini al superAdmin.
+//
+// Fa anche ciò che faceva linkMyUid (collega l'uid, provisiona il ruolo se
+// assente), così il login è una sola chiamata. Il superAdmin è determinato
+// SOLO da cm_config (superAdminUid/superAdminEmail, scrivibile solo dal
+// superAdmin) o da un claim role già presente — mai dal flag superAdmin
+// di un record del blob (che un adminEdificio può impostare).
+// ═══════════════════════════════════════════════════════════════
+exports.whoami = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
+  const uid = request.auth.uid;
+  const email = (request.auth.token.email || '').toLowerCase();
+  if (!email) throw new HttpsError('failed-precondition', 'Account senza email associata.');
+
+  const [condSnap, cfgSnap] = await Promise.all([
+    db.collection('appdata').doc('cm_condomini').get(),
+    db.collection('appdata').doc('cm_config').get(),
+  ]);
+  const cfg = cfgSnap.data() || {};
+  const isSuperAdmin = request.auth.token.role === 'superAdmin'
+    || (cfg.superAdminUid && cfg.superAdminUid === uid)
+    || (cfg.superAdminEmail && cfg.superAdminEmail.toLowerCase() === email);
+
+  // superAdmin: profilo sintetico, non deve esistere in cm_condomini.
+  if (isSuperAdmin) {
+    if (!request.auth.token.role) {
+      // Primo login del superAdmin di config senza claim ancora assegnato.
+      await auth.setCustomUserClaims(uid, { role: 'superAdmin' });
+      await db.collection('roles').doc(uid).set({
+        role: 'superAdmin', buildingId: null,
+        updatedAt: FieldValue.serverTimestamp(), updatedBy: 'whoami-auto',
+      }, { merge: true });
+    }
+    return { profile: { id: 0, uid, email, nome: 'Super Admin', appartamento: 'Admin',
+      superAdmin: true, isAdmin: true, canEdit: true, color: '#1B2A4A' }, isSuperAdmin: true };
+  }
+
+  // Non-superAdmin: cerca per uid, poi per email. Rifiuta 2+ corrispondenze
+  // di email (un condominio multi-edificio con la stessa email darebbe un
+  // match ambiguo: prima "vinceva" il primo silenziosamente).
+  const record = await db.runTransaction(async (tx) => {
+    const ref = db.collection('appdata').doc('cm_condomini');
+    const snap = await tx.get(ref);
+    let arr = [];
+    try { arr = JSON.parse(snap.data()?.value || '[]'); } catch { arr = []; }
+
+    let idx = arr.findIndex((c) => c.uid === uid);
+    if (idx === -1) {
+      const matches = arr.map((c, i) => ({ c, i })).filter(({ c }) => c.email && c.email.toLowerCase() === email);
+      if (matches.length > 1) {
+        throw new HttpsError('failed-precondition', 'Più profili con questa email. Contatta l\'amministratore.');
+      }
+      idx = matches.length === 1 ? matches[0].i : -1;
+    }
+    if (idx === -1) {
+      throw new HttpsError('not-found', 'Nessun condomino associato a questa email. Contatta l\'amministratore.');
+    }
+    if (arr[idx].uid && arr[idx].uid !== uid) {
+      throw new HttpsError('already-exists', 'Questo profilo risulta già collegato a un altro account.');
+    }
+    if (!arr[idx].uid) {
+      arr[idx] = { ...arr[idx], uid };
+      tx.set(ref, { value: JSON.stringify(arr) });
+    }
+    return arr[idx];
+  });
+
+  // Provisiona il ruolo se assente — mai superAdmin (vedi linkMyUid).
+  const existingUser = await auth.getUser(uid).catch(() => null);
+  if (!existingUser?.customClaims?.role && record.edificioId != null) {
+    const role = record.isAdmin ? 'adminEdificio' : (record.canEdit ? 'editor' : 'member');
+    await auth.setCustomUserClaims(uid, { role, buildingId: String(record.edificioId) });
+    await db.collection('roles').doc(uid).set({
+      role, buildingId: String(record.edificioId),
+      updatedAt: FieldValue.serverTimestamp(), updatedBy: 'whoami-auto',
+    }, { merge: true });
+  }
+
+  // Il record del chiamante, senza il flag superAdmin (non autorevole qui).
+  const { superAdmin, ...safe } = record;
+  return { profile: safe, isSuperAdmin: false };
+});
+
+// ═══════════════════════════════════════════════════════════════
 // saveBuildingData
 // P0 URGENTE (scoperto pianificando REB-01): da quando SEC-03 filtra le
 // chiavi di APPDATA_RESTRICTED_CONFIG al proprio edificio per i non-
