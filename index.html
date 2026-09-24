@@ -894,7 +894,12 @@ async function fbSaveKey(key, val) {
     }
     const { db, doc, setDoc } = window._fb;
     await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
-  } catch(e) { console.warn('fbSave error', key, e); }
+  } catch(e) {
+    // Prima l'errore finiva solo in console: l'utente credeva di aver
+    // salvato. Ora saveBuildingData può rifiutare dati non validi.
+    console.warn('fbSave error', key, e);
+    alert('⚠️ Salvataggio non riuscito: ' + (e.message || e) + '\nRicarica la pagina per vedere i dati effettivamente salvati.');
+  }
 }
 
 // Carica tutti i dati da Firestore all'avvio e popola la cache
@@ -1210,10 +1215,10 @@ function fmtN(n) {
   return Number(n||0).toLocaleString('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
 function initials(nome) {
-  return nome.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase();
+  return esc(String(nome||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase());
 }
 function avatarStyle(color) {
-  return `background:${color}22;color:${color};`;
+  return `background:${esc(color)}22;color:${esc(color)};`;
 }
 function newId() {
   return Date.now() + Math.floor(Math.random()*1000);
@@ -1512,7 +1517,7 @@ function renderApp() {
             ${(state.edifici.find(e=>e.id===getUserEdificio(user))||state.edifici[0]||{nome:'—'}).nome}
           </div>
           <div style="font-size:10px;color:var(--accent);font-weight:500">
-            ${isAdminEdificio(user) ? '🔑 Amministratore' : '🏠 ' + (user?.appartamento||'Condomino')}
+            ${isAdminEdificio(user) ? '🔑 Amministratore' : '🏠 ' + esc(user?.appartamento||'Condomino')}
           </div>
         </div>
       </div>`}
@@ -1524,13 +1529,13 @@ function renderApp() {
         <div class="user-chip">
           <div class="avatar" style="${avatarStyle(user.color)}">${initials(user.nome)}</div>
           <div class="user-info">
-            <div class="name">${user.nome}</div>
+            <div class="name">${esc(user.nome)}</div>
             <div class="role" style="display:flex;flex-direction:column;gap:2px">
               <span style="display:flex;align-items:center;gap:4px">
                 <span class="badge ${getRuoloBadgeClass(user)}" style="padding:1px 7px;font-size:10px">${getRuoloLabel(user)}</span>
               ${!isSuperAdmin(user) && user.edificioId ? `<span style="font-size:10px;color:var(--text2)">${(state.edifici.find(e=>e.id===user.edificioId)||{nome:''}).nome}</span>` : ''}
               </span>
-              <span style="font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${user.email||''}</span>
+              <span style="font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${esc(user.email||'')}</span>
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px">
@@ -1640,8 +1645,8 @@ function renderViewer() {
       </div>
     </div>
     <div class="viewer-content">
-      ${isImg ? `<img src="${src}" alt="${esc(v.nome)}">` :
-        isPdf ? `<iframe src="${src}" title="${esc(v.nome)}"></iframe>` :
+      ${isImg ? `<img src="${esc(src)}" alt="${esc(v.nome)}">` :
+        isPdf ? `<iframe src="${esc(src)}" title="${esc(v.nome)}"></iframe>` :
         `<div style="background:white;padding:2rem;border-radius:8px;text-align:center;color:#333">
           <div style="font-size:48px;margin-bottom:1rem">${fileEmoji(v.mime)}</div>
           <div style="font-weight:600;margin-bottom:.5rem">${esc(v.nome)}</div>
@@ -1966,7 +1971,7 @@ function renderSpeseMobileCards(items, canEdit) {
         <div class="smc-head">
           <div style="flex:1;min-width:0">
             <div class="smc-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.titolo)}</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:1px">${s.data}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:1px">${esc(s.data)}</div>
           </div>
           <div style="text-align:right;flex-shrink:0">
             <div class="smc-amount">${fmt(amount)}</div>
@@ -1977,19 +1982,19 @@ function renderSpeseMobileCards(items, canEdit) {
         <!-- Riga 2: badge -->
         <div class="smc-meta" style="margin-top:6px">
           <span class="badge ${isStr?'badge-purple':'badge-blue'}" style="font-size:10px;padding:2px 6px">${isStr?'Straord.':'Ord.'}</span>
-          <span class="badge badge-gray" style="font-size:10px;padding:2px 6px">${cat.icon||'📦'} ${cat.label}</span>
+          <span class="badge badge-gray" style="font-size:10px;padding:2px 6px">${esc(cat.icon||'📦')} ${esc(cat.label)}</span>
           ${hasCons
             ? '<span class="badge badge-green" style="font-size:10px;padding:2px 6px">✓ Definitiva</span>'
             : '<span class="badge badge-amber" style="font-size:10px;padding:2px 6px">~ Previsionale</span>'}
           ${hasPrev&&hasCons ? `<span style="font-size:10px;color:var(--text2)">prev.${fmt(s.preventivo)}</span>` : ''}
           ${s.allegati?.length ? `<span class="attach-chip" style="font-size:10px">📎${s.allegati.length}</span>` : ''}
-          ${s.ricorrente ? `<span class="ricorrente-badge">🔁 ${s.frequenza||'mensile'}</span>` : ''}
+          ${s.ricorrente ? `<span class="ricorrente-badge">🔁 ${esc(s.frequenza||'mensile')}</span>` : ''}
           ${(()=>{
             if (!s.fornitoreId) return '';
             const forn = state.fornitori.find(f=>f.id===s.fornitoreId);
             if (!forn) return '';
             const catF = CATEGORIE_FORNITORE.find(c=>c.id===forn.categoria)||{icon:'📦'};
-            return `<span class="badge badge-gray" style="font-size:10px">${catF.icon} ${esc(forn.nome)}</span>`;
+            return `<span class="badge badge-gray" style="font-size:10px">${esc(catF.icon)} ${esc(forn.nome)}</span>`;
           })()}
         </div>
 
@@ -2013,8 +2018,8 @@ function renderEntrateMobileCards(items, canEdit) {
         <div class="avatar" style="${avatarStyle(cond.color)};width:38px;height:38px;font-size:13px;flex-shrink:0">${initials(cond.nome)}</div>
         <div class="emc-info">
           <div class="emc-name">${esc(cond.nome)} ${e.previsionale?'<span class="prev-badge">🔮 Prev.</span>':''}</div>
-          <div class="emc-meta">${e.data} · ${cond.appartamento}${e.descrizione?' · '+esc(e.descrizione):''}</div>
-          <span class="badge ${e.previsionale?'badge-amber':'badge-green'}" style="font-size:10px;margin-top:3px;display:inline-flex">${cat.label}</span>
+          <div class="emc-meta">${esc(e.data)} · ${esc(cond.appartamento)}${e.descrizione?' · '+esc(e.descrizione):''}</div>
+          <span class="badge ${e.previsionale?'badge-amber':'badge-green'}" style="font-size:10px;margin-top:3px;display:inline-flex">${esc(cat.label)}</span>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <div class="emc-amount">${fmt(e.importo)}</div>
@@ -2185,10 +2190,10 @@ function renderFornitoreCard(f, canEdit, archived=false) {
 
   return `<div class="fornitore-card${archived?' disabled':''}">
     <div class="fc-head">
-      <div class="fc-avatar">${catF.icon}</div>
+      <div class="fc-avatar">${esc(catF.icon)}</div>
       <div style="flex:1;min-width:0">
         <div class="fc-name">${esc(f.nome)}</div>
-        <div class="fc-cat">${catF.label}${f.piva?` · P.IVA ${esc(f.piva)}`:''}</div>
+        <div class="fc-cat">${esc(catF.label)}${f.piva?` · P.IVA ${esc(f.piva)}`:''}</div>
       </div>
       ${archived ? '<span class="badge badge-gray" style="font-size:11px">Inattivo</span>' : '<span class="badge badge-green" style="font-size:11px">Attivo</span>'}
     </div>
@@ -2225,7 +2230,7 @@ function renderFornitoreCard(f, canEdit, archived=false) {
 
     <div class="fc-row"><span style="color:var(--text2);font-size:12px">Storico consuntivato</span><span style="font-size:12px;font-weight:600">${fmt(totaleStorico)}</span></div>
     <div class="fc-row"><span style="color:var(--text2);font-size:12px">N° interventi tot.</span><span style="font-size:12px">${speseF.length}</span></div>
-    ${ultimaSpesa ? `<div class="fc-row"><span style="color:var(--text2);font-size:12px">Ultimo intervento</span><span style="font-size:12px">${ultimaSpesa.data}</span></div>` : ''}
+    ${ultimaSpesa ? `<div class="fc-row"><span style="color:var(--text2);font-size:12px">Ultimo intervento</span><span style="font-size:12px">${esc(ultimaSpesa.data)}</span></div>` : ''}
 
     ${canEdit ? `<div class="fc-actions">
       <button class="btn btn-secondary btn-sm" data-edit-fornitore="${f.id}" style="flex:1">✏️ Modifica</button>
@@ -2306,7 +2311,7 @@ function renderAvvisoCard(a, canManage, oggi) {
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
           ${a.prioritaria ? `<span class="badge badge-amber">⚠️ Prioritario</span>` : ''}
-          ${a.scadenza ? `<span class="badge ${scaduto ? 'badge-gray' : 'badge-blue'}">${scaduto ? 'Scaduto il' : 'Scade il'} ${a.scadenza}</span>` : ''}
+          ${a.scadenza ? `<span class="badge ${scaduto ? 'badge-gray' : 'badge-blue'}">${scaduto ? 'Scaduto il' : 'Scade il'} ${esc(a.scadenza)}</span>` : ''}
         </div>
         <div style="font-weight:600;font-size:15px;margin-bottom:4px">${esc(a.titolo)}</div>
         <div style="font-size:13.5px;color:var(--text2);white-space:pre-wrap">${esc(a.testo)}</div>
@@ -2377,7 +2382,7 @@ function renderVerbaleCard(v, canManage) {
         <div style="flex:1;min-width:220px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
             <span class="badge ${isStr?'badge-purple':'badge-blue'}">${isStr?'Straordinaria':'Ordinaria'}</span>
-            <span style="font-size:12px;color:var(--text2)">${v.data}</span>
+            <span style="font-size:12px;color:var(--text2)">${esc(v.data)}</span>
           </div>
           <div style="font-weight:600;font-size:15px;margin-bottom:4px">${esc(v.titolo)}</div>
           ${(v.argomenti&&v.argomenti.length) ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">${v.argomenti.map(t=>`<span class="badge badge-gray">${esc(t)}</span>`).join('')}</div>` : ''}
@@ -2446,7 +2451,7 @@ function renderLavoroCard(l, canManage) {
         <div style="flex:1;min-width:220px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
             <span class="badge ${statoBadge}">${statoLabel}</span>
-            ${l.dataPrevistaCompletamento ? `<span style="font-size:12px;color:var(--text2)">Previsto: ${l.dataPrevistaCompletamento}</span>` : ''}
+            ${l.dataPrevistaCompletamento ? `<span style="font-size:12px;color:var(--text2)">Previsto: ${esc(l.dataPrevistaCompletamento)}</span>` : ''}
           </div>
           <div style="font-weight:600;font-size:15px;margin-bottom:8px">${esc(l.titolo)}</div>
           <div style="display:flex;align-items:center;gap:8px;max-width:320px">
@@ -2507,7 +2512,7 @@ function renderDeliberaCard(d, canManage) {
         <div style="flex:1;min-width:220px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
             <span class="badge ${statoBadge}">${statoLabel}</span>
-            <span style="font-size:12px;color:var(--text2)">${d.dataApprovazione}</span>
+            <span style="font-size:12px;color:var(--text2)">${esc(d.dataApprovazione)}</span>
           </div>
           <div style="font-weight:600;font-size:15px;margin-bottom:4px">${esc(d.descrizioneSintetica)}</div>
           <div style="font-size:13px;color:var(--text2);display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
@@ -2515,7 +2520,7 @@ function renderDeliberaCard(d, canManage) {
             ${d.budgetPrevisto ? `<span>💰 ${fmt(d.budgetPrevisto)}</span>` : ''}
           </div>
           ${d.note ? `<div style="font-size:13px;color:var(--text2);margin-top:6px;white-space:pre-wrap">${esc(d.note)}</div>` : ''}
-          ${verbaleRif ? `<div style="margin-top:8px;font-size:12px"><span onclick="setState({page:'vita',vitaTab:'verbali',sidebarOpen:false})" style="color:var(--accent);cursor:pointer">📋 Da verbale: ${esc(verbaleRif.titolo)} (${verbaleRif.data})</span></div>` : ''}
+          ${verbaleRif ? `<div style="margin-top:8px;font-size:12px"><span onclick="setState({page:'vita',vitaTab:'verbali',sidebarOpen:false})" style="color:var(--accent);cursor:pointer">📋 Da verbale: ${esc(verbaleRif.titolo)} (${esc(verbaleRif.data)})</span></div>` : ''}
         </div>
         ${canManage ? `
         <div style="display:flex;gap:6px;flex-shrink:0">
@@ -2931,7 +2936,7 @@ function renderDashboard() {
           </tr></thead>
           <tbody>
           ${ultimeSpese.map(s=>`<tr style="border-top:1px solid var(--border)">
-            <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${s.data}</td>
+            <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${esc(s.data)}</td>
             <td style="padding:6px 8px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0;width:100%">${esc(s.titolo)}</td>
             <td style="padding:6px 4px;text-align:center"><span style="font-size:9px;padding:2px 5px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'#ede9fe':'#dbeafe'};color:${s.tipoSpesa==='straordinaria'?'#7c3aed':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'Str.':'Ord.'}</span></td>
             <td style="padding:6px 8px;font-size:12px;font-weight:700;color:var(--red);text-align:right;white-space:nowrap">${fmt(s.consuntivo)}</td>
@@ -2956,7 +2961,7 @@ function renderDashboard() {
           </tr></thead>
           <tbody>
           ${ultimeForecast.map(s=>`<tr style="border-top:1px solid #e9d5ff;background:#faf5ff">
-            <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap;width:82px">${s.data}</td>
+            <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap;width:82px">${esc(s.data)}</td>
             <td style="padding:6px 8px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0;width:100%">${esc(s.titolo)}</td>
             <td style="padding:6px 6px;text-align:center;width:40px"><span style="font-size:9px;padding:2px 4px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'#ede9fe':'#dbeafe'};color:${s.tipoSpesa==='straordinaria'?'#7c3aed':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'S':'O'}</span></td>
             <td style="padding:6px 8px;font-size:12px;font-weight:700;color:#7c3aed;text-align:right;white-space:nowrap;width:82px">${fmt(s.preventivo)}</td>
@@ -2984,7 +2989,7 @@ function renderDashboard() {
         ${ultimeEntrate.map(e=>{
           const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'?',color:'#888'};
           return `<tr style="border-top:1px solid var(--border)${e.previsionale?';background:#fffbeb':''}">
-            <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${e.data}</td>
+            <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${esc(e.data)}</td>
             <td style="padding:6px 8px">
               <div style="display:flex;align-items:center;gap:6px">
                 <div class="avatar" style="${avatarStyle(cond.color)};width:20px;height:20px;font-size:9px;flex-shrink:0">${initials(cond.nome)}</div>
@@ -3161,7 +3166,7 @@ function renderSpese() {
       <!-- Categoria -->
       <select class="spese-filter-sel" id="filter-cat-spese" style="flex:0 1 140px;min-width:110px">
         <option value="all">Tutte cat.</option>
-        ${getCategorie().filter(c=>c.tipo!=='entrata').map(c=>`<option value="${c.id}" ${c.id===state.filterCat?'selected':''}>${c.icon||''} ${c.label}</option>`).join('')}
+        ${getCategorie().filter(c=>c.tipo!=='entrata').map(c=>`<option value="${c.id}" ${c.id===state.filterCat?'selected':''}>${esc(c.icon||'')} ${esc(c.label)}</option>`).join('')}
       </select>
 
       <!-- Fornitore (nuovo) -->
@@ -3207,13 +3212,13 @@ function renderSpese() {
                 <button class="btn btn-secondary btn-sm" data-edit-spesa="${s.id}" title="Modifica spesa">✏️</button>
                 <button class="btn btn-danger btn-sm" data-del-spesa="${s.id}" title="Elimina spesa">🗑</button>
               </div></td>`:''}
-              <td class="col-data" style="font-size:13px">${s.data}</td>
+              <td class="col-data" style="font-size:13px">${esc(s.data)}</td>
               <td class="col-title">
                 <div style="font-weight:500">${esc(s.titolo)}</div>
                 ${s.descrizione?`<div style="font-size:12px;color:var(--text2)">${esc(s.descrizione)}</div>`:''}
-                ${s.ricorrente?`<span class="ricorrente-badge">🔁 ${s.frequenza||'mensile'}</span>`:''}
+                ${s.ricorrente?`<span class="ricorrente-badge">🔁 ${esc(s.frequenza||'mensile')}</span>`:''}
               </td>
-              <td><span class="badge badge-gray">${cat.label}</span></td>
+              <td><span class="badge badge-gray">${esc(cat.label)}</span></td>
               <td><span class="badge ${s.tipoSpesa==='straordinaria'?'badge-purple':'badge-blue'}">${s.tipoSpesa==='straordinaria'?'Str.':'Ord.'}</span></td>
               <td style="white-space:nowrap">${(()=>{
                 if (!s.fornitoreId) return '<span style="color:var(--text2);font-size:12px">—</span>';
@@ -3356,7 +3361,7 @@ function renderEntrate() {
                 <div class="avatar" style="${avatarStyle(c.color)}">${initials(c.nome)}</div>
                 <div style="flex:1;min-width:0">
                   <div class="name">${esc(c.nome)}</div>
-                  <div class="apt">${c.appartamento}</div>
+                  <div class="apt">${esc(c.appartamento)}</div>
                 </div>
                 <span class="badge ${statoOK?'badge-green':'badge-red'}" style="font-size:10px">${statoOK?'✓ OK':'⚠ Scoperto'}</span>
               </div>
@@ -3488,16 +3493,16 @@ function renderEntrate() {
                 <button class="btn btn-secondary btn-sm" data-edit-entrata="${e.id}" title="Modifica versamento">✏️</button>
                 <button class="btn btn-danger btn-sm" data-del-entrata="${e.id}" title="Elimina versamento">🗑</button>
               </div></td>`:''}
-              <td style="white-space:nowrap;font-size:13px">${e.data}</td>
+              <td style="white-space:nowrap;font-size:13px">${esc(e.data)}</td>
               <td><div style="display:flex;align-items:center;gap:8px">
                 <div class="avatar" style="${avatarStyle(cond.color)};width:28px;height:28px;font-size:11px">${initials(cond.nome)}</div>
                 <div>
                   <div style="font-size:13px;font-weight:500">${esc(cond.nome)}</div>
-                  <div style="font-size:11px;color:var(--text2)">${cond.appartamento}</div>
+                  <div style="font-size:11px;color:var(--text2)">${esc(cond.appartamento)}</div>
                 </div>
               </div></td>
               <td style="font-size:13px">${esc(e.descrizione||'—')}</td>
-              <td><span class="badge badge-green" style="font-size:10px">${cat.label}</span></td>
+              <td><span class="badge badge-green" style="font-size:10px">${esc(cat.label)}</span></td>
               <td class="${e.previsionale?'':'amount-pos'}" style="font-weight:700;color:${e.previsionale?'#92400e':'var(--green)'}">
                 ${fmt(e.importo)}
                 ${e.importoPrevisto!=null && Math.abs(parseFloat(e.importoPrevisto)-parseFloat(e.importo))>=0.01 ? `<div style="font-size:10px;font-weight:400;color:var(--text2)">previsto ${fmt(e.importoPrevisto)}</div>` : ''}
@@ -3934,9 +3939,9 @@ function renderBilancio() {
             const hasPrev = prev > 0;
             const hasCons = cons > 0;
             return `<tr>
-              <td style="font-size:12px;white-space:nowrap">${s.data}</td>
+              <td style="font-size:12px;white-space:nowrap">${esc(s.data)}</td>
               <td style="font-weight:500;font-size:13px">${esc(s.titolo)}</td>
-              <td><span class="badge badge-gray" style="font-size:11px">${cat.icon||'📦'} ${cat.label}</span></td>
+              <td><span class="badge badge-gray" style="font-size:11px">${esc(cat.icon||'📦')} ${esc(cat.label)}</span></td>
               <td>${hasPrev?`<span style="color:var(--amber);font-weight:500">${fmt(prev)}</span>`:'<span style="color:var(--text2)">—</span>'}</td>
               <td>${hasCons?`<span style="color:var(--red);font-weight:600">${fmt(cons)}</span>`:'<span style="color:var(--text2)">—</span>'}</td>
               <td>${hasPrev&&hasCons?`<span style="color:${scarto>0?'var(--red)':'var(--green)'};font-weight:600">${scarto>0?'+':''}${fmt(scarto)}</span>`:'<span style="color:var(--text2)">—</span>'}</td>
@@ -3981,7 +3986,7 @@ function renderBilancio() {
             <div class="avatar" style="${avatarStyle(c.color)};width:38px;height:38px;font-size:14px">${initials(c.nome)}</div>
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;font-size:14px">${esc(c.nome)}</div>
-              <div style="font-size:11px;color:var(--text2)">${c.appartamento}</div>
+              <div style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</div>
             </div>
             <span class="badge ${c.diff>=0?'badge-green':'badge-red'}" style="font-size:11px">${statoLabel}</span>
           </div>
@@ -4058,7 +4063,7 @@ function renderBilancio() {
             return `<tr>
               <td><div style="display:flex;align-items:center;gap:8px">
                 <div class="avatar" style="${avatarStyle(c.color)};width:26px;height:26px;font-size:10px">${initials(c.nome)}</div>
-                <div><div style="font-weight:500;font-size:13px">${esc(c.nome)}</div><div style="font-size:11px;color:var(--text2)">${c.appartamento}</div></div>
+                <div><div style="font-weight:500;font-size:13px">${esc(c.nome)}</div><div style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</div></div>
               </div></td>
               <td style="font-size:13px">
                 <div>${fmt(c.quota)}</div>
@@ -4126,9 +4131,9 @@ function renderBilancio() {
             <!-- Header categoria -->
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.625rem">
               <div style="display:flex;align-items:center;gap:8px">
-                <span style="font-size:20px">${c.icon||'📦'}</span>
+                <span style="font-size:20px">${esc(c.icon||'📦')}</span>
                 <div>
-                  <div style="font-weight:700;font-size:14px">${c.label}</div>
+                  <div style="font-weight:700;font-size:14px">${esc(c.label)}</div>
                   <div style="font-size:11px;color:var(--text2)">${c.tipo==='straordinaria'?'Straordinaria':'Ordinaria'}</div>
                 </div>
               </div>
@@ -4542,7 +4547,7 @@ function renderImpostazioni() {
               const _catSpese = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
           const usata = _catSpese.filter(s=>s.categoria===c.id).length;
               return `<div class="cat-card">
-                <div class="cat-icon ${g.iconCls}">${c.icon||'📦'}</div>
+                <div class="cat-icon ${g.iconCls}">${esc(c.icon||'📦')}</div>
                 <div class="cat-info">
                   <div class="cat-name">${esc(c.label)}</div>
                   <div class="cat-meta">
@@ -4580,7 +4585,7 @@ function renderImpostazioni() {
         const isActive   = e.id === state.edificioAttivo;
         return `<div class="edificio-card ${isActive?'active':''}" style="cursor:default">
           <div class="ec-head">
-            <div class="ec-icon" style="background:${e.colore||'#2563EB'}22;font-size:22px">${e.emoji||'🏢'}</div>
+            <div class="ec-icon" style="background:${esc(e.colore||'#2563EB')}22;font-size:22px">${esc(e.emoji||'🏢')}</div>
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;font-size:15px">${esc(e.nome)}</div>
               <div style="font-size:12px;color:var(--text2)">${esc(e.indirizzo||'—')}</div>
@@ -4759,7 +4764,7 @@ function renderModalSwitchEdificio() {
             const isActive = e.id === state.edificioAttivo;
             return `<div class="edificio-card ${isActive?'active':''}" data-sel-edificio="${e.id}">
               <div class="ec-head">
-                <div class="ec-icon" style="background:${e.colore||'#2563EB'}22">${e.emoji||'🏢'}</div>
+                <div class="ec-icon" style="background:${esc(e.colore||'#2563EB')}22">${esc(e.emoji||'🏢')}</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:700;font-size:15px">${esc(e.nome)}</div>
                   <div style="font-size:12px;color:var(--text2)">${esc(e.indirizzo||'')}</div>
@@ -4804,7 +4809,7 @@ function renderModalEdificio(d) {
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
               ${EMOJI_EDIFICI.map(em=>`<button type="button" class="icon-opt ed-emoji-opt ${(d?.emoji||'🏢')===em?'selected':''}" data-ed-emoji="${em}" style="width:38px;height:38px;font-size:20px">${em}</button>`).join('')}
             </div>
-            <input type="hidden" id="ed-emoji" value="${d?.emoji||'🏢'}">
+            <input type="hidden" id="ed-emoji" value="${esc(d?.emoji||'🏢')}">
           </div>
           <div class="field">
             <label>Colore</label>
@@ -4813,7 +4818,7 @@ function renderModalEdificio(d) {
                 `<button type="button" class="ed-color-opt" data-ed-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};border:3px solid ${(d?.colore||'#2563EB')===c?'white':'transparent'};box-shadow:${(d?.colore||'#2563EB')===c?'0 0 0 2px '+c:'none'};cursor:pointer"></button>`
               ).join('')}
             </div>
-            <input type="hidden" id="ed-colore" value="${d?.colore||'#2563EB'}">
+            <input type="hidden" id="ed-colore" value="${esc(d?.colore||'#2563EB')}">
           </div>
         </div>
         <div class="field">
@@ -5054,7 +5059,7 @@ function renderModalLavoro(d) {
           </div>
           <div class="field">
             <label>Percentuale avanzamento</label>
-            <input type="number" id="lv-percentuale" min="0" max="100" step="5" value="${d?.percentuale ?? 0}">
+            <input type="number" id="lv-percentuale" min="0" max="100" step="5" value="${esc(d?.percentuale ?? 0)}">
           </div>
         </div>
         <div class="field">
@@ -5073,7 +5078,7 @@ function renderModalLavoro(d) {
         <div class="field">
           <label>Storico aggiornamenti</label>
           <div style="max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:12.5px;color:var(--text2)">
-            ${storico.map(s=>`<div style="padding:3px 0">${esc(s.nota)} <span style="opacity:.7">— ${esc(s.autore||'')}, ${s.data}</span></div>`).join('')}
+            ${storico.map(s=>`<div style="padding:3px 0">${esc(s.nota)} <span style="opacity:.7">— ${esc(s.autore||'')}, ${esc(s.data)}</span></div>`).join('')}
           </div>
         </div>` : ''}
         <div class="field">
@@ -5130,14 +5135,14 @@ function renderModalDelibera(d) {
           </div>
           <div class="field">
             <label>Budget previsto (€)</label>
-            <input type="number" id="dl-budget" min="0" step="0.01" value="${d?.budgetPrevisto ?? ''}">
+            <input type="number" id="dl-budget" min="0" step="0.01" value="${esc(d?.budgetPrevisto ?? '')}">
           </div>
         </div>
         <div class="field">
           <label>Verbale di riferimento (opzionale)</label>
           <select id="dl-verbale-rif">
             <option value="">— Nessuno —</option>
-            ${verbaliOpzioni.map(v=>`<option value="${v.id}" ${String(d?.verbaleRifId)===String(v.id)?'selected':''}>${esc(v.titolo)} (${v.data})</option>`).join('')}
+            ${verbaliOpzioni.map(v=>`<option value="${v.id}" ${String(d?.verbaleRifId)===String(v.id)?'selected':''}>${esc(v.titolo)} (${esc(v.data)})</option>`).join('')}
           </select>
           <p class="hint">Il verbale d'assemblea in cui è stata approvata questa delibera, se vuoi tenerne traccia</p>
         </div>
@@ -5200,10 +5205,10 @@ function renderModalStoricoFornitore(f) {
               ${items.map(s => {
                 const cat = getCategorie().find(c=>c.id===s.categoria)||{label:s.categoria||'—', icon:'📦'};
                 return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--surface2);border-radius:var(--radius-sm)">
-                  <div style="font-size:16px">${cat.icon||'📦'}</div>
+                  <div style="font-size:16px">${esc(cat.icon||'📦')}</div>
                   <div style="flex:1;min-width:0">
                     <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s.titolo)}</div>
-                    <div style="font-size:11px;color:var(--text2)">${s.data} · ${cat.label}</div>
+                    <div style="font-size:11px;color:var(--text2)">${esc(s.data)} · ${esc(cat.label)}</div>
                   </div>
                   <div style="font-weight:600;font-size:13px;color:var(--red);white-space:nowrap">${fmt(s.consuntivo||s.preventivo)}</div>
                 </div>`;
@@ -5361,7 +5366,7 @@ function renderModalNuovoUtente() {
       <div class="field">
         <label>Condominio *</label>
         <select id="wiz-edificio">
-          ${state.edifici.map(e=>`<option value="${e.id}" ${(wd.edificioId||state.edificioAttivo)===e.id?'selected':''}>${e.emoji||'🏢'} ${esc(e.nome)}</option>`).join('')}
+          ${state.edifici.map(e=>`<option value="${e.id}" ${(wd.edificioId||state.edificioAttivo)===e.id?'selected':''}>${esc(e.emoji||'🏢')} ${esc(e.nome)}</option>`).join('')}
         </select>
       </div>
       <div id="wiz-err1" class="alert alert-warning" style="display:none"></div>`;
@@ -5474,7 +5479,7 @@ function renderModalChangePw() {
           <div class="avatar" style="${avatarStyle(u.color)}">${initials(u.nome)}</div>
           <div>
             <div style="font-weight:600">${esc(u.nome)}</div>
-            <div style="font-size:12px;color:var(--text2)">${u.email||''} · ${u.isAdmin?'Amministratore':u.appartamento}</div>
+            <div style="font-size:12px;color:var(--text2)">${esc(u.email||'')} · ${u.isAdmin?'Amministratore':u.appartamento}</div>
           </div>
         </div>
         <div class="field">
@@ -5515,7 +5520,7 @@ function renderModalAdminResetPw(cond) {
           <div class="avatar" style="${avatarStyle(cond.color)}">${initials(cond.nome)}</div>
           <div>
             <div style="font-weight:600">${esc(cond.nome)}</div>
-            <div style="font-size:12px;color:var(--text2)">${esc(cond.email||'')} · ${cond.appartamento}</div>
+            <div style="font-size:12px;color:var(--text2)">${esc(cond.email||'')} · ${esc(cond.appartamento)}</div>
           </div>
         </div>
         <div class="alert alert-info" style="font-size:13px;margin-bottom:1rem">
@@ -5594,7 +5599,7 @@ function renderModalSpesa(d) {
       <td><div style="display:flex;align-items:center;gap:6px">
         <div class="avatar" style="${avatarStyle(c.color)};width:22px;height:22px;font-size:9px">${initials(c.nome)}</div>
         <span style="font-weight:500">${esc(c.nome)}</span>
-        <span style="font-size:11px;color:var(--text2)">${c.appartamento}</span>
+        <span style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</span>
       </div></td>
       <td>
         <input type="number" class="split-perc-inp" data-cid="${c.id}" value="${perc.toFixed(2)}" min="0" max="100" step="0.01" placeholder="0.00">
@@ -5627,7 +5632,7 @@ function renderModalSpesa(d) {
             <label>Categoria *</label>
             <select id="m-cat">
               <option value="">— Seleziona —</option>
-              ${catSpesa.map(c=>`<option value="${c.id}" data-tipo="${c.tipo}" ${c.id===selCat?'selected':''}>${c.label}</option>`).join('')}
+              ${catSpesa.map(c=>`<option value="${c.id}" data-tipo="${c.tipo}" ${c.id===selCat?'selected':''}>${esc(c.label)}</option>`).join('')}
             </select>
           </div>
           <div class="field">
@@ -5643,25 +5648,25 @@ function renderModalSpesa(d) {
         <div class="form-row">
           <div class="field">
             <label>Importo preventivo (€)</label>
-            <input type="number" id="m-prev" value="${d?.preventivo||''}" placeholder="0.00" min="0" step="0.01">
+            <input type="number" id="m-prev" value="${esc(d?.preventivo||'')}" placeholder="0.00" min="0" step="0.01">
             <p class="hint">Stima iniziale</p>
           </div>
           <div class="field">
             <label>Importo consuntivo (€)</label>
-            <input type="number" id="m-cons" value="${d?.consuntivo||''}" placeholder="0.00" min="0" step="0.01">
+            <input type="number" id="m-cons" value="${esc(d?.consuntivo||'')}" placeholder="0.00" min="0" step="0.01">
             <p class="hint">Importo definitivo</p>
           </div>
         </div>
 
         <div class="form-row">
-          <div class="field"><label>Data *</label><input type="date" id="m-data" value="${d?.data||new Date().toISOString().slice(0,10)}"></div>
+          <div class="field"><label>Data *</label><input type="date" id="m-data" value="${esc(d?.data||new Date().toISOString().slice(0,10))}"></div>
           <div class="field">
             <label>Fornitore</label>
             <select id="m-fornitore">
               <option value="">— Nessun fornitore —</option>
               ${(state.fornitori||[]).filter(f=>!f.disabled && (!f.edificioId||f.edificioId===getUserEdificio(state.user))).map(f=>{
                 const cat = CATEGORIE_FORNITORE.find(c=>c.id===f.categoria)||{icon:'📦'};
-                return `<option value="${f.id}" ${f.id===d?.fornitoreId?'selected':''}>${cat.icon} ${esc(f.nome)}</option>`;
+                return `<option value="${f.id}" ${f.id===d?.fornitoreId?'selected':''}>${esc(cat.icon)} ${esc(f.nome)}</option>`;
               }).join('')}
             </select>
             <p class="hint">Facoltativo — collega la spesa a un fornitore</p>
@@ -5690,7 +5695,7 @@ function renderModalSpesa(d) {
             </div>
             <div class="field">
               <label>Data fine *</label>
-              <input type="date" id="m-freq-fine" value="${d?.ricorrenzaFine||''}" required>
+              <input type="date" id="m-freq-fine" value="${esc(d?.ricorrenzaFine||'')}" required>
               <p class="hint" style="margin:4px 0 0">Ultima data in cui può scattare la spesa.</p>
             </div>
           </div>
@@ -5769,7 +5774,7 @@ function renderModalEntrata(d) {
   const isPrevisionale = d?.previsionale || false;
   const isEdit = !!d?.id;
   const condominiList = (state.condomini.filter(c => c.edificioId === state.edificioAttivo)).filter(c=>!c.disabled && !c.superAdmin);
-  const catOptions = getCategorie().filter(c=>c.tipo==='entrata'||c.tipo==='ordinaria').map(c=>`<option value="${c.id}" ${c.id===d?.categoria?'selected':''}>${c.label}</option>`).join('');
+  const catOptions = getCategorie().filter(c=>c.tipo==='entrata'||c.tipo==='ordinaria').map(c=>`<option value="${c.id}" ${c.id===d?.categoria?'selected':''}>${esc(c.label)}</option>`).join('');
 
   return `
   <div class="modal-overlay" id="modal-overlay">
@@ -5803,7 +5808,7 @@ function renderModalEntrata(d) {
               <label>Condomino *</label>
               <select id="m-condo">
                 <option value="">— Seleziona —</option>
-                ${condominiList.map(c=>`<option value="${c.id}">${c.nome} — ${c.appartamento}</option>`).join('')}
+                ${condominiList.map(c=>`<option value="${c.id}">${esc(c.nome)} — ${esc(c.appartamento)}</option>`).join('')}
               </select>
             </div>
             <div class="field">
@@ -5843,15 +5848,15 @@ function renderModalEntrata(d) {
               <label>Condomino *</label>
               <select id="m-condo-s">
                 <option value="">— Seleziona —</option>
-                ${condominiList.map(c=>`<option value="${c.id}" ${c.id===d?.condominoId?'selected':''}>${c.nome} — ${c.appartamento}</option>`).join('')}
+                ${condominiList.map(c=>`<option value="${c.id}" ${c.id===d?.condominoId?'selected':''}>${esc(c.nome)} — ${esc(c.appartamento)}</option>`).join('')}
               </select>
             </div>
-            <div class="field"><label>Data *</label><input type="date" id="m-data-s" value="${d?.data||new Date().toISOString().slice(0,10)}"></div>
+            <div class="field"><label>Data *</label><input type="date" id="m-data-s" value="${esc(d?.data||new Date().toISOString().slice(0,10))}"></div>
           </div>
           <div class="form-row">
             <div class="field">
               <label>Importo (€) *</label>
-              <input type="number" id="m-importo-s" value="${d?.importo||''}" placeholder="0.00" min="0" step="0.01">
+              <input type="number" id="m-importo-s" value="${esc(d?.importo||'')}" placeholder="0.00" min="0" step="0.01">
             </div>
             <div class="field">
               <label>Categoria</label>
@@ -5905,7 +5910,7 @@ function renderModalCond(d) {
           <label>Condominio di appartenenza ${isSuperAdmin(state.user)?'*':''}</label>
           ${isSuperAdmin(state.user) ? `
           <select id="m-edificio">
-            ${state.edifici.map(e=>`<option value="${e.id}" ${(d?.edificioId||state.edificioAttivo)===e.id?'selected':''}>${e.emoji||'🏢'} ${esc(e.nome)}</option>`).join('')}
+            ${state.edifici.map(e=>`<option value="${e.id}" ${(d?.edificioId||state.edificioAttivo)===e.id?'selected':''}>${esc(e.emoji||'🏢')} ${esc(e.nome)}</option>`).join('')}
           </select>
           <p class="hint">Il super admin può assegnare l'utente a qualsiasi condominio.</p>
           ` : `
@@ -7171,7 +7176,7 @@ function aggiornaAnteprimaRicorrenza() {
       <span style="color:var(--text2)"> · ogni ${freqLabel} · fino al ${dataFine}</span>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:4px">
-      ${shown.map(o=>`<span style="background:var(--accent-light);color:var(--accent);border-radius:4px;padding:2px 7px;font-size:11px;font-weight:500">${o.data}</span>`).join('')}
+      ${shown.map(o=>`<span style="background:var(--accent-light);color:var(--accent);border-radius:4px;padding:2px 7px;font-size:11px;font-weight:500">${esc(o.data)}</span>`).join('')}
       ${rest>0?`<span style="color:var(--text2);font-size:11px;align-self:center">+${rest} altre…</span>`:''}
     </div>`;
 }
@@ -7774,7 +7779,7 @@ function bindSplit() {
       const condBar = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin);
       barEl.innerHTML = condBar.map(c=>{
         const w = Math.max(0, Math.min(100, percs[String(c.id)]||0));
-        return `<div class="split-bar-seg" style="width:${w}%;background:${c.color};opacity:.8"></div>`;
+        return `<div class="split-bar-seg" style="width:${w}%;background:${esc(c.color)};opacity:.8"></div>`;
       }).join('');
     }
   }
@@ -8218,7 +8223,9 @@ function saveModal() {
 // UTILS
 // ===========================
 function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // null/undefined/false → '' (come prima); 0 resta "0" — con s||'' un
+  // importo o una percentuale a zero diventava stringa vuota.
+  return String(s == null || s === false ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function getAnni() {
   const anni = new Set();
