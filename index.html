@@ -1289,11 +1289,21 @@ function renderLogin() {
 }
 
 function bindLogin() {
+  // Ogni volta che la schermata di login viene (ri)montata, azzera un
+  // eventuale collegamento Google rimasto in sospeso da un tentativo
+  // precedente abbandonato: altrimenti il clic successivo salterebbe alla
+  // richiesta password con una credenziale ormai scaduta, invece di
+  // riaprire un popup Google fresco.
+  window.__pendingGoogleLink = null;
+
   const bl = document.getElementById('btn-login');
   if (bl) bl.onclick = doLogin;
   // Enter su username → focus password; Enter su password → login
   const inpLogin = document.getElementById('inp-login');
   const inpPw    = document.getElementById('inp-pw');
+  // Se l'utente cambia l'email, annulla il collegamento in sospeso: la
+  // password andrebbe verificata contro l'email del popup, non una nuova.
+  if (inpLogin) inpLogin.oninput = () => { window.__pendingGoogleLink = null; };
   if (inpLogin) inpLogin.onkeydown = e => {
     if (e.key === 'Enter') { e.preventDefault(); inpPw?.focus(); }
   };
@@ -1316,18 +1326,29 @@ function bindLogin() {
       const pw = (document.getElementById('inp-pw')?.value || '').trim();
       if (!pw) { showLoginErr('Inserisci la password dell’account per collegare Google.'); return; }
       bg.disabled = true;
+      const { email, credential } = window.__pendingGoogleLink;
+      let cred;
       try {
-        const { email, credential } = window.__pendingGoogleLink;
-        const cred = await signInWithEmailAndPassword(auth, email, pw);
-        await linkWithCredential(cred.user, credential);
-        window.__pendingGoogleLink = null;
-        // Ora è loggato (via password) e Google è collegato: onAuthStateChanged
-        // prosegue, e dal prossimo accesso Google funziona diretto.
+        cred = await signInWithEmailAndPassword(auth, email, pw);
       } catch (e2) {
+        // Password sbagliata: lo stato pending resta, così può riprovare.
         bg.disabled = false;
         showLoginErr(e2.code === 'auth/wrong-password' || e2.code === 'auth/invalid-credential'
           ? 'Password errata. Riprova per collegare Google.'
-          : ('Collegamento non riuscito: ' + (e2.message || e2)));
+          : ('Accesso non riuscito: ' + (e2.message || e2)));
+        return;
+      }
+      // Login riuscito: consumiamo il pending a prescindere dall'esito del
+      // collegamento, per non lasciarlo appeso. onAuthStateChanged prosegue.
+      window.__pendingGoogleLink = null;
+      try {
+        await linkWithCredential(cred.user, credential);
+        // Collegato: dal prossimo accesso Google funziona diretto.
+      } catch (e3) {
+        // Sei comunque entrato (via password); solo il collegamento Google non
+        // è riuscito (es. credenziale del popup scaduta). Nessun blocco: al
+        // prossimo tentativo con Google si ripropone il collegamento.
+        console.warn('Collegamento Google non riuscito (accesso comunque effettuato):', e3.code || e3);
       }
       return;
     }
@@ -1385,6 +1406,10 @@ function bindLogin() {
 }
 
 async function doLogin() {
+  // L'utente sceglie il login con password: annulla un eventuale collegamento
+  // Google in sospeso (non vogliamo che un clic Google successivo riusi un
+  // pending vecchio).
+  window.__pendingGoogleLink = null;
   const loginInput = (document.getElementById('inp-login')?.value || '').trim();
   const pw         = (document.getElementById('inp-pw')?.value   || '').trim();
   if (!loginInput) { showLoginErr('Inserisci username o email'); return; }
@@ -1427,7 +1452,9 @@ async function doLogin() {
 
 function showLoginErr(msg) {
   const el = document.getElementById('login-err');
-  if (el) { el.textContent = msg; el.style.display = 'block'; }
+  // Reimposta il colore rosso: un messaggio di errore mostrato dopo un avviso
+  // verde (es. "email di reset inviata") altrimenti resterebbe verde.
+  if (el) { el.style.color = 'var(--red)'; el.textContent = msg; el.style.display = 'block'; }
 }
 
 // ===========================
