@@ -70,7 +70,8 @@ function validRecord(b, docId) {
     && isList(d.get('argomenti', null)) && isList(d.get('decisioni', null))
     && isList(d.get('storicoAggiornamenti', null))
     && isText(d.get('titolo', null)) && isText(d.get('nome', null)) && isText(d.get('testo', null))
-    && isText(d.get('descrizione', null)) && isText(d.get('note', null)) && isText(d.get('data', null));
+    && isText(d.get('descrizione', null)) && isText(d.get('note', null)) && isText(d.get('data', null))
+    && isText(d.get('descrizioneSintetica', null));
 }
 
 service cloud.firestore {

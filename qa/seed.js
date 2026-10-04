@@ -67,7 +67,7 @@ const bacheca = [
 ];
 const verbali = [{ id: 8001, titolo: 'Assemblea ordinaria', data: `${Y}-03-20`, tipo: 'ordinaria', argomenti: ['bilancio', 'facciata'], decisioni: ['Approvato bilancio consuntivo'], edificioId: 1 }];
 const lavori = [{ id: 9001, titolo: 'Rifacimento facciata', stato: 'in_corso', percentuale: 40, edificioId: 1 }];
-const delibere = [{ id: 9501, titolo: 'Facciata', stato: 'approvata', budget: 30000, responsabile: 'Amministratore', edificioId: 1 }];
+const delibere = [{ id: 9501, descrizioneSintetica: 'Facciata', dataApprovazione: `${Y}-03-20`, stato: 'approvata', budgetPrevisto: '30000', responsabile: 'Amministratore', note: '', edificioId: 1 }];
 
 // legacyOnly: solo il vecchio formato (appdata/cm_*), per provare la migrazione.
 async function seed({ legacyOnly = false } = {}) {
