@@ -53,13 +53,13 @@
     --border: #D8E2EE;
     --text: #1B2A4A;
     --text2: #5A6E8A;
-    --accent: #2563EB;
+    --accent: #1D4ED8;
     --accent-light: #EFF4FF;
-    --green: #16A34A;
+    --green: #166534;
     --green-light: #F0FDF4;
-    --red: #DC2626;
+    --red: #B91C1C;
     --red-light: #FEF2F2;
-    --amber: #D97706;
+    --amber: #92400E;
     --amber-light: #FFFBEB;
     --purple: #7C3AED;
     --purple-light: #F5F3FF;
@@ -470,7 +470,7 @@
   .edificio-switcher .ed-icon { width: 28px; height: 28px; border-radius: 6px; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
   .edificio-switcher .ed-info { flex: 1; min-width: 0; }
   .edificio-switcher .ed-nome { font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .edificio-switcher .ed-label { font-size: 10px; color: var(--accent); opacity: .7; }
+  .edificio-switcher .ed-label { font-size: 10px; color: var(--accent); }
   .edificio-card { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); padding: 1.25rem; cursor: pointer; transition: all .15s; }
   .edificio-card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
   .edificio-card.active { border-color: var(--accent); background: var(--accent-light); }
@@ -680,10 +680,10 @@
   .icon-opt:hover, .icon-opt.selected { border-color: var(--accent); background: var(--accent-light); }
 
   /* --- UTENTE DISABILITATO --- */
-  .utente-card.disabled { opacity: .55; background: var(--surface2); }
+  .utente-card.disabled { background: var(--surface2); border-style: dashed; }
   .utente-card.disabled .avatar-lg { filter: grayscale(1); }
-  .badge-disabled { background: #e2e8f0; color: #64748b; }
-  .disabled-banner { display:flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:var(--radius-sm);padding:5px 10px;font-size:12px;color:#64748b;margin-bottom:.5rem; }
+  .badge-disabled { background: #e2e8f0; color: #475569; }
+  .disabled-banner { display:flex;align-items:center;gap:6px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:var(--radius-sm);padding:5px 10px;font-size:12px;color:#475569;margin-bottom:.5rem; }
 
   /* --- WIZARD --- */
   .wizard-steps { display: flex; align-items: center; gap: 0; margin-bottom: 1.75rem; }
@@ -926,7 +926,7 @@ async function fbSaveKeyNow(key, val) {
       const queued = _savePending[key] > 1;
       if (!queued && JSON.stringify(merged) !== JSON.stringify(val)) {
         _cache[key] = merged;
-        if (cfg.stateProp) state[cfg.stateProp] = merged;
+        if (cfg.stateProp) state[cfg.stateProp] = normalizeRecords(merged);
         if (!state.modal) render();
       }
       return;
@@ -943,7 +943,7 @@ async function fbSaveKeyNow(key, val) {
     if (_serverSnap[key] !== undefined) {
       const restored = JSON.parse(JSON.stringify(_serverSnap[key]));
       _cache[key] = restored;
-      if (cfg.stateProp) state[cfg.stateProp] = restored;
+      if (cfg.stateProp) state[cfg.stateProp] = cfg.writeRole ? normalizeRecords(restored) : restored;
       render();
     }
     alert('⚠️ Salvataggio non riuscito: ' + (e.message || e) + '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.');
@@ -1216,19 +1216,19 @@ function renderQuotaCell(spesa) {
     // Admin: mostra mini breakdown per tutti
     if (validSplit.length === 0) {
       // Nessuno split salvato (dati legacy) → parti uguali tra tutti i condomini dell'edificio
-      return `<div style="font-size:12px;color:var(--text2)">${fmt(importoRef/nCond)} <span style="opacity:.6">× ${nCond}</span></div>`;
+      return `<div style="font-size:12px;color:var(--text2)">${fmt(importoRef/nCond)} <span>× ${nCond}</span></div>`;
     }
     const refPerc = validSplit[0].perc;
     const isEqual = validSplit.length === nCond && validSplit.every(s=>Math.abs((s.perc||0)-refPerc)<0.1);
     if (isEqual) {
-      return `<div style="font-size:12px;color:var(--text2)">${fmt(refPerc/100*importoRef)} <span style="opacity:.6">× ${nCond}</span></div>`;
+      return `<div style="font-size:12px;color:var(--text2)">${fmt(refPerc/100*importoRef)} <span>× ${nCond}</span></div>`;
     }
     const isEqualPartial = validSplit.every(s=>Math.abs((s.perc||0)-refPerc)<0.1);
     if (isEqualPartial) {
       // Suddivisa in parti uguali ma solo tra un sottoinsieme dei condomini (es. 4 su 6)
-      return `<div style="font-size:12px;color:var(--text2)">${fmt(refPerc/100*importoRef)} <span style="opacity:.6">× ${validSplit.length}</span></div>`;
+      return `<div style="font-size:12px;color:var(--text2)">${fmt(refPerc/100*importoRef)} <span>× ${validSplit.length}</span></div>`;
     }
-    return `<div style="font-size:11px;color:var(--text2)">Split personalizzato <span style="opacity:.6">(${validSplit.length} cond.)</span></div>`;
+    return `<div style="font-size:11px;color:var(--text2)">Split personalizzato <span>(${validSplit.length} cond.)</span></div>`;
   }
 
   // Utente: mostra la propria quota
@@ -1265,7 +1265,7 @@ function initials(nome) {
   return esc(String(nome||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase());
 }
 function avatarStyle(color) {
-  return `background:${esc(color)}22;color:${esc(color)};`;
+  return `background:${esc(color)}22;color:color-mix(in srgb, ${esc(color)} 55%, #000);`;
 }
 // Id numerici (molti punti fanno parseInt su data-id). QA: prima era
 // millisecondi + casuale 0–999 e gli id creati nello stesso istante (rate,
@@ -1284,14 +1284,43 @@ function newId() {
 // ===========================
 function render() {
   const app = document.getElementById('app');
-  if (!state.user) { app.innerHTML = renderLogin(); bindLogin(); return; }
+  if (!state.user) { app.innerHTML = renderLogin(); applyA11y(app); bindLogin(); return; }
   app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
   // Applica classe per pagine a piena larghezza
   const _pageEl = document.querySelector('.page');
   if (_pageEl) {
     _pageEl.classList.toggle('page-full-width', ['spese'].includes(state.page));
   }
+  applyA11y(app);
   bindApp();
+}
+
+// Accessibilità (QA, WCAG 2.2 AA): dopo ogni render collega le etichette dei
+// campi (<div class="field"><label>…</label><input id=…>) ai rispettivi
+// controlli e dà un nome ai menu di filtro che non hanno un'etichetta visibile,
+// così i lettori di schermo annunciano a cosa serve ogni campo.
+const A11Y_NAMES = {
+  'anno-filter': 'Anno', 'anno-bilancio': 'Anno', 'filter-anno-spese': 'Anno', 'filter-anno-entrate': 'Anno',
+  'filter-tipo-spese': 'Tipo di spesa', 'filter-stato-spese': 'Stato della spesa',
+  'filter-cat-spese': 'Categoria', 'filter-fornitore-spese': 'Fornitore',
+};
+function applyA11y(root) {
+  root.querySelectorAll('.field > label, .field label').forEach(label => {
+    if (label.htmlFor || label.querySelector('input,select,textarea')) return;
+    const field = label.closest('.field');
+    const ctrl = field && field.querySelector('input:not([type=hidden]),select,textarea');
+    if (!ctrl) return;
+    if (ctrl.id) label.htmlFor = ctrl.id;
+    else if (!ctrl.getAttribute('aria-label')) ctrl.setAttribute('aria-label', label.textContent.replace('*', '').trim());
+  });
+  root.querySelectorAll('select,input:not([type=hidden]),textarea').forEach(ctrl => {
+    if (ctrl.getAttribute('aria-label') || ctrl.labels?.length) return;
+    const name = A11Y_NAMES[ctrl.id]
+      || (ctrl.classList.contains('ruolo-select') ? 'Ruolo' : '')
+      || ctrl.getAttribute('placeholder') || ctrl.getAttribute('title')
+      || (ctrl.tagName === 'SELECT' && ctrl.options[0] ? ctrl.options[0].textContent.trim() : '');
+    if (name) ctrl.setAttribute('aria-label', name);
+  });
 }
 
 // ===========================
@@ -1450,12 +1479,20 @@ function bindLogin() {
     const email = (document.getElementById('inp-login')?.value||'').trim();
     if (!email) { showLoginErr('Inserisci la tua email prima di cliccare reset.'); return; }
     if (!window._fb) { showLoginErr('Connessione richiesta.'); return; }
+    // QA: stessa risposta se l'email non è registrata, per non rivelare quali
+    // email hanno un account.
+    const ok = () => {
+      const el = document.getElementById('login-err');
+      if (el) { el.style.color='var(--green)'; el.style.display='block'; el.textContent='✅ Se l’email è registrata riceverai a breve il link per reimpostare la password. Controlla anche lo spam.'; }
+    };
     try {
       const { auth, sendPasswordResetEmail } = window._fb;
       await sendPasswordResetEmail(auth, email);
-      const el = document.getElementById('login-err');
-      if (el) { el.style.color='var(--green)'; el.style.display='block'; el.textContent='✅ Email di reset inviata! Controlla la casella di posta.'; }
-    } catch(e) { showLoginErr(e.code==='auth/user-not-found'?'Email non trovata.':e.message); }
+      ok();
+    } catch(e) {
+      if (e.code === 'auth/user-not-found') ok();
+      else showLoginErr(e.code === 'auth/invalid-email' ? 'Indirizzo email non valido.' : (e.message || 'Invio non riuscito. Riprova.'));
+    }
   };
 }
 
@@ -1483,10 +1520,10 @@ async function doLogin() {
     // onAuthStateChanged completerà il login
   } catch(e) {
     console.error('Login error:', e.code, e.message);
-    const msg = e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential'
-      ? 'Password errata. Hai dimenticato la password? Usa il link qui sotto per riceverla via email.'
-      : e.code === 'auth/user-not-found'
-      ? 'Nessun account trovato con questa email. Contatta l amministratore per ricevere le tue credenziali.'
+    // QA: email inesistente e password errata danno lo stesso messaggio, così
+    // dalla schermata di login non si può scoprire quali email sono registrate.
+    const msg = e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found'
+      ? 'Email o password non corrette. Hai dimenticato la password? Usa il link qui sotto per riceverla via email.'
       : e.code === 'auth/invalid-email'
       ? 'Indirizzo email non valido. Inserisci una email nel formato corretto (es. nome@esempio.it).'
       : e.code === 'auth/too-many-requests'
@@ -1664,7 +1701,7 @@ function renderApp() {
       <button class="edificio-switcher" id="btn-switch-edificio">
         <div class="ed-icon">🏢</div>
         <div class="ed-info">
-          <div class="ed-nome">${(state.edifici.find(e=>e.id===state.edificioAttivo)||state.edifici[0]||{nome:'—'}).nome}</div>
+          <div class="ed-nome">${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||state.edifici[0]||{nome:'—'}).nome)}</div>
           <div class="ed-label">Cambia condominio</div>
         </div>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;color:var(--accent)"><path d="M6 9l6 6 6-6"/></svg>
@@ -1673,7 +1710,7 @@ function renderApp() {
         <div style="width:28px;height:28px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🏢</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-            ${(state.edifici.find(e=>e.id===getUserEdificio(user))||state.edifici[0]||{nome:'—'}).nome}
+            ${esc((state.edifici.find(e=>e.id===getUserEdificio(user))||state.edifici[0]||{nome:'—'}).nome)}
           </div>
           <div style="font-size:10px;color:var(--accent);font-weight:500">
             ${isAdminEdificio(user) ? '🔑 Amministratore' : '🏠 ' + esc(user?.appartamento||'Condomino')}
@@ -1692,7 +1729,7 @@ function renderApp() {
             <div class="role" style="display:flex;flex-direction:column;gap:2px">
               <span style="display:flex;align-items:center;gap:4px">
                 <span class="badge ${getRuoloBadgeClass(user)}" style="padding:1px 7px;font-size:10px">${getRuoloLabel(user)}</span>
-              ${!isSuperAdmin(user) && user.edificioId ? `<span style="font-size:10px;color:var(--text2)">${(state.edifici.find(e=>e.id===user.edificioId)||{nome:''}).nome}</span>` : ''}
+              ${!isSuperAdmin(user) && user.edificioId ? `<span style="font-size:10px;color:var(--text2)">${esc((state.edifici.find(e=>e.id===user.edificioId)||{nome:''}).nome)}</span>` : ''}
               </span>
               <span style="font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${esc(user.email||'')}</span>
             </div>
@@ -1702,7 +1739,7 @@ function renderApp() {
             <button class="logout-btn" id="btn-logout" title="Esci">${svgLogout()}</button>
           </div>
         </div>
-        <div style="padding:.5rem 1rem;font-size:10px;color:var(--text2);opacity:.6;text-align:center;border-top:1px solid var(--border);margin-top:.5rem">
+        <div style="padding:.5rem 1rem;font-size:10px;color:var(--text2);text-align:center;border-top:1px solid var(--border);margin-top:.5rem">
           Powered by <strong>Gioele Consulting</strong>
         </div>
       </div>
@@ -1710,7 +1747,7 @@ function renderApp() {
     <div class="main">
       <div class="topbar">
         <div class="topbar-left">
-          <button class="hamburger" id="btn-hamburger">${svgMenu()}</button>
+          <button class="hamburger" id="btn-hamburger" aria-label="Apri il menu">${svgMenu()}</button>
           <div>
             <div class="topbar-logo">🏠 Neri da Rimini 20</div>
           </div>
@@ -1730,7 +1767,7 @@ function renderApp() {
           <div class="mpm-sep"></div>
           <div style="padding:4px 12px 2px;font-size:10px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Condominio attivo</div>
           <button class="mpm-item" id="mpm-switch-edificio" style="color:var(--accent)">
-            🏢 ${(state.edifici.find(e=>e.id===state.edificioAttivo)||state.edifici[0]||{nome:'—'}).nome}
+            🏢 ${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||state.edifici[0]||{nome:'—'}).nome)}
             <span style="font-size:11px;color:var(--text2);margin-left:4px">· Cambia</span>
           </button>` : ''}
           <div class="mpm-sep"></div>
@@ -2305,9 +2342,9 @@ function renderFornitori() {
       </div>
 
       <!-- Storico -->
-      <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid #0891b2">
-        <div style="font-size:9px;font-weight:700;color:#0891b2;letter-spacing:.06em;margin-bottom:4px">📊 STORICO</div>
-        <div style="font-size:1.8rem;font-weight:800;color:#0891b2;line-height:1.1">${fmt(speseTotali)}</div>
+      <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid #0E7490">
+        <div style="font-size:9px;font-weight:700;color:#0E7490;letter-spacing:.06em;margin-bottom:4px">📊 STORICO</div>
+        <div style="font-size:1.8rem;font-weight:800;color:#0E7490;line-height:1.1">${fmt(speseTotali)}</div>
         <div style="font-size:11px;color:var(--text2);margin-top:4px">con fornitore</div>
         <div style="font-size:11px;color:var(--text2);margin-top:2px">+ ${fmt(senzaTotali)} senza fornitore</div>
         <div style="font-size:12px;font-weight:700;color:var(--text);margin-top:5px;padding-top:5px;border-top:1px dashed var(--border)">Totale: ${fmt(totaleStoricoAll)}</div>
@@ -2383,7 +2420,7 @@ function renderFornitoreCard(f, canEdit, archived=false) {
       </div>
       ${totActual>0||totForecast>0?`<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:600;margin-top:6px;padding-top:5px;border-top:1px solid var(--border)">
         <span style="color:var(--text2)">Totale ${anno}</span>
-        <span style="color:#0891b2">${fmt(totActual+totForecast)}</span>
+        <span style="color:#0E7490">${fmt(totActual+totForecast)}</span>
       </div>`:''}
     </div>
 
@@ -2597,7 +2634,7 @@ function renderLavoriTab() {
 }
 
 function renderLavoroCard(l, canManage) {
-  const statoLabel = LAVORI_STATO_LABEL[l.stato] || l.stato;
+  const statoLabel = LAVORI_STATO_LABEL[l.stato] || esc(l.stato);
   const statoBadge = LAVORI_STATO_BADGE[l.stato] || 'badge-gray';
   const pct = Math.max(0, Math.min(100, parseInt(l.percentuale)||0));
   const storico = (l.storicoAggiornamenti||[]).slice().sort((a,b)=>new Date(b.data)-new Date(a.data));
@@ -2626,7 +2663,7 @@ function renderLavoroCard(l, canManage) {
       </div>
       ${storico.length ? `<div style="margin-top:10px;font-size:12.5px;color:var(--text2)">
         <strong style="color:var(--text)">Ultimo aggiornamento:</strong>
-        <div style="margin-top:2px">${esc(storico[0].nota)} <span style="opacity:.7">— ${esc(storico[0].autore||'')}, ${storico[0].data}</span></div>
+        <div style="margin-top:2px">${esc(storico[0].nota)} <span style="color:var(--text2)">— ${esc(storico[0].autore||'')}, ${storico[0].data}</span></div>
       </div>` : ''}
       ${deliberaRif ? `<div style="margin-top:8px;font-size:12px"><span onclick="setState({page:'vita',vitaTab:'delibere',sidebarOpen:false})" style="color:var(--accent);cursor:pointer">📜 Da delibera: ${esc(deliberaRif.descrizioneSintetica)}</span></div>` : ''}
     </div>
@@ -2661,7 +2698,7 @@ function renderDelibereTab() {
 }
 
 function renderDeliberaCard(d, canManage) {
-  const statoLabel = DELIBERE_STATO_LABEL[d.stato] || d.stato;
+  const statoLabel = DELIBERE_STATO_LABEL[d.stato] || esc(d.stato);
   const statoBadge = DELIBERE_STATO_BADGE[d.stato] || 'badge-gray';
   const verbaleRif = d.verbaleRifId ? getVerbaliVisibili().find(v => v.id === d.verbaleRifId) : null;
   return `
@@ -2897,7 +2934,7 @@ function renderDashboard() {
     <div class="page-header">
       <div>
         <div class="page-title">Dashboard</div>
-        <div class="page-sub">${(state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome} · ${anno}</div>
+        <div class="page-sub">${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome)} · ${anno}</div>
       </div>
       <select style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;" id="anno-filter">
         ${anni.map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
@@ -2934,7 +2971,7 @@ function renderDashboard() {
           decisioniInAttesa.slice(0, DASH_VITA_MAX).map(d => `
           <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
             <div style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.descrizioneSintetica)}</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">${DELIBERE_STATO_LABEL[d.stato]||d.stato}${d.responsabile ? ' · '+esc(d.responsabile) : ''}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${DELIBERE_STATO_LABEL[d.stato]||esc(d.stato)}${d.responsabile ? ' · '+esc(d.responsabile) : ''}</div>
           </div>`).join('')}
           ${dashVitaAltri(decisioniInAttesa.length, 'delibere')}
         </div>
@@ -3010,7 +3047,7 @@ function renderDashboard() {
     <div class="cf-chart">
       <div class="cf-chart-title">📊 Cashflow mensile ${anno}</div>
       <div class="cf-chart-sub">🟢 Entrate reali · 🟣 Entrate previsionali · 🔴 Uscite reali · 🟪 Uscite ancora da consuntivare</div>
-      <div class="cf-bars">
+      <div class="cf-bars" tabindex="0" role="region" aria-label="Grafico flusso di cassa">
         ${cfCumul.map((cf,i) => {
           const hIA = Math.round(cf.incassi/maxCF*100);
           const hIP = Math.round(cf.incPrevis/maxCF*100);
@@ -3282,12 +3319,12 @@ function renderSpese() {
       </div>
 
       <!-- 4. QUOTA PROIETTATA -->
-      <div class="stat-card" style="border-top:3px solid #0891b2">
+      <div class="stat-card" style="border-top:3px solid #0E7490">
         <div class="stat-label" style="display:flex;align-items:center;gap:5px">
-          <span style="font-size:9px;background:#cffafe;color:#0891b2;border-radius:3px;padding:1px 5px;font-weight:700">PROIEZIONE</span>
+          <span style="font-size:9px;background:#cffafe;color:#0E7490;border-radius:3px;padding:1px 5px;font-weight:700">PROIEZIONE</span>
           Quota / cond. full
         </div>
-        <div class="stat-value" style="color:#0891b2">${fmt((totCons + (totPrev - totPrevChiuse)) / nAttiviSpese)}</div>
+        <div class="stat-value" style="color:#0E7490">${fmt((totCons + (totPrev - totPrevChiuse)) / nAttiviSpese)}</div>
         <div class="stat-sub">Actual + ${nSpeseAperte} spese aperte</div>
       </div>
 
@@ -3330,7 +3367,7 @@ function renderSpese() {
       <!-- Categoria -->
       <select class="spese-filter-sel" id="filter-cat-spese" style="flex:0 1 140px;min-width:110px">
         <option value="all">Tutte cat.</option>
-        ${getCategorie().filter(c=>c.tipo!=='entrata').map(c=>`<option value="${c.id}" ${c.id===state.filterCat?'selected':''}>${esc(c.icon||'')} ${esc(c.label)}</option>`).join('')}
+        ${getCategorie().filter(c=>c.tipo!=='entrata').map(c=>`<option value="${esc(c.id)}" ${c.id===state.filterCat?'selected':''}>${esc(c.icon||'')} ${esc(c.label)}</option>`).join('')}
       </select>
 
       <!-- Fornitore (nuovo) -->
@@ -3570,7 +3607,7 @@ function renderEntrate() {
                 <div style="font-size:10px;font-weight:700;color:#7c3aed;letter-spacing:.06em;margin-bottom:5px">🔮 FORECAST</div>
                 ${q.ordPrev>0?`<div class="row" style="font-size:12px;color:#7c3aed"><span>Ordinarie</span><span>${fmt(q.ordPrev)}</span></div>`:''}
                 ${q.straordPrev>0?`<div class="row" style="font-size:12px;color:#7c3aed"><span>Straordinarie</span><span>${fmt(q.straordPrev)}</span></div>`:''}
-                <div class="row" style="font-weight:700;color:#0891b2;border-top:1px dashed #e9d5ff;margin-top:3px;padding-top:3px">
+                <div class="row" style="font-weight:700;color:#0E7490;border-top:1px dashed #e9d5ff;margin-top:3px;padding-top:3px">
                   <span>Quota proiettata</span><span>${fmt(q.totFull)}</span>
                 </div>
                 <div class="row" style="font-size:12px">
@@ -3603,7 +3640,7 @@ function renderEntrate() {
         '<div class="table-wrap"><table>' +
         '<thead><tr>' +
         '<th>Spesa</th><th>Tipo</th><th>Preventivo</th>' +
-        perCondomino.map(c=>'<th style="text-align:right;font-size:11px">' + initials(c.nome) + '<br><span style="font-weight:400;color:var(--text2)">' + c.appartamento + '</span></th>').join('') +
+        perCondomino.map(c=>'<th style="text-align:right;font-size:11px">' + initials(c.nome) + '<br><span style="font-weight:400;color:var(--text2)">' + esc(c.appartamento) + '</span></th>').join('') +
         '</tr></thead><tbody>' +
         speseAperte.map(s=>{
           const ref = parseFloat(s.preventivo||0);
@@ -3921,7 +3958,7 @@ function renderBilancio() {
     <div class="cf-chart">
       <div class="cf-chart-title">Andamento mensile ${anno}</div>
       <div class="cf-chart-sub">🟢 Actual · 🟣 Forecast previsionali · 🔴 Uscite consuntivate</div>
-      <div class="cf-bars">
+      <div class="cf-bars" tabindex="0" role="region" aria-label="Grafico flusso di cassa">
         ${cfCumul.map(cf=>{
           const hIA = Math.round(cf.incassi/maxCF*100);
           const hIP = Math.round(cf.incPrevis/maxCF*100);
@@ -4276,8 +4313,8 @@ function renderBilancio() {
           <div style="font-size:11px;color:var(--text2)">${catBreak.filter(c=>c.nFcst>0).length} categorie · ${catBreak.reduce((a,c)=>a+c.nFcst,0)} spese</div>
         </div>
         <div style="text-align:center">
-          <div style="font-size:10px;font-weight:700;color:#0891b2;letter-spacing:.06em;margin-bottom:3px">PROIEZIONE</div>
-          <div style="font-size:1.3rem;font-weight:800;color:#0891b2">${fmt(totFull)}</div>
+          <div style="font-size:10px;font-weight:700;color:#0E7490;letter-spacing:.06em;margin-bottom:3px">PROIEZIONE</div>
+          <div style="font-size:1.3rem;font-weight:800;color:#0E7490">${fmt(totFull)}</div>
           <div style="font-size:11px;color:var(--text2)">Actual + forecast</div>
         </div>
       </div>
@@ -4316,8 +4353,8 @@ function renderBilancio() {
                   <div style="font-size:10px;color:var(--text2)">${c.nFcst} spese</div>
                 </div>`:''}
                 <div style="text-align:center;background:var(--surface2);border-radius:6px;padding:4px 10px;min-width:80px;border:1px solid var(--border)">
-                  <div style="font-size:9px;font-weight:700;color:#0891b2;letter-spacing:.05em">TOTALE</div>
-                  <div style="font-size:14px;font-weight:800;color:#0891b2">${fmt(c.tot)}</div>
+                  <div style="font-size:9px;font-weight:700;color:#0E7490;letter-spacing:.05em">TOTALE</div>
+                  <div style="font-size:14px;font-weight:800;color:#0E7490">${fmt(c.tot)}</div>
                   <div style="font-size:10px;color:var(--text2)">${Math.round((c.tot/totFull)*100)}% del tot.</div>
                 </div>
               </div>
@@ -4349,7 +4386,7 @@ function renderBilancio() {
   return `
   <div>
     <div class="page-header">
-      <div><div class="page-title">Bilancio</div><div class="page-sub">${(state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome} · ${anno}</div></div>
+      <div><div class="page-title">Bilancio</div><div class="page-sub">${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome)} · ${anno}</div></div>
       <select style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;" id="anno-bilancio">
         ${anni.map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
       </select>
@@ -4422,7 +4459,7 @@ function renderCondomini() {
     ${disabilitati.length>0?`
     <div class="section-divider" style="margin-top:1.5rem"><h3>📦 Archiviati</h3></div>
     <div class="condomini-grid">
-      ${disabilitati.map(c=>`<div class="utente-card" style="opacity:.7">
+      ${disabilitati.map(c=>`<div class="utente-card" style="background:var(--surface2);border-style:dashed">
         <div class="uc-head">
           <div class="avatar-lg" style="${avatarStyle(c.color)}">${initials(c.nome)}</div>
           <div style="flex:1"><div class="uc-name">${esc(c.nome)}</div><div class="uc-apt">🏠 ${esc(c.appartamento)}</div></div>
@@ -4576,7 +4613,7 @@ function renderImpostazioni() {
 
     <!-- CARD GRIGLIA UTENTI ATTIVI -->
     ${!isSuperAdmin(state.user) ? `<div class="alert alert-info" style="margin-bottom:1rem;font-size:13px">
-      👁️ Stai gestendo il condominio <strong>${(state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome}</strong>. Vedi e gestisci solo i condomini di questo edificio.
+      👁️ Stai gestendo il condominio <strong>${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome)}</strong>. Vedi e gestisci solo i condomini di questo edificio.
     </div>` : ''}
     <div class="utenti-grid" style="padding:0;margin-bottom:1.5rem">
       ${(state.condomini.filter(c => !c.edificioId || c.edificioId === state.edificioAttivo)).filter(c=>!c.disabled).map(c => {
@@ -4867,9 +4904,9 @@ function renderImpostazioni() {
     ${isSuperAdmin(state.user) ? `
     <div class="section-divider"><h3>⚠️ Zona pericolosa</h3></div>
     <div style="background:var(--red-light);border:1px solid #fecaca;border-radius:var(--radius);padding:1.25rem;max-width:480px">
-      <div style="font-weight:600;margin-bottom:.4rem;color:var(--red)">Reset completo dati</div>
-      <div style="font-size:13px;color:#7f1d1d;margin-bottom:.75rem">Elimina spese, entrate, fornitori, bacheca, verbali, lavori e delibere di TUTTI i condomini e ripristina i condomini ai valori predefiniti. Questa operazione è irreversibile.</div>
-      <button class="btn btn-danger" id="btn-reset">🗑 Reset tutti i dati</button>
+      <div style="font-weight:600;margin-bottom:.4rem;color:var(--red)">Svuota i dati di questo condominio</div>
+      <div style="font-size:13px;color:#7f1d1d;margin-bottom:.75rem">Elimina spese, entrate, fornitori, bacheca, verbali, lavori e delibere di <strong>${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome)}</strong>. Gli altri condomini, i condomini registrati e i loro account non vengono toccati. Operazione irreversibile: scarica prima il backup.</div>
+      <button class="btn btn-danger" id="btn-reset">🗑 Svuota dati del condominio</button>
       <button class="btn btn-danger" id="btn-reset-cats" style="background:var(--amber-light);color:var(--amber);border-color:#fde68a">↩ Ripristina categorie default</button>
     </div>
     ` : ''}
@@ -5184,7 +5221,7 @@ function renderModalVerbale(d) {
           <div class="dropzone" id="dropzone">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <div>Trascina il PDF qui oppure <strong>clicca per selezionare</strong></div>
-            <div style="font-size:12px;margin-top:4px;opacity:.7">PDF · max 5MB</div>
+            <div style="font-size:12px;margin-top:4px;color:var(--text2)">PDF · max 5MB</div>
           </div>
           <input type="file" id="file-input" accept="application/pdf" style="display:none">
           <div id="allegati-pending"></div>
@@ -5250,7 +5287,7 @@ function renderModalLavoro(d) {
         <div class="field">
           <label>Storico aggiornamenti</label>
           <div style="max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:12.5px;color:var(--text2)">
-            ${storico.map(s=>`<div style="padding:3px 0">${esc(s.nota)} <span style="opacity:.7">— ${esc(s.autore||'')}, ${esc(s.data)}</span></div>`).join('')}
+            ${storico.map(s=>`<div style="padding:3px 0">${esc(s.nota)} <span style="color:var(--text2)">— ${esc(s.autore||'')}, ${esc(s.data)}</span></div>`).join('')}
           </div>
         </div>` : ''}
         <div class="field">
@@ -5436,13 +5473,13 @@ function renderModalCategoria(d) {
         <div class="field">
           <label>Icona</label>
           <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
-            <div id="cat-icon-preview" style="width:44px;height:44px;border-radius:10px;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:24px">${selIcon}</div>
+            <div id="cat-icon-preview" style="width:44px;height:44px;border-radius:10px;background:var(--accent-light);display:flex;align-items:center;justify-content:center;font-size:24px">${esc(selIcon)}</div>
             <span style="font-size:13px;color:var(--text2)">Scegli un'icona dalla griglia</span>
           </div>
           <div class="icon-picker" id="icon-picker">
             ${ICONE_DISPONIBILI.map(ic => `<button class="icon-opt ${ic===selIcon?'selected':''}" data-icon="${ic}" type="button">${ic}</button>`).join('')}
           </div>
-          <input type="hidden" id="cat-icon" value="${selIcon}">
+          <input type="hidden" id="cat-icon" value="${esc(selIcon)}">
         </div>
 
         <div id="cat-err" class="alert alert-warning" style="display:none;margin-top:.5rem"></div>
@@ -5451,7 +5488,7 @@ function renderModalCategoria(d) {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
-        <button class="btn btn-primary" id="btn-save-cat" data-id="${d?.id||''}" data-builtin="${d?.builtin||''}">
+        <button class="btn btn-primary" id="btn-save-cat" data-id="${esc(d?.id||'')}" data-builtin="${d?.builtin||''}">
           💾 ${isEdit ? 'Salva modifiche' : 'Aggiungi categoria'}
         </button>
       </div>
@@ -5651,7 +5688,7 @@ function renderModalChangePw() {
           <div class="avatar" style="${avatarStyle(u.color)}">${initials(u.nome)}</div>
           <div>
             <div style="font-weight:600">${esc(u.nome)}</div>
-            <div style="font-size:12px;color:var(--text2)">${esc(u.email||'')} · ${u.isAdmin?'Amministratore':u.appartamento}</div>
+            <div style="font-size:12px;color:var(--text2)">${esc(u.email||'')} · ${u.isAdmin?'Amministratore':esc(u.appartamento)}</div>
           </div>
         </div>
         <div class="field">
@@ -5804,7 +5841,7 @@ function renderModalSpesa(d) {
             <label>Categoria *</label>
             <select id="m-cat">
               <option value="">— Seleziona —</option>
-              ${catSpesa.map(c=>`<option value="${c.id}" data-tipo="${c.tipo}" ${c.id===selCat?'selected':''}>${esc(c.label)}</option>`).join('')}
+              ${catSpesa.map(c=>`<option value="${esc(c.id)}" data-tipo="${esc(c.tipo)}" ${c.id===selCat?'selected':''}>${esc(c.label)}</option>`).join('')}
             </select>
           </div>
           <div class="field">
@@ -5923,7 +5960,7 @@ function renderModalSpesa(d) {
           <div class="dropzone" id="dropzone">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <div>Trascina i file qui oppure <strong>clicca per selezionare</strong></div>
-            <div style="font-size:12px;margin-top:4px;opacity:.7">PDF · JPG · PNG · DOCX · XLSX e altri</div>
+            <div style="font-size:12px;margin-top:4px;color:var(--text2)">PDF · JPG · PNG · DOCX · XLSX e altri</div>
           </div>
           <input type="file" id="file-input" multiple accept="*/*" style="display:none">
           <div id="allegati-pending"></div>
@@ -6087,7 +6124,7 @@ function renderModalCond(d) {
           <p class="hint">Il super admin può assegnare l'utente a qualsiasi condominio.</p>
           ` : `
           <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--surface2);border-radius:var(--radius-sm);font-size:14px">
-            <span>🏢</span><strong>${(state.edifici.find(e=>e.id===(d?.edificioId||state.edificioAttivo))||{nome:'—'}).nome}</strong>
+            <span>🏢</span><strong>${esc((state.edifici.find(e=>e.id===(d?.edificioId||state.edificioAttivo))||{nome:'—'}).nome)}</strong>
           </div>
           <input type="hidden" id="m-edificio" value="${d?.edificioId||state.edificioAttivo}">
           <p class="hint">Gli utenti vengono creati nel tuo condominio.</p>
@@ -6937,43 +6974,35 @@ Sposta o elimina prima tutti i dati associati.`);
   const bReset = document.getElementById('btn-reset');
   if (bReset) bReset.onclick = () => {
     if (!isSuperAdmin(state.user)) return;
-    // Prima conferma
+    // QA: prima il reset azzerava i dati di TUTTI i condomini e sostituiva i
+    // condomini registrati con 6 profili di esempio. Ora svuota solo i dati
+    // operativi dell'edificio attivo; condomini e account restano.
+    const edId = state.edificioAttivo;
+    const edNome = (state.edifici.find(e => e.id === edId) || {nome: 'questo condominio'}).nome;
     if (!confirm(
-      '⚠️ ATTENZIONE — Reset completo dei dati di TUTTI i condomini.\n\n' +
-      'Verranno CANCELLATI:\n' +
-      '• Tutte le spese\n' +
-      '• Tutti i versamenti\n' +
-      '• Tutti i fornitori\n' +
-      '• Bacheca, verbali, lavori e delibere\n' +
-      '• Tutti i condomini (sostituiti con i 6 default)\n\n' +
-      'Verranno MANTENUTI:\n' +
-      '• Edifici (condomini)\n' +
-      '• Categorie di spesa\n' +
-      '• Account Firebase\n\n' +
-      'Operazione NON reversibile (fai prima il backup!).\n\nProcedi?'
+      '⚠️ Svuotare i dati di "' + edNome + '"?\n\n' +
+      'Verranno CANCELLATI per questo condominio:\n' +
+      '• spese, versamenti e fornitori\n' +
+      '• bacheca, verbali, lavori e delibere\n\n' +
+      'Restano invariati: gli altri condomini, i condomini registrati e i loro account, le categorie.\n\n' +
+      'Operazione NON reversibile (scarica prima il backup).\n\nProcedi?'
     )) return;
 
     // Seconda conferma — digita RESET
-    const conferma = prompt(
-      'SECONDA CONFERMA RICHIESTA\n\n' +
-      'Digita esattamente la parola RESET per confermare la cancellazione di tutti i dati.'
-    );
+    const conferma = prompt('SECONDA CONFERMA\n\nDigita la parola RESET per svuotare i dati di "' + edNome + '".');
     if ((conferma||'').trim().toUpperCase() !== 'RESET') {
-      alert('Reset annullato — parola di conferma errata.');
+      alert('Operazione annullata: parola di conferma errata.');
       return;
     }
 
-    // Esegui reset — mantieni categorie e edifici, azzera tutto il resto
-    save('cm_spese',      []);
-    save('cm_entrate',    []);
-    save('cm_fornitori',  []);
-    save('cm_bacheca',    []);
-    save('cm_verbali',    []);
-    save('cm_lavori',     []);
-    save('cm_delibere',   []);
-    save('cm_condomini',  CONDOMINI_DEFAULT);
-    setState({spese:[], entrate:[], fornitori:[], bacheca:[], verbali:[], lavori:[], delibere:[], condomini:CONDOMINI_DEFAULT});
-    alert('✅ Reset completato. Puoi ricominciare da zero.');
+    const patch = {};
+    [['cm_spese','spese'], ['cm_entrate','entrate'], ['cm_fornitori','fornitori'], ['cm_bacheca','bacheca'],
+     ['cm_verbali','verbali'], ['cm_lavori','lavori'], ['cm_delibere','delibere']].forEach(([key, prop]) => {
+      patch[prop] = state[prop].filter(r => r.edificioId !== edId);
+      save(key, patch[prop]);
+    });
+    setState(patch);
+    alert('✅ Dati di "' + edNome + '" svuotati.');
   };
 
   // Data-page quick links
@@ -8520,6 +8549,37 @@ function svgEmpty() { return `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 // Applica alla cache in memoria (state.*) i dati appena letti da Firestore.
 // Fattorizzata per poter essere richiamata sia al boot (best-effort) sia
 // dopo l'autenticazione (autoritativa — è qui che DEVE riuscire).
+// Forma minima dei record (stessi elenchi di RECORD_SCHEMA in
+// functions/index.js, che rifiuta i salvataggi non conformi). QA: un solo
+// record con un campo del tipo sbagliato (es. argomenti come testo invece che
+// elenco) faceva crollare l'intera pagina; qui i dati già salvati vengono
+// riportati alla forma attesa prima di essere mostrati.
+const RECORD_SCHEMA = {
+  arrays: { allegati: 'object', split: 'object', storicoAggiornamenti: 'object', argomenti: 'string', decisioni: 'string' },
+  text: ['titolo', 'testo', 'descrizione', 'nome', 'appartamento', 'email', 'username', 'note', 'responsabile',
+    'indirizzo', 'categoria', 'tipo', 'tipoSpesa', 'stato', 'data', 'scadenza', 'telefono'],
+};
+function normalizeRecords(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.filter(r => r && typeof r === 'object' && !Array.isArray(r)).map(r => {
+    let out = r;
+    const fix = (f, v) => { if (out === r) out = { ...r }; out[f] = v; };
+    for (const [f, itemType] of Object.entries(RECORD_SCHEMA.arrays)) {
+      const v = r[f];
+      if (v == null) continue;
+      const list = Array.isArray(v) ? v : (typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : []);
+      const ok = list.filter(x => itemType === 'string' ? (typeof x === 'string' || typeof x === 'number') : (x && typeof x === 'object' && !Array.isArray(x)))
+                     .map(x => itemType === 'string' ? String(x) : x);
+      if (!Array.isArray(v) || ok.length !== v.length || ok.some((x, i) => x !== v[i])) fix(f, ok);
+    }
+    for (const f of RECORD_SCHEMA.text) {
+      const v = r[f];
+      if (v != null && typeof v !== 'string') fix(f, typeof v === 'number' ? String(v) : '');
+    }
+    return out;
+  });
+}
+
 function applyLoadedDataFromCache() {
   // Guidato da APPDATA_CONFIG (stateProp) invece di un elenco manuale per
   // chiave — bug corretto: prima di questo loop, cm_bacheca/cm_verbali
@@ -8531,7 +8591,7 @@ function applyLoadedDataFromCache() {
   Object.entries(APPDATA_CONFIG).forEach(([key, cfg]) => {
     if (!cfg.stateProp) return;
     const saved = load(key, null);
-    if (saved) state[cfg.stateProp] = saved;
+    if (saved) state[cfg.stateProp] = cfg.writeRole ? normalizeRecords(saved) : saved;
   });
 
   // Dopo il caricamento: imposta filterAnno all'anno con più dati se quello corrente è vuoto

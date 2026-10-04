@@ -35,5 +35,26 @@ Poi servire la cartella (configurazione `qa-harness` in `.claude/launch.json`,
 porta 8911) e aprire `http://localhost:8911/qa/out/harness.html`.
 Gli utenti di test e la password (valida solo sull'emulatore) sono in `qa/seed.js`.
 
+### Test di XSS memorizzata
+
+Da rieseguire dopo ogni modifica che mostra dati nell'interfaccia (i testi
+possono contenere `<` e `>`: la protezione è l'escape in pagina).
+
+```bash
+node qa/seed-xss.js      # al posto di qa/seed.js: payload HTML in ogni campo di testo
+```
+
+Nella pagina harness, dalla console:
+
+```js
+const s = document.createElement('script'); s.textContent = await (await fetch('/qa/xss-crawl.js')).text(); document.head.appendChild(s);
+await qaXss.login('admin1@qa.test');
+await qaXss.crawl(['dashboard','spese','entrate','bilancio','fornitori','vita','condomini','impostazioni']);
+```
+
+`hits` deve restare vuoto per ogni ruolo (member1, editor1, admin1, superadmin), anche a larghezza mobile.
+
+Dopo ogni modifica a `index.html`: `node scripts/sync-staging.js` (il harness si genera da `index.staging.html`).
+
 Il progetto emulato è `demo-qa`: il prefisso `demo-` impedisce qualunque
 accesso ai progetti Firebase reali (staging e produzione non vengono toccati).

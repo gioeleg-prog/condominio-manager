@@ -148,9 +148,21 @@ describe('INTEGRAZIONE — Cloud Functions su emulatore', function () {
       const r = await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_spese', records: [{ id: 1, titolo: 'x', edificioId: 2 }] });
       assert.strictEqual(r.status, 'PERMISSION_DENIED');
     });
-    it('SEC-SAVE-06 testo con < > è rifiutato (XSS memorizzata)', async () => {
-      const r = await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_bacheca', records: [{ id: 1, titolo: '<img src=x onerror=alert(1)>', edificioId: 1 }] });
-      assert.strictEqual(r.status, 'INVALID_ARGUMENT');
+    it('SEC-SAVE-06 testo con < > viene salvato come testo (l\'escape lo fa l\'interfaccia, vedi qa/xss-crawl.js)', async () => {
+      const r = await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_bacheca', records: [{ id: 1, titolo: 'Quota: 5 > 3 e 2 < 4', edificioId: 1 }] });
+      assert.ok(r.ok, r.message);
+      assert.strictEqual((await readBlob('cm_bacheca')).find((b) => b.id === 1).titolo, 'Quota: 5 > 3 e 2 < 4');
+    });
+    it('ROB-SAVE-16 record con un campo del tipo sbagliato è rifiutato, anche dal superAdmin', async () => {
+      const bad = { id: 8100, titolo: 'Assemblea', argomenti: 'bilancio', edificioId: 1 };
+      for (const email of ['admin1@qa.test', 'superadmin@qa.test']) {
+        const r = await call('saveBuildingData', email, { key: 'cm_verbali', records: [bad] });
+        assert.strictEqual(r.status, 'INVALID_ARGUMENT', email);
+      }
+      const r2 = await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_spese', records: [{ id: 8101, titolo: { x: 1 }, edificioId: 1 }] });
+      assert.strictEqual(r2.status, 'INVALID_ARGUMENT');
+      const ok = await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_verbali', records: [{ ...bad, argomenti: ['bilancio'] }] });
+      assert.ok(ok.ok, ok.message);
     });
     it('SEC-SAVE-07 adminEdificio non può promuovere un condomino a superAdmin né cambiarne uid', async () => {
       const mine = await own('admin1@qa.test', 'cm_condomini');
