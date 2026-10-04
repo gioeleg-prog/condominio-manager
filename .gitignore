@@ -6,3 +6,5 @@ node_modules/
 # Script one-off già eseguiti, con UID/email reali hardcoded — non servono nel repo
 scripts/seed-prod-superadmin.js
 scripts/fix-amos-editor-role.js
+qa/out/
+qa/assessment-report.html
