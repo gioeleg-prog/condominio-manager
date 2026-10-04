@@ -35,6 +35,22 @@ Poi servire la cartella (configurazione `qa-harness` in `.claude/launch.json`,
 porta 8911) e aprire `http://localhost:8911/qa/out/harness.html`.
 Gli utenti di test e la password (valida solo sull'emulatore) sono in `qa/seed.js`.
 
+### Migrazione al modello per edificio (fase 2)
+
+Il seed degli emulatori scrive i dati nel vecchio formato (`appdata/cm_*`) e poi
+esegue la **stessa** migrazione usata sui progetti reali
+(`scripts/lib/buildings-migration.js`): ogni esecuzione dei test la collauda.
+`qa/seed.js` con `{ legacyOnly: true }` si ferma prima della migrazione.
+
+Sui progetti reali:
+
+```bash
+node scripts/backfill-buildings.js --project=<id> --dry-run       # solo controlli e conteggi
+node scripts/backfill-buildings.js --project=<id>                 # copia + verifica
+node scripts/verify-backfill.js --project=<id>                    # sola verifica
+node scripts/backfill-buildings.js --project=<id> --mark-cutover  # dopo il rilascio: blocca nuove copie
+```
+
 ### Test di XSS memorizzata
 
 Da rieseguire dopo ogni modifica che mostra dati nell'interfaccia (i testi

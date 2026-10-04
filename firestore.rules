@@ -1,43 +1,20 @@
 rules_version = '2';
 
 // ═══════════════════════════════════════════════════════════════
-//  NERI DA RIMINI — Firestore Security Rules
-//  FASE 1 (contenimento) — lavora sopra il modello dati ATTUALE
-//  (appdata/{key} con blob JSON) senza romperlo.
+//  Condominio Manager — Firestore Security Rules
 //
-//  ATTENZIONE — LIMITE STRUTTURALE ONESTO:
-//  Il modello "appdata" impacchetta TUTTI gli edifici in un unico
-//  campo stringa JSON per chiave (es. appdata/cm_spese).
-//  Le Security Rules non possono fare parsing del contenuto di un
-//  campo per applicare un controllo per-record (per-edificio).
-//  Quindi qui NON si ottiene isolamento multi-tenant reale sui dati
-//  economici — quello richiede la migrazione allo schema
-//  normalizzato "buildings/**" (in fondo a questo file, già pronto
-//  e testato, disattivo finché REB-01 non è completata) oppure il
-//  passaggio attraverso la Cloud Function `getBuildingData` come
-//  ponte transitorio (vedi functions/index.js).
+//  Modello dati (fase 2, REB-01): un documento per record sotto
+//  buildings/{buildingId}/{collezione}/{id}. Le regole applicano a ogni
+//  record ruolo (custom claim role), edificio (claim buildingId) e forma;
+//  vedi match /buildings più sotto.
 //
-//  Quello che QUESTA fase chiude davvero:
-//  - accesso non autenticato → sempre negato
-//  - scrittura di appdata/cm_config (identità del superAdmin) →
-//    solo chi ha già il custom claim role=='superAdmin'
-//  - scrittura di appdata/cm_condomini (dove oggi si promuove un
-//    ruolo, riga ~5306 di index.html) → solo ruoli admin, mai un
-//    condomino semplice
-//  - qualunque scrittura diretta dal client sulla collection
-//    `roles/*` → SEMPRE negata (la scrivono solo le Cloud
-//    Functions con Admin SDK, che bypassano le rules)
+//  appdata/{key}: dati globali (categorie, edificio attivo, configurazione,
+//  marchio, registro accessi) e, in sola lettura per il superAdmin, i
+//  vecchi documenti JSON per edificio (copia della migrazione).
 //
-//  SINCRONIZZAZIONE CHIAVI appdata — questo file resta l'UNICA eccezione
-//  sincronizzata a mano: functions/index.js (APPDATA_RESTRICTED_CONFIG) e
-//  index.html (APPDATA_CONFIG) derivano le proprie liste da un unico
-//  oggetto di configurazione JS per runtime — qui non è possibile, perché
-//  le Security Rules sono un linguaggio dichiarativo che non può
-//  importare quell'oggetto. Aggiungere o togliere una chiave "ristretta"
-//  richiede di aggiornare a mano, in coppia: gli elenchi di lettura e
-//  scrittura di match /appdata/{key} qui sotto (lista chiusa: una chiave
-//  nuova non elencata è negata a tutti), APPDATA_RESTRICTED_CONFIG in
-//  functions/index.js, e APPDATA_CONFIG in index.html.
+//  Le collezioni roles/ e auditEvents/ le scrivono solo le Cloud Functions
+//  (Admin SDK, che non passa da queste regole). Tutto ciò che non è
+//  elencato è negato.
 // ═══════════════════════════════════════════════════════════════
 
 function isSignedIn() {
@@ -52,21 +29,48 @@ function isSuperAdmin() {
   return isSignedIn() && role() == 'superAdmin';
 }
 
-function isBuildingAdmin() {
-  return isSignedIn() && (role() == 'superAdmin' || role() == 'adminEdificio');
-}
-
-// REB-01 P1: 'editor' può scrivere i dati finanziari (spese/entrate/
-// fornitori) del proprio edificio ma non gestire condomini/edificio —
-// a differenza di 'member' che oggi è di sola lettura in UI. Introdotto
-// perché il blocco buildings/** sotto, a differenza delle regole interim
-// di appdata/{key}, non concede scritture a 'member' di default.
-function isEditor() {
-  return isSignedIn() && (role() == 'superAdmin' || role() == 'adminEdificio' || role() == 'editor');
-}
-
+// Ruoli per edificio: 'adminEdificio' gestisce tutto il proprio edificio;
+// 'editor' scrive solo i dati finanziari (spese/entrate/fornitori); 'member'
+// è di sola lettura. Vedi canAdmin/canEdit più sotto.
 function myBuildingId() {
   return request.auth.token.buildingId;
+}
+
+// ─── Modello per edificio (buildings/**) ──────────────────────────
+function inBuilding(b) {
+  return isSignedIn() && (isSuperAdmin() || myBuildingId() == b);
+}
+function canAdmin(b) {
+  return isSuperAdmin() || (isSignedIn() && role() == 'adminEdificio' && myBuildingId() == b);
+}
+function canEdit(b) {
+  return isSuperAdmin() || (isSignedIn() && role() in ['adminEdificio', 'editor'] && myBuildingId() == b);
+}
+function isText(v) {
+  return v == null || v is string || v is number;
+}
+function isList(v) {
+  return v == null || v is list;
+}
+// Forma e firma di ogni record scritto dal client (vedi match /buildings).
+function validRecord(b, docId) {
+  let d = request.resource.data;
+  return string(d.id) == docId
+    && string(d.edificioId) == b
+    && d._updatedBy == request.auth.uid
+    && d._updatedAt == request.time
+    && (resource == null
+          ? d.get('_createdBy', null) == request.auth.uid && d.get('_createdAt', null) == request.time
+          : d.get('_createdBy', null) == resource.data.get('_createdBy', null)
+            && d.get('_createdAt', null) == resource.data.get('_createdAt', null))
+    && d.get('_deleted', false) is bool
+    && (d.get('_deleted', false) == false || d.get('_deletedBy', null) == request.auth.uid
+          || (resource != null && resource.data.get('_deleted', false) == true))
+    && isList(d.get('allegati', null)) && isList(d.get('split', null))
+    && isList(d.get('argomenti', null)) && isList(d.get('decisioni', null))
+    && isList(d.get('storicoAggiornamenti', null))
+    && isText(d.get('titolo', null)) && isText(d.get('nome', null)) && isText(d.get('testo', null))
+    && isText(d.get('descrizione', null)) && isText(d.get('note', null)) && isText(d.get('data', null));
 }
 
 service cloud.firestore {
@@ -99,7 +103,7 @@ service cloud.firestore {
                              'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_condomini',
                              'cm_login_stats', 'cm_config']
                    ? isSuperAdmin()
-                   : (isSignedIn() && key in ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo']);
+                   : (isSignedIn() && key in ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo', 'cm_branding']);
       // P0 urgente: le chiavi per edificio (spese/entrate/fornitori/condomini/
       // bacheca/verbali/lavori/delibere) sono negate in scrittura diretta a
       // chiunque non sia superAdmin — un adminEdificio/editor che scriveva qui
@@ -110,9 +114,12 @@ service cloud.firestore {
       // gestisce solo il superAdmin, ora anche lato server.
       // cm_login_stats: lo aggiorna whoami a ogni accesso; il superAdmin può
       // ancora scriverlo direttamente solo per il ripristino da backup.
-      allow write: if isSuperAdmin() && key in ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_condomini',
-                                                'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_delibere',
-                                                'cm_edifici', 'cm_categorie', 'cm_edificio_attivo', 'cm_config',
+      // Fase 2 (REB-01): i dati per edificio e l'elenco edifici vivono in
+      // buildings/**; le vecchie chiavi (cm_spese … cm_delibere, cm_condomini,
+      // cm_edifici) restano in SOLA LETTURA per il superAdmin, come copia di
+      // sicurezza della migrazione. Un client vecchio che prova a salvarci
+      // riceve un errore invece di scrivere dati che nessuno vedrebbe più.
+      allow write: if isSuperAdmin() && key in ['cm_categorie', 'cm_edificio_attivo', 'cm_config', 'cm_branding',
                                                 'cm_login_stats'];
     }
 
@@ -129,43 +136,48 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // ─── Schema NORMALIZZATO target (REB-01) — pronto, non ancora
-    //     in uso finché la migrazione dati non è completata ────
+    // ─── Modello per edificio (REB-01, fase 2 QA) ───────────────────
+    // Un documento per record: buildings/{buildingId}/{collezione}/{id}.
+    // Le regole applicano direttamente ruolo ed edificio a ogni record
+    // (prima serviva la Cloud Function saveBuildingData, perché le regole
+    // non possono leggere dentro il blob JSON condiviso).
+    //
+    // Ogni scrittura dal client deve:
+    // - avere id ed edificioId coerenti con il percorso;
+    // - firmare _updatedBy (= chi scrive) e _updatedAt (= ora del server):
+    //   la Cloud Function auditTrail ne ricava il registro delle modifiche;
+    // - rispettare la forma minima dei campi (elenchi e testi, come
+    //   RECORD_SCHEMA in index.html e functions/index.js).
+    // Le cancellazioni sono logiche (_deleted: true, con _deletedBy): così
+    // l'audit sa chi ha cancellato cosa e il record è recuperabile. La
+    // cancellazione fisica resta al superAdmin.
     match /buildings/{buildingId} {
-      // Mai in list per i non-superAdmin: una query su tutta la collection
-      // buildings fallirebbe in blocco per loro (stesso comportamento già
-      // visto su appdata quando le regole non sono uniformi per ogni
-      // documento) — il client deve sempre fare getDoc sul proprio id,
-      // mai getDocs(collection(...)), tranne che da superAdmin.
-      allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
+      // Mai in list per i non-superAdmin: il client deve sempre fare getDoc
+      // sul proprio edificio, mai getDocs(collection(...)), tranne il superAdmin.
+      allow read: if inBuilding(buildingId);
       allow write: if isSuperAdmin();
 
-      // Gestione condomini/membri: riservata ad adminEdificio/superAdmin,
-      // mai a 'editor' o 'member' — stessa politica di cm_condomini oggi.
-      // Blocco separato ed esclusivo (non un wildcard generico): in
-      // Firestore i match che si sovrappongono sulla stessa collection si
-      // sommano (OR), quindi un wildcard "tutte le sottocollection" qui
-      // accanto lascerebbe scrivere anche i condomini a un 'editor'.
-      match /members/{memberId} {
-        allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
-        allow write: if isSuperAdmin()
-                     || (isBuildingAdmin() && myBuildingId() == buildingId);
+      // Condomini: solo adminEdificio/superAdmin. Un adminEdificio non può
+      // impostare il flag superAdmin né cambiare l'account collegato (uid):
+      // stessa protezione che saveBuildingData applicava al blob.
+      match /members/{docId} {
+        allow read: if inBuilding(buildingId);
+        allow create, update: if canAdmin(buildingId) && validRecord(buildingId, docId)
+          && (isSuperAdmin() || (
+                request.resource.data.get('superAdmin', false) == (resource == null ? false : resource.data.get('superAdmin', false))
+             && request.resource.data.get('uid', null) == (resource == null ? null : resource.data.get('uid', null))));
+        allow delete: if isSuperAdmin();
       }
 
-      // Dati finanziari: anche 'editor' può scriverli nel proprio edificio.
-      // Tre blocchi identici ed espliciti invece di un wildcard, per lo
-      // stesso motivo di sopra — mai un pattern che includa anche members.
-      match /expenses/{docId} {
-        allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
-        allow write: if isSuperAdmin() || (isEditor() && myBuildingId() == buildingId);
-      }
-      match /payments/{docId} {
-        allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
-        allow write: if isSuperAdmin() || (isEditor() && myBuildingId() == buildingId);
-      }
-      match /suppliers/{docId} {
-        allow read: if isSignedIn() && (isSuperAdmin() || myBuildingId() == buildingId);
-        allow write: if isSuperAdmin() || (isEditor() && myBuildingId() == buildingId);
+      // Dati finanziari: anche 'editor' nel proprio edificio.
+      match /{coll}/{docId} {
+        allow read: if inBuilding(buildingId)
+          && coll in ['expenses', 'payments', 'suppliers', 'notices', 'minutes', 'works', 'resolutions'];
+        allow create, update: if validRecord(buildingId, docId) && (
+             (coll in ['expenses', 'payments', 'suppliers'] && canEdit(buildingId))
+          || (coll in ['notices', 'minutes', 'works', 'resolutions'] && canAdmin(buildingId)));
+        allow delete: if isSuperAdmin()
+          && coll in ['expenses', 'payments', 'suppliers', 'notices', 'minutes', 'works', 'resolutions'];
       }
     }
 

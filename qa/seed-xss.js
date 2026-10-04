@@ -5,6 +5,7 @@
 // pagina. Uso: node qa/seed-xss.js  (emulatori avviati)
 const path = require('path');
 const { seed, PROJECT } = require('./seed');
+const { backfill } = require('../scripts/lib/buildings-migration');
 const req = require('module').createRequire(path.join(__dirname, '..', 'functions', 'package.json'));
 const { getApps } = req('firebase-admin/app');
 const { getFirestore } = req('firebase-admin/firestore');
@@ -25,7 +26,7 @@ function poison(v, key) {
 }
 
 async function seedXss() {
-  await seed();
+  await seed({ legacyOnly: true });
   const db = getFirestore(getApps()[0]);
   const keys = ['cm_condomini', 'cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_bacheca', 'cm_verbali',
     'cm_lavori', 'cm_delibere', 'cm_edifici'];
@@ -47,6 +48,8 @@ async function seedXss() {
   await db.collection('appdata').doc('cm_login_stats').set({ value: JSON.stringify({
     103: { nome: 'Marta' + PAYLOAD, ultimoLogin: '2026-10-01 10:00' + PAYLOAD, totale: 1, mensile: { '2026-10': 1 } },
   }) });
+  // Il modello per edificio con la migrazione reale, sui dati avvelenati.
+  await backfill(db);
 }
 module.exports = { seedXss, PAYLOAD, PROJECT };
 if (require.main === module) seedXss().then(() => { console.log('Seed XSS completato'); process.exit(0); }, (e) => { console.error(e); process.exit(1); });
