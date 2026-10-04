@@ -9,7 +9,8 @@ const { initializeApp, deleteApp } = require('firebase/app');
 const { getAuth, connectAuthEmulator, signInWithEmailAndPassword } = require('firebase/auth');
 const fs = require('firebase/firestore');
 const { getFunctions, connectFunctionsEmulator, httpsCallable } = require('firebase/functions');
-const { adminDb } = require('../scripts/lib/firebase-admin');
+const { adminDb, getStorage } = require('../scripts/lib/firebase-admin');
+const backupLib = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'))('./backup');
 const { backfill, verify, markCutover } = require('../scripts/lib/buildings-migration');
 
 const admin = adminDb(PROJECT);
@@ -242,6 +243,41 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       const a = await as('admin1@qa.test');
       assert.ok(await denied(fs.getDocs(fs.collection(a.db, 'auditEvents'))));
       assert.ok(await denied(fs.addDoc(fs.collection(a.db, 'auditEvents'), { type: 'falso' })));
+    });
+  });
+
+  describe('backup giornaliero e ripristino', () => {
+    const bucket = () => getStorage().bucket('demo-qa.appspot.com');
+    it('BAK-01 backup, database svuotato, ripristino: dati identici e nessun falso evento di audit', async () => {
+      const prima = (await admin.doc('buildings/1/expenses/1003').get()).data();
+      const res = await backupLib.runBackup(admin, bucket());
+      assert.ok(res.docs > 40, 'backup troppo piccolo: ' + res.docs);
+      const [buf] = await bucket().file(res.file).download();
+      const backup = JSON.parse(buf.toString());
+      // svuota tutto il database
+      await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST}/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });
+      assert.strictEqual((await admin.collection('buildings').get()).size, 0);
+      await backupLib.restoreBackup(admin, backup);
+      const dopo = (await admin.doc('buildings/1/expenses/1003').get()).data();
+      assert.strictEqual(dopo.titolo, prima.titolo);
+      assert.deepStrictEqual(dopo.split, prima.split);
+      assert.strictEqual(dopo._createdAt.toMillis(), prima._createdAt.toMillis());
+      assert.ok(await verify(admin), 'dopo il ripristino i dati non combaciano');
+      assert.ok((await admin.doc('appdata/cm_config').get()).exists);
+      await new Promise((r) => setTimeout(r, 4000));
+      const falsi = (await admin.collection('auditEvents').get()).docs.map((d) => d.data()).filter((e) => e.type === 'record.created');
+      assert.strictEqual(falsi.length, 0, 'il ripristino ha generato eventi di creazione');
+    });
+    it('BAK-02 tiene 30 giorni di copie e cancella le più vecchie', async () => {
+      await bucket().file('backups/2020-01-01.json').save('{}');
+      await bucket().file('backups/altro-file.txt').save('x');
+      const res = await backupLib.runBackup(admin, bucket());
+      assert.strictEqual(res.removed, 1);
+      assert.ok(!(await bucket().file('backups/2020-01-01.json').exists())[0]);
+      assert.ok((await bucket().file('backups/altro-file.txt').exists())[0], 'cancellato un file che non è un backup');
+    });
+    it('BAK-03 un file che non è un backup viene rifiutato dal ripristino', async () => {
+      await assert.rejects(backupLib.restoreBackup(admin, { collections: {} }), /non riconosciuto/);
     });
   });
 
