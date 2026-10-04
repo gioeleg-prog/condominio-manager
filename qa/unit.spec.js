@@ -95,6 +95,23 @@ describe('UNIT — export CSV spese', () => {
   });
 });
 
+describe('UNIT — normalizzazione dei record salvati (normalizeRecords)', () => {
+  const app = loadApp();
+  it('riporta alla forma attesa campi elenco e testo di tipo sbagliato', () => {
+    const [v] = app.normalizeRecords([{ id: 1, titolo: 42, argomenti: 'bilancio, facciata', decisioni: [1, 'ok', { x: 1 }], allegati: 'x' }]);
+    assert.strictEqual(v.titolo, '42');
+    assert.strictEqual(v.argomenti.join('|'), 'bilancio|facciata');
+    assert.strictEqual(v.decisioni.join('|'), '1|ok');
+    assert.strictEqual(v.allegati.length, 0);
+  });
+  it('scarta elementi che non sono record e lascia invariati quelli corretti', () => {
+    const ok = { id: 2, titolo: 'A', argomenti: ['x'] };
+    const out = app.normalizeRecords([null, 'x', ok]);
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0], ok);
+  });
+});
+
 describe('UNIT — saldo e riporto (getSaldoRiporto)', () => {
   it('somma solo i movimenti consuntivati degli anni precedenti dell\'edificio attivo', () => {
     const app = loadApp();

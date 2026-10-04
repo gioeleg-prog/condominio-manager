@@ -126,7 +126,7 @@ exports.getBuildingData = onCall(async (request) => {
     } else {
       // edificioId nei dati è numerico, buildingId nel custom claim è
       // sempre una stringa (Firebase custom claims sono JSON, va bene
-      // qualunque tipo, ma setUserRole/linkMyUid lo scrivono come stringa
+      // qualunque tipo, ma setUserRole/whoami lo scrivono come stringa
       // per coerenza) — confronto tollerante al tipo, altrimenti === non
       // matcha mai e il filtro esclude tutto, non solo gli altri edifici.
       // Audit 2026-09: i record senza edificioId non vengono più mostrati a
@@ -140,83 +140,6 @@ exports.getBuildingData = onCall(async (request) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// linkMyUid
-// Bug scoperto testando SEC-05 su staging: le firestore.rules limitano
-// la scrittura di appdata/cm_condomini a superAdmin/adminEdificio, ma
-// il codice esistente (index.html, blocco onAuthStateChanged) collega
-// l'uid Firebase al record condomino al primo login scrivendo
-// direttamente su cm_condomini — cosa che un utente 'member' (nessun
-// ruolo ancora assegnato) non può più fare. Questa function esegue lo
-// stesso collegamento lato server con Admin SDK (bypassa le rules),
-// ma SOLO sul record che corrisponde alla email dell'utente chiamante,
-// e SOLO se quel record non è già collegato a un uid diverso.
-//
-// Bug scoperto testando in PRODUZIONE (non riproducibile su staging,
-// dove esisteva un solo utente di test già superAdmin): i condomini
-// reali esistenti non hanno mai avuto un custom claim di ruolo — solo
-// il superAdmin, seedato manualmente. getBuildingData rifiuta chiunque
-// non abbia claim (SEC-03), quindi ogni condomino normale restava
-// bloccato al primo caricamento dati. Questa function ora provisiona
-// anche il ruolo (letto dai flag legacy canEdit/isAdmin/superAdmin già
-// sul record), così il problema non si ripresenta per i prossimi primi
-// accessi. Se il claim è già presente non viene toccato.
-// ═══════════════════════════════════════════════════════════════
-exports.linkMyUid = onCall(async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
-
-  const email = request.auth.token.email;
-  if (!email) throw new HttpsError('failed-precondition', 'Account senza email associata.');
-
-  const uid = request.auth.uid;
-  const ref = db.collection('appdata').doc('cm_condomini');
-  // Transazione: cm_condomini è scritto anche da saveBuildingData (un admin
-  // che modifica i condomini) — senza, un primo login concorrente poteva
-  // annullare la modifica dell'admin, o viceversa perdere il collegamento uid.
-  const record = await db.runTransaction(async (tx) => {
-    const snap = await tx.get(ref);
-    let arr = [];
-    try { arr = JSON.parse(snap.data()?.value || '[]'); } catch { arr = []; }
-
-    const idx = arr.findIndex((c) => c.email && c.email.toLowerCase() === email.toLowerCase());
-    if (idx === -1) {
-      throw new HttpsError('not-found', 'Nessun condomino associato a questa email. Contatta l\'amministratore.');
-    }
-    if (arr[idx].uid && arr[idx].uid !== uid) {
-      throw new HttpsError('already-exists', 'Questo profilo risulta già collegato a un altro account.');
-    }
-
-    const rec = arr[idx];
-    if (!rec.uid) {
-      arr[idx] = { ...rec, uid };
-      tx.set(ref, { value: JSON.stringify(arr) });
-    }
-    return rec;
-  });
-
-  // Audit 2026-09: il ruolo superAdmin NON viene mai assegnato da qui.
-  // Il flag superAdmin sul record è scrivibile da un adminEdificio tramite
-  // saveBuildingData (ora filtrato, ma resta un dato del blob, non una
-  // fonte autorevole): trasformarlo in claim permetteva a un adminEdificio
-  // di creare un condomino superAdmin e prenderne l'account. Il superAdmin
-  // si assegna solo con setUserRole (da un superAdmin) o con gli script
-  // Admin SDK. Stesso motivo per i record senza edificio: niente claim.
-  const existingUser = await auth.getUser(uid).catch(() => null);
-  if (!existingUser?.customClaims?.role && !record.superAdmin && record.edificioId != null) {
-    const role = record.isAdmin ? 'adminEdificio' : (record.canEdit ? 'editor' : 'member');
-    const claims = { role, buildingId: String(record.edificioId) };
-    await auth.setCustomUserClaims(uid, claims);
-    await db.collection('roles').doc(uid).set({
-      role,
-      buildingId: claims.buildingId || null,
-      updatedAt: FieldValue.serverTimestamp(),
-      updatedBy: 'linkMyUid-auto',
-    }, { merge: true });
-  }
-
-  return { ok: true };
-});
-
-// ═══════════════════════════════════════════════════════════════
 // whoami
 // Audit 2026-09: prima il client, al login, leggeva TUTTO cm_condomini
 // (nomi/email di ogni edificio) per cercarci dentro il proprio profilo —
@@ -225,7 +148,7 @@ exports.linkMyUid = onCall(async (request) => {
 // server (Admin SDK): restituisce SOLO il record del chiamante, così le
 // rules possono chiudere la lettura diretta di cm_condomini al superAdmin.
 //
-// Fa anche ciò che faceva linkMyUid (collega l'uid, provisiona il ruolo se
+// Fa anche ciò che faceva la vecchia linkMyUid, rimossa nel 2026-10 (collega l'uid, provisiona il ruolo se
 // assente), così il login è una sola chiamata. Il superAdmin è determinato
 // SOLO da cm_config (superAdminUid/superAdminEmail, scrivibile solo dal
 // superAdmin) o da un claim role già presente — mai dal flag superAdmin
@@ -292,7 +215,8 @@ exports.whoami = onCall(async (request) => {
     return arr[idx];
   });
 
-  // Provisiona il ruolo se assente — mai superAdmin (vedi linkMyUid).
+  // Provisiona il ruolo se assente — mai superAdmin: il flag superAdmin del
+  // record è scrivibile da un adminEdificio e non è una fonte autorevole.
   const existingUser = await auth.getUser(uid).catch(() => null);
   if (!existingUser?.customClaims?.role && record.edificioId != null) {
     const role = record.isAdmin ? 'adminEdificio' : (record.canEdit ? 'editor' : 'member');
@@ -401,6 +325,12 @@ exports.saveBuildingData = onCall(async (request) => {
   if (base != null && !Array.isArray(base)) {
     throw new HttpsError('invalid-argument', 'base deve essere un array.');
   }
+  // Struttura dei record, per ogni ruolo (superAdmin compreso): un record con
+  // un campo del tipo sbagliato faceva crollare l'intera pagina per tutti.
+  for (const rec of records) {
+    const err = recordShapeError(rec);
+    if (err) throw new HttpsError('invalid-argument', `Record ${rec?.id ?? '?'} non valido: ${err}.`);
+  }
 
   if (callerRole === 'superAdmin') {
     // Il superAdmin vede e gestisce tutti gli edifici. Con `base` le sue
@@ -436,13 +366,11 @@ exports.saveBuildingData = onCall(async (request) => {
       throw new HttpsError('permission-denied',
         `Il record ${rec.id} non appartiene al tuo edificio.`);
     }
-    // Audit 2026-09 (XSS memorizzata): nessun dato applicativo legittimo
-    // contiene < o > (verificato sui dati di produzione), mentre vari punti
-    // dell'interfaccia inseriscono questi campi nell'HTML. Il client ora fa
-    // l'escape, questo è il secondo livello per chi scrive dalla console.
-    if (/[<>]/.test(JSON.stringify(rec))) {
-      throw new HttpsError('invalid-argument', 'I caratteri < e > non sono ammessi.');
-    }
+    // QA 2026-10: < e > sono di nuovo ammessi nei testi (es. "5 > 3"):
+    // l'interfaccia fa l'escape ovunque, verificato con qa/seed-xss.js +
+    // qa/xss-crawl.js su tutte le pagine, tab e modali per ogni ruolo. Il
+    // divieto precedente non copriva comunque il superAdmin né le chiavi
+    // scritte direttamente (edifici, categorie).
     // id e colori finiscono in attributi HTML (data-id, style) senza
     // escape in decine di punti: formato vincolato. Gli id generati
     // dall'app (newId) sono numeri.
@@ -507,6 +435,30 @@ exports.saveBuildingData = onCall(async (request) => {
   });
   return { ok: true, count: merged.length, records: merged.filter(isMine) };
 });
+
+// Forma minima dei record (stessi elenchi di RECORD_SCHEMA in index.html,
+// che normalizza i dati già salvati): campi elenco e campi di testo.
+const RECORD_SCHEMA = {
+  arrays: { allegati: 'object', split: 'object', storicoAggiornamenti: 'object', argomenti: 'string', decisioni: 'string' },
+  text: ['titolo', 'testo', 'descrizione', 'nome', 'appartamento', 'email', 'username', 'note', 'responsabile',
+    'indirizzo', 'categoria', 'tipo', 'tipoSpesa', 'stato', 'data', 'scadenza', 'telefono'],
+};
+function recordShapeError(rec) {
+  if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return 'non è un oggetto';
+  for (const [f, itemType] of Object.entries(RECORD_SCHEMA.arrays)) {
+    const v = rec[f];
+    if (v == null) continue;
+    if (!Array.isArray(v)) return `${f} deve essere un elenco`;
+    if (v.some((x) => (itemType === 'string' ? typeof x !== 'string' : !x || typeof x !== 'object' || Array.isArray(x)))) {
+      return `${f} contiene valori non validi`;
+    }
+  }
+  for (const f of RECORD_SCHEMA.text) {
+    const v = rec[f];
+    if (v != null && typeof v !== 'string' && typeof v !== 'number') return `${f} deve essere un testo`;
+  }
+  return null;
+}
 
 function parseBlob(snap) {
   try {
