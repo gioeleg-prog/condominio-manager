@@ -735,7 +735,7 @@
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
   import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider , sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, linkWithPopup }
+  import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider , sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
   import { getFunctions, httpsCallable }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js';
@@ -769,7 +769,7 @@
     onSnapshot, query, orderBy, serverTimestamp,
     signInWithEmailAndPassword, signOut, onAuthStateChanged,
     updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail,
-    GoogleAuthProvider, signInWithPopup, linkWithPopup,
+    GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential,
     functionsInstance, httpsCallable,
     storage, ref, uploadBytes, getBytes, deleteObject
 
@@ -1305,13 +1305,38 @@ function bindLogin() {
   const bg = document.getElementById('btn-login-google');
   if (bg) bg.onclick = async () => {
     if (!window._fb) { showLoginErr('Connessione richiesta.'); return; }
+    const { auth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, linkWithCredential } = window._fb;
+
+    // Fase 2 del collegamento automatico: un tentativo precedente ha trovato
+    // che l'email Google ha già un account con password (caso B/C). Chiediamo
+    // la password UNA volta — Firebase non consente di agganciare Google a un
+    // account esistente senza provarne il possesso (altrimenti un Gmail omonimo
+    // lo ruberebbe) — poi colleghiamo la credenziale Google già ottenuta.
+    if (window.__pendingGoogleLink) {
+      const pw = (document.getElementById('inp-pw')?.value || '').trim();
+      if (!pw) { showLoginErr('Inserisci la password dell’account per collegare Google.'); return; }
+      bg.disabled = true;
+      try {
+        const { email, credential } = window.__pendingGoogleLink;
+        const cred = await signInWithEmailAndPassword(auth, email, pw);
+        await linkWithCredential(cred.user, credential);
+        window.__pendingGoogleLink = null;
+        // Ora è loggato (via password) e Google è collegato: onAuthStateChanged
+        // prosegue, e dal prossimo accesso Google funziona diretto.
+      } catch (e2) {
+        bg.disabled = false;
+        showLoginErr(e2.code === 'auth/wrong-password' || e2.code === 'auth/invalid-credential'
+          ? 'Password errata. Riprova per collegare Google.'
+          : ('Collegamento non riuscito: ' + (e2.message || e2)));
+      }
+      return;
+    }
+
     bg.disabled = true;
     try {
-      // Accesso con Google: l'account deve essere già collegato (dalla pagina
-      // Impostazioni, pulsante "Collega account Google") a un profilo esistente,
-      // altrimenti onAuthStateChanged/whoami rifiuta un'email sconosciuta. La
-      // verifica in due passaggi, se attiva, la gestisce Google stesso.
-      const { auth, GoogleAuthProvider, signInWithPopup } = window._fb;
+      // La verifica in due passaggi, se attiva sull'account Google, la gestisce
+      // Google stesso durante il popup. Poi onAuthStateChanged/whoami verifica
+      // che l'email corrisponda a un condomino: altrimenti rifiuta l'accesso.
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
@@ -1320,9 +1345,28 @@ function bindLogin() {
       bg.disabled = false;
       const code = e.code || '';
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
-      showLoginErr(code === 'auth/account-exists-with-different-credential'
-        ? "Questa email esiste già con password. Accedi con la password, poi collega Google da Impostazioni."
-        : (e.message || 'Accesso con Google non riuscito.'));
+      if (code === 'auth/account-exists-with-different-credential') {
+        // Caso B/C: email con account password esistente. Conserviamo la
+        // credenziale Google e l'email, prefilliamo il campo e chiediamo la
+        // password per completare il collegamento al prossimo clic.
+        const credential = GoogleAuthProvider.credentialFromError(e);
+        const email = e.customData?.email || '';
+        if (credential && email) {
+          window.__pendingGoogleLink = { email, credential };
+          const inp = document.getElementById('inp-login');
+          if (inp) inp.value = email;
+          showLoginErr('Questo è il tuo primo accesso con Google. Inserisci qui la password del tuo account e premi di nuovo "Accedi con Google" per collegarlo (una volta sola).');
+          document.getElementById('inp-pw')?.focus();
+        } else {
+          showLoginErr('Accesso con Google non riuscito. Accedi con la password.');
+        }
+      } else if (code === 'auth/admin-restricted-operation' || code === 'auth/operation-not-allowed') {
+        // signup disattivato o provider non abilitato: nessun account per
+        // questa email Google (casi A/D).
+        showLoginErr('Nessun account associato a questa email Google. Contatta l’amministratore.');
+      } else {
+        showLoginErr(e.message || 'Accesso con Google non riuscito.');
+      }
     }
   };
 
