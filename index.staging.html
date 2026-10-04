@@ -1401,8 +1401,11 @@ function applyA11y(root) {
   });
   root.querySelectorAll('select,input:not([type=hidden]),textarea').forEach(ctrl => {
     if (ctrl.getAttribute('aria-label') || ctrl.labels?.length) return;
+    const spesa = ctrl.dataset.spesaId ? state.spese.find(s => String(s.id) === ctrl.dataset.spesaId) : null;
     const name = A11Y_NAMES[ctrl.id]
       || (ctrl.classList.contains('ruolo-select') ? 'Ruolo' : '')
+      || (spesa ? 'Seleziona la spesa ' + (spesa.titolo || '') : '')
+      || (ctrl.type === 'checkbox' ? 'Seleziona' : '')
       || ctrl.getAttribute('placeholder') || ctrl.getAttribute('title')
       || (ctrl.tagName === 'SELECT' && ctrl.options[0] ? ctrl.options[0].textContent.trim() : '');
     if (name) ctrl.setAttribute('aria-label', name);
@@ -2012,7 +2015,13 @@ async function handleFilesDrop(files) {
       // recuperano on-demand con l'SDK autenticato (getBytes), che le rispetta.
       added.push({ id, nome: file.name, mime: file.type||'application/octet-stream', size: file.size, storagePath });
     } catch (err) {
-      alert(`Errore caricando "${file.name}": ` + (err.message || err));
+      // Le storage.rules rifiutano i tipi non ammessi (es. SVG) e i file oltre 5 MB
+      // con lo stesso codice dei permessi: messaggio comprensibile al posto di
+      // quello tecnico in inglese.
+      const motivo = err.code === 'storage/unauthorized'
+        ? 'tipo di file non ammesso (si accettano PDF, immagini, documenti Office/OpenDocument, testo e CSV) oppure permessi insufficienti.'
+        : (err.message || err);
+      alert(`Impossibile allegare "${file.name}": ` + motivo);
     }
   }
   state.pendingFiles = [...state.pendingFiles, ...added];
