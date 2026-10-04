@@ -69,10 +69,10 @@ describe('appdata — modello attuale', () => {
     await assertFails(db.collection('appdata').doc('cm_fornitori').set({ value: '[]' }));
   });
 
-  it('un superAdmin PUÒ scrivere direttamente cm_condomini/cm_spese/cm_entrate/cm_fornitori', async () => {
+  it('fase 2: nemmeno il superAdmin scrive più cm_condomini/cm_spese/cm_entrate/cm_fornitori (sola lettura, dati in buildings/**)', async () => {
     const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_condomini').set({ value: '[]' }));
-    await assertSucceeds(db.collection('appdata').doc('cm_spese').set({ value: '[]' }));
+    await assertFails(db.collection('appdata').doc('cm_condomini').set({ value: '[]' }));
+    await assertFails(db.collection('appdata').doc('cm_spese').set({ value: '[]' }));
   });
 
   // cm_bacheca (comunicazioni ufficiali dell'amministratore): stesso
@@ -98,9 +98,9 @@ describe('appdata — modello attuale', () => {
     await assertFails(db.collection('appdata').doc('cm_bacheca').set({ value: '[]' }));
   });
 
-  it('un superAdmin PUÒ scrivere direttamente appdata/cm_bacheca', async () => {
+  it('fase 2: nemmeno il superAdmin scrive più appdata/cm_bacheca (sola lettura, dati in buildings/**)', async () => {
     const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_bacheca').set({ value: '[]' }));
+    await assertFails(db.collection('appdata').doc('cm_bacheca').set({ value: '[]' }));
   });
 
   // cm_verbali (atti ufficiali di assemblea): stesso trattamento di
@@ -121,9 +121,9 @@ describe('appdata — modello attuale', () => {
     await assertFails(db.collection('appdata').doc('cm_verbali').set({ value: '[]' }));
   });
 
-  it('un superAdmin PUÒ scrivere direttamente appdata/cm_verbali', async () => {
+  it('fase 2: nemmeno il superAdmin scrive più appdata/cm_verbali (sola lettura, dati in buildings/**)', async () => {
     const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_verbali').set({ value: '[]' }));
+    await assertFails(db.collection('appdata').doc('cm_verbali').set({ value: '[]' }));
   });
 
   // cm_lavori (checklist lavori, dato operativo): stesso trattamento di
@@ -144,9 +144,9 @@ describe('appdata — modello attuale', () => {
     await assertFails(db.collection('appdata').doc('cm_lavori').set({ value: '[]' }));
   });
 
-  it('un superAdmin PUÒ scrivere direttamente appdata/cm_lavori', async () => {
+  it('fase 2: nemmeno il superAdmin scrive più appdata/cm_lavori (sola lettura, dati in buildings/**)', async () => {
     const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_lavori').set({ value: '[]' }));
+    await assertFails(db.collection('appdata').doc('cm_lavori').set({ value: '[]' }));
   });
 
   // cm_delibere (atto formale + budget): stesso trattamento di cm_spese —
@@ -172,9 +172,9 @@ describe('appdata — modello attuale', () => {
     await assertFails(db.collection('appdata').doc('cm_delibere').set({ value: '[]' }));
   });
 
-  it('un superAdmin PUÒ scrivere direttamente appdata/cm_delibere', async () => {
+  it('fase 2: nemmeno il superAdmin scrive più appdata/cm_delibere (sola lettura, dati in buildings/**)', async () => {
     const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
-    await assertSucceeds(db.collection('appdata').doc('cm_delibere').set({ value: '[]' }));
+    await assertFails(db.collection('appdata').doc('cm_delibere').set({ value: '[]' }));
   });
 
   // Hardening: lista chiusa di chiavi. I residui del vecchio login
@@ -234,9 +234,10 @@ describe('appdata — modello attuale', () => {
     }
   });
 
-  it('un superAdmin PUÒ scrivere cm_edifici, cm_categorie, cm_edificio_attivo', async () => {
+  it('un superAdmin PUÒ scrivere cm_categorie e cm_edificio_attivo, non più cm_edifici (ora buildings/**)', async () => {
     const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
-    for (const k of ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo']) {
+    await assertFails(db.collection('appdata').doc('cm_edifici').set({ value: '[]' }));
+    for (const k of ['cm_categorie', 'cm_edificio_attivo']) {
       await assertSucceeds(db.collection('appdata').doc(k).set({ value: '[]' }));
     }
   });
@@ -260,76 +261,101 @@ describe('roles/{uid} — mai scrivibile dal client', () => {
   });
 });
 
-describe('buildings/** — schema normalizzato target (REB-01)', () => {
-  it('un member dell\'edificio B1 NON legge dati dell\'edificio B2', async () => {
-    const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    await assertFails(db.doc('buildings/b2/expenses/e1').get());
+describe('buildings/** — modello per edificio (fase 2)', () => {
+  const firebase = require('firebase/compat/app').default;
+  require('firebase/compat/firestore');
+  const now = () => firebase.firestore.FieldValue.serverTimestamp();
+  const ctx = (uid, claims) => testEnv.authenticatedContext(uid, claims).firestore();
+  const member = () => ctx('u_member', { role: 'member', buildingId: '1' });
+  const editor = () => ctx('u_editor', { role: 'editor', buildingId: '1' });
+  const admin = () => ctx('u_admin', { role: 'adminEdificio', buildingId: '1' });
+  const superA = () => ctx('u_super', { role: 'superAdmin' });
+  // Record valido scritto da `uid` nell'edificio 1 (o `b`).
+  const rec = (uid, id, extra = {}, b = 1) => ({
+    id, edificioId: b, titolo: 'Test', _createdBy: uid, _createdAt: now(), _updatedBy: uid, _updatedAt: now(), ...extra,
+  });
+  const T0 = firebase.firestore.Timestamp.fromMillis(1700000000000);
+  const seedDoc = async (path, data) => testEnv.withSecurityRulesDisabled((c) => c.firestore().doc(path).set(data));
+
+  it('un member legge il proprio edificio ma non un altro', async () => {
+    await assertSucceeds(member().doc('buildings/1/expenses/10').get());
+    await assertFails(member().doc('buildings/2/expenses/10').get());
+    await assertSucceeds(member().doc('buildings/1').get());
+  });
+  it('solo il superAdmin elenca tutti gli edifici', async () => {
+    await assertFails(member().collection('buildings').get());
+    await assertSucceeds(superA().collection('buildings').get());
+  });
+  it('solo il superAdmin crea o modifica un edificio', async () => {
+    await assertFails(admin().doc('buildings/1').set({ id: 1, nome: 'X' }));
+    await assertSucceeds(superA().doc('buildings/3').set({ id: 3, nome: 'Nuovo' }));
   });
 
-  it('un member dell\'edificio B1 legge i dati del proprio edificio', async () => {
-    const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    await assertSucceeds(db.doc('buildings/b1/expenses/e1').get());
-  });
-
-  it('il superAdmin legge qualsiasi edificio', async () => {
-    const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
-    await assertSucceeds(db.doc('buildings/b2/expenses/e1').get());
-  });
-
-  it('un member NON può fare list su tutta la collection buildings (fallirebbe in blocco)', async () => {
-    const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    await assertFails(db.collection('buildings').get());
-  });
-
-  it('il superAdmin PUÒ fare list su tutta la collection buildings', async () => {
-    const db = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
-    await assertSucceeds(db.collection('buildings').get());
-  });
-
-  describe('members — solo adminEdificio/superAdmin, mai editor/member', () => {
-    it('un adminEdificio PUÒ scrivere members del proprio edificio', async () => {
-      const db = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
-      await assertSucceeds(db.doc('buildings/b1/members/m1').set({ nome: 'Test' }));
-    });
-
-    it('un adminEdificio NON può scrivere members di un altro edificio', async () => {
-      const db = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
-      await assertFails(db.doc('buildings/b2/members/m1').set({ nome: 'Test' }));
-    });
-
-    it('un editor NON può scrivere members (solo dati finanziari)', async () => {
-      const db = testEnv.authenticatedContext('u_editor', { role: 'editor', buildingId: 'b1' }).firestore();
-      await assertFails(db.doc('buildings/b1/members/m1').set({ nome: 'Test' }));
-    });
-
-    it('un member NON può scrivere members', async () => {
-      const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-      await assertFails(db.doc('buildings/b1/members/m1').set({ nome: 'Test' }));
-    });
-  });
-
-  describe('expenses/payments/suppliers — anche editor può scrivere nel proprio edificio', () => {
-    for (const sub of ['expenses', 'payments', 'suppliers']) {
-      it(`un editor PUÒ scrivere ${sub} del proprio edificio`, async () => {
-        const db = testEnv.authenticatedContext('u_editor', { role: 'editor', buildingId: 'b1' }).firestore();
-        await assertSucceeds(db.doc(`buildings/b1/${sub}/x1`).set({ titolo: 'Test' }));
-      });
-
-      it(`un editor NON può scrivere ${sub} di un altro edificio`, async () => {
-        const db = testEnv.authenticatedContext('u_editor', { role: 'editor', buildingId: 'b1' }).firestore();
-        await assertFails(db.doc(`buildings/b2/${sub}/x1`).set({ titolo: 'Test' }));
-      });
-
-      it(`un member (sola lettura) NON può scrivere ${sub}`, async () => {
-        const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-        await assertFails(db.doc(`buildings/b1/${sub}/x1`).set({ titolo: 'Test' }));
-      });
-
-      it(`un adminEdificio PUÒ scrivere ${sub} del proprio edificio`, async () => {
-        const db = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
-        await assertSucceeds(db.doc(`buildings/b1/${sub}/x1`).set({ titolo: 'Test' }));
+  describe('matrice ruoli per collezione', () => {
+    const finance = ['expenses', 'payments', 'suppliers'];
+    const adminOnly = ['notices', 'minutes', 'works', 'resolutions'];
+    for (const c of finance) {
+      it(`${c}: editor e admin scrivono, member no`, async () => {
+        await assertSucceeds(editor().doc(`buildings/1/${c}/11`).set(rec('u_editor', 11)));
+        await assertSucceeds(admin().doc(`buildings/1/${c}/12`).set(rec('u_admin', 12)));
+        await assertFails(member().doc(`buildings/1/${c}/13`).set(rec('u_member', 13)));
       });
     }
+    for (const c of adminOnly) {
+      it(`${c}: solo admin, editor e member no`, async () => {
+        await assertSucceeds(admin().doc(`buildings/1/${c}/21`).set(rec('u_admin', 21)));
+        await assertFails(editor().doc(`buildings/1/${c}/22`).set(rec('u_editor', 22)));
+        await assertFails(member().doc(`buildings/1/${c}/23`).set(rec('u_member', 23)));
+      });
+    }
+    it('members: solo admin; editor no', async () => {
+      await assertSucceeds(admin().doc('buildings/1/members/31').set(rec('u_admin', 31, { nome: 'Rossi' })));
+      await assertFails(editor().doc('buildings/1/members/32').set(rec('u_editor', 32, { nome: 'Rossi' })));
+    });
+    it('collezioni non previste: negate a tutti', async () => {
+      await assertFails(superA().doc('buildings/1/varie/1').set(rec('u_super', 1)));
+      await assertFails(superA().doc('buildings/1/varie/1').get());
+    });
+  });
+
+  describe('isolamento e integrità dei record', () => {
+    it('non si scrive in un altro edificio, né con edificioId incoerente col percorso', async () => {
+      await assertFails(admin().doc('buildings/2/expenses/40').set(rec('u_admin', 40, {}, 2)));
+      await assertFails(superA().doc('buildings/1/expenses/41').set(rec('u_super', 41, {}, 2)));
+    });
+    it('id del documento e id del record devono coincidere', async () => {
+      await assertFails(admin().doc('buildings/1/expenses/42').set(rec('u_admin', 99)));
+    });
+    it('la firma deve essere dell\'autore reale e con l\'ora del server', async () => {
+      await assertFails(admin().doc('buildings/1/expenses/43').set(rec('u_admin', 43, { _updatedBy: 'qualcun-altro' })));
+      await assertFails(admin().doc('buildings/1/expenses/44').set(rec('u_admin', 44, { _updatedAt: new Date(2020, 0, 1) })));
+    });
+    it('l\'autore della creazione non si può riscrivere', async () => {
+      await seedDoc('buildings/1/expenses/45', { id: 45, edificioId: 1, _createdBy: 'backfill', _createdAt: T0 });
+      await assertFails(admin().doc('buildings/1/expenses/45').set(rec('u_admin', 45)));
+      await assertSucceeds(admin().doc('buildings/1/expenses/45').set(rec('u_admin', 45, { _createdBy: 'backfill', _createdAt: T0 })));
+      // nemmeno la data di creazione
+      await assertFails(admin().doc('buildings/1/expenses/45').set(rec('u_admin', 45, { _createdBy: 'backfill' })));
+    });
+    it('campi elenco e testo devono avere la forma attesa', async () => {
+      await assertFails(admin().doc('buildings/1/minutes/46').set(rec('u_admin', 46, { argomenti: 'bilancio' })));
+      await assertFails(admin().doc('buildings/1/expenses/47').set(rec('u_admin', 47, { titolo: { x: 1 } })));
+      await assertSucceeds(admin().doc('buildings/1/minutes/48').set(rec('u_admin', 48, { argomenti: ['bilancio'], titolo: 'A < B' })));
+    });
+    it('cancellazione: logica firmata da chi cancella; fisica solo superAdmin', async () => {
+      await seedDoc('buildings/1/expenses/49', { id: 49, edificioId: 1, _createdBy: 'backfill', _createdAt: T0 });
+      await assertFails(editor().doc('buildings/1/expenses/49').set(rec('u_editor', 49, { _createdBy: 'backfill', _createdAt: T0, _deleted: true })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/49').set(rec('u_editor', 49, { _createdBy: 'backfill', _createdAt: T0, _deleted: true, _deletedBy: 'u_editor' })));
+      await assertFails(admin().doc('buildings/1/expenses/49').delete());
+      await assertSucceeds(superA().doc('buildings/1/expenses/49').delete());
+    });
+    it('un adminEdificio non può creare un superAdmin né cambiare l\'account collegato', async () => {
+      await assertFails(admin().doc('buildings/1/members/50').set(rec('u_admin', 50, { superAdmin: true })));
+      await seedDoc('buildings/1/members/51', { id: 51, edificioId: 1, uid: 'u_vero', _createdBy: 'backfill', _createdAt: T0 });
+      await assertFails(admin().doc('buildings/1/members/51').set(rec('u_admin', 51, { _createdBy: 'backfill', _createdAt: T0, uid: 'u_attaccante' })));
+      await assertSucceeds(admin().doc('buildings/1/members/51').set(rec('u_admin', 51, { _createdBy: 'backfill', _createdAt: T0, uid: 'u_vero', nome: 'Nuovo nome' })));
+      await assertSucceeds(superA().doc('buildings/1/members/52').set(rec('u_super', 52, { superAdmin: false, uid: 'u_x' })));
+    });
   });
 });
 

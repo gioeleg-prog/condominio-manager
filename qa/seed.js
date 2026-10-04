@@ -9,6 +9,7 @@ const req = require('module').createRequire(path.join(__dirname, '..', 'function
 const { initializeApp, getApps } = req('firebase-admin/app');
 const { getAuth } = req('firebase-admin/auth');
 const { getFirestore } = req('firebase-admin/firestore');
+const { backfill } = require('../scripts/lib/buildings-migration');
 
 const PROJECT = 'demo-qa';
 const PASSWORD = 'QaTest-2026!';
@@ -68,7 +69,8 @@ const verbali = [{ id: 8001, titolo: 'Assemblea ordinaria', data: `${Y}-03-20`, 
 const lavori = [{ id: 9001, titolo: 'Rifacimento facciata', stato: 'in_corso', percentuale: 40, edificioId: 1 }];
 const delibere = [{ id: 9501, titolo: 'Facciata', stato: 'approvata', budget: 30000, responsabile: 'Amministratore', edificioId: 1 }];
 
-async function seed() {
+// legacyOnly: solo il vecchio formato (appdata/cm_*), per provare la migrazione.
+async function seed({ legacyOnly = false } = {}) {
   const app = getApps()[0] || initializeApp({ projectId: PROJECT });
   const auth = getAuth(app);
   const db = getFirestore(app);
@@ -96,6 +98,8 @@ async function seed() {
     put('cm_lavori', lavori), put('cm_delibere', delibere), put('cm_login_stats', {}),
     db.collection('appdata').doc('cm_config').set({ superAdminUid: 'u-super', superAdminEmail: 'superadmin@qa.test' }),
   ]);
+  // Il modello per edificio si ottiene con la VERA migrazione: ogni seed la collauda.
+  if (!legacyOnly) await backfill(db);
 }
 module.exports = { seed, USERS, PASSWORD, PROJECT };
 if (require.main === module) seed().then(() => { console.log('Seed completato'); process.exit(0); }, (e) => { console.error(e); process.exit(1); });

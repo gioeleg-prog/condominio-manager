@@ -18,7 +18,7 @@
 <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%232563EB'/><text y='.9em' font-size='72' x='12'>🏠</text></svg>">
 
 <!-- SEO & Business Classification -->
-<meta name="description" content="Gestione condominiale Via Neri da Rimini 20 — Rimini. Piattaforma business per amministrazione spese, entrate, bilancio e condomini.">
+<meta name="description" content="Condominio Manager — gestione condominiale: spese, entrate, bilancio, condomini e vita condominiale.">
 <meta name="keywords" content="gestione condominio, amministrazione condominiale, spese condominiali, bilancio condominio, property management, real estate management">
 <meta name="robots" content="noindex, nofollow">
 <meta name="category" content="business">
@@ -27,16 +27,15 @@
 <meta name="rating" content="general">
 <meta name="revisit-after" content="30 days">
 <meta name="language" content="Italian">
-<meta name="author" content="Condominio Via Neri da Rimini 20">
+<meta name="author" content="Condominio Manager">
 <meta http-equiv="content-language" content="it">
 
 <!-- Open Graph (business app) -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Gestione Condominio — Via Neri da Rimini 20">
+<meta property="og:title" content="Condominio Manager">
 <meta property="og:description" content="Piattaforma di gestione condominiale: spese, entrate, bilancio e amministrazione.">
 <meta property="og:locale" content="it_IT">
-<meta property="og:site_name" content="Condominio Via Neri da Rimini 20">
-<meta property="business:contact_data:locality" content="Rimini">
+<meta property="og:site_name" content="Condominio Manager">
 <meta property="business:contact_data:country_name" content="Italy">
 
 <!-- Business & Firewall classification -->
@@ -44,7 +43,7 @@
 <meta name="ICRA:language" content="it">
 <meta name="SafeSurf" content="(SS~~000 1)">
 <meta name="PICS-Label" content='(PICS-1.1 "http://www.rsac.org/ratingsv01.html" l gen true comment "RSACi North America Server" for "https://neridarimini20.it" on "2024-01-01T00:00:0+0000" r (n 0 s 0 v 0 l 0))'>
-<title>Condominio Via Neri da Rimini 20</title>
+<title>Condominio Manager</title>
 <style>
   :root {
     --bg: #F4F7FB;
@@ -733,7 +732,7 @@
 <!-- Firebase SDK -->
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-  import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp }
+  import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, deleteField }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
   import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider , sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential }
     from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
@@ -767,7 +766,7 @@
   window._fb = {
     db, auth,
     collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-    onSnapshot, query, orderBy, serverTimestamp,
+    onSnapshot, query, orderBy, serverTimestamp, writeBatch, deleteField,
     signInWithEmailAndPassword, signOut, onAuthStateChanged,
     updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail,
     GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential,
@@ -816,6 +815,19 @@ const CATEGORIE_DEFAULT = [
   {id:'altro',          label:'Altro',                    tipo:'ordinaria',    icon:'📦', builtin:true},
 ];
 
+// Marchio (fase 2 QA): prima "Neri da Rimini 20" era scritto nel codice in 11
+// punti. Ora il nome del prodotto e del fornitore stanno in appdata/cm_branding
+// (modificabili dal superAdmin in Impostazioni) e l'intestazione mostra il nome
+// dell'edificio attivo. Prima del login valgono i valori predefiniti.
+const BRANDING_DEFAULT = { nomeProdotto: 'Condominio Manager', fornitore: 'Gioele Consulting' };
+function getBranding() {
+  const b = load('cm_branding', null);
+  return { ...BRANDING_DEFAULT, ...(b && typeof b === 'object' ? b : {}) };
+}
+function nomeEdificioAttivo() {
+  return (state.edifici.find(e => e.id === state.edificioAttivo) || {}).nome || '';
+}
+
 // CATEGORIE è ora dinamica — letta/salvata in localStorage
 function getCategorie() {
   return load('cm_categorie', CATEGORIE_DEFAULT);
@@ -843,103 +855,133 @@ function save(key, val) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// APPDATA_CONFIG — unica fonte, in questo runtime, di quali chiavi del
-// blob "appdata" esistono, se sono a scrittura ristretta (e per chi:
-// 'adminOnly' = solo adminEdificio/superAdmin, 'finance' = anche editor)
-// e in quale campo di state vanno sincronizzate dopo il caricamento da
-// Firestore (stateProp — assente per le chiavi che non hanno un campo
-// state dedicato, come cm_categorie/cm_config, lette on-demand con
-// load()). Deriva RESTRICTED_KEYS, APPDATA_KEYS, il bridge di
-// getBuildingData e il corpo di applyLoadedDataFromCache qui sotto.
-//
-// functions/index.js ha la propria copia equivalente (runtime separato,
-// non importabile da qui) — aggiungere o togliere una chiave va fatto in
-// entrambe. firestore.rules resta sincronizzata a mano: è un linguaggio
-// dichiarativo che non può importare questo oggetto, quindi i suoi due
-// elenchi (lettura e scrittura) vanno aggiornati a mano in coppia con
-// questo file. Le chiavi a lettura diretta ristretta al superAdmin
-// (cm_spese/cm_entrate/cm_fornitori/cm_delibere) sono una decisione
-// presa SOLO in firestore.rules — non influenzano nessuna derivazione
-// qui sotto (SEC-03: da quando le rules distinguono i permessi di
-// lettura per singola chiave, una query "tutta la collection" fallirebbe
-// in blocco per chi non è superAdmin; per questo fbLoadAll legge ogni
-// chiave singolarmente, così quelle vietate falliscono da sole senza
-// bloccare le altre).
+// APPDATA_CONFIG — unica fonte, in questo runtime, delle chiavi di dati
+// dell'app e di dove vivono su Firestore.
+// - coll: dati di un edificio (fase 2, REB-01), un documento per record in
+//   buildings/{edificioId}/{coll}/{id}. Ruolo, edificio e forma di ogni
+//   scrittura li controllano le firestore.rules (canAdmin/canEdit/validRecord);
+//   writeRole qui serve solo alla normalizzazione e all'interfaccia.
+// - buildings: l'elenco edifici, un documento per edificio in buildings/{id}.
+// - tutte le altre: dati globali, un documento appdata/{key} con il valore JSON.
+// stateProp: campo di state da sincronizzare dopo il caricamento (assente per
+// le chiavi lette on-demand con load(), come cm_categorie/cm_config).
+// I vecchi documenti appdata/cm_spese … cm_delibere, cm_condomini e cm_edifici
+// restano su Firestore in sola lettura come copia della migrazione.
 // ═══════════════════════════════════════════════════════════════
 const APPDATA_CONFIG = {
-  cm_condomini:       { writeRole: 'adminOnly', stateProp: 'condomini' },
-  cm_spese:           { writeRole: 'finance',   stateProp: 'spese' },
-  cm_entrate:         { writeRole: 'finance',   stateProp: 'entrate' },
-  cm_fornitori:       { writeRole: 'finance',   stateProp: 'fornitori' },
-  cm_bacheca:         { writeRole: 'adminOnly', stateProp: 'bacheca' },
-  cm_verbali:         { writeRole: 'adminOnly', stateProp: 'verbali' },
-  cm_lavori:          { writeRole: 'adminOnly', stateProp: 'lavori' },
-  cm_delibere:        { writeRole: 'adminOnly', stateProp: 'delibere' },
-  cm_edifici:         { stateProp: 'edifici' },
+  cm_condomini:       { writeRole: 'adminOnly', stateProp: 'condomini', coll: 'members' },
+  cm_spese:           { writeRole: 'finance',   stateProp: 'spese',     coll: 'expenses' },
+  cm_entrate:         { writeRole: 'finance',   stateProp: 'entrate',   coll: 'payments' },
+  cm_fornitori:       { writeRole: 'finance',   stateProp: 'fornitori', coll: 'suppliers' },
+  cm_bacheca:         { writeRole: 'adminOnly', stateProp: 'bacheca',   coll: 'notices' },
+  cm_verbali:         { writeRole: 'adminOnly', stateProp: 'verbali',   coll: 'minutes' },
+  cm_lavori:          { writeRole: 'adminOnly', stateProp: 'lavori',    coll: 'works' },
+  cm_delibere:        { writeRole: 'adminOnly', stateProp: 'delibere',  coll: 'resolutions' },
+  cm_edifici:         { stateProp: 'edifici', buildings: true },
   cm_categorie:       {},
   cm_edificio_attivo: { stateProp: 'edificioAttivo' },
   cm_login_stats:     { stateProp: 'loginStats' },
   cm_config:          {},
+  cm_branding:        {},
 };
-const RESTRICTED_KEYS = Object.keys(APPDATA_CONFIG).filter(k => APPDATA_CONFIG[k].writeRole);
-const APPDATA_KEYS = Object.keys(APPDATA_CONFIG);
+const RECORD_KEYS = Object.keys(APPDATA_CONFIG).filter(k => APPDATA_CONFIG[k].coll || APPDATA_CONFIG[k].buildings);
+const GLOBAL_KEYS = Object.keys(APPDATA_CONFIG).filter(k => !RECORD_KEYS.includes(k));
 
-// Ultimo stato confermato dal server per chiave (copia profonda): è la "base"
-// che saveBuildingData usa per applicare solo le modifiche fatte in questo
-// browser, ed è lo stato a cui si torna se un salvataggio viene rifiutato.
+// Ultimo stato confermato dal server per chiave (copia profonda): è la base
+// del confronto che decide quali record scrivere, ed è lo stato a cui si torna
+// se un salvataggio viene rifiutato.
 const _serverSnap = {};
 function setServerSnap(key, val) {
   _serverSnap[key] = val === undefined ? undefined : JSON.parse(JSON.stringify(val));
 }
 // Salvataggi in coda per chiave: due salvataggi ravvicinati della stessa
-// sezione devono partire in ordine, ognuno con la base aggiornata dal precedente.
+// sezione devono partire in ordine, ognuno confrontato con l'esito del precedente.
 const _saveQueue = {};
-const _savePending = {};
 
-// Salva un singolo documento {key} nella collection "appdata"
 function fbSaveKey(key, val) {
   if (!window._fb) return Promise.resolve();
-  _savePending[key] = (_savePending[key] || 0) + 1;
-  const run = () => fbSaveKeyNow(key, val).finally(() => { _savePending[key]--; });
+  const run = () => fbSaveKeyNow(key, val);
   const p = (_saveQueue[key] || Promise.resolve()).then(run, run);
   _saveQueue[key] = p;
   return p;
 }
 
+// Serializzazione con chiavi ordinate, per capire se un record è cambiato.
+function stableStringify(v) {
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+  return JSON.stringify(v === undefined ? null : v);
+}
+
+// Riferimento Firestore di un record di `key`.
+function recordRef(key, rec) {
+  const { db, doc } = window._fb;
+  const cfg = APPDATA_CONFIG[key];
+  if (cfg.buildings) return doc(db, 'buildings', String(rec.id));
+  return doc(db, 'buildings', String(rec.edificioId), cfg.coll, String(rec.id));
+}
+
+// Salva una sezione per edificio scrivendo SOLO i record cambiati rispetto
+// all'ultimo stato del server: nuovi e modificati con una scrittura ciascuno,
+// cancellati con una cancellazione logica (_deleted). Due persone che lavorano
+// insieme toccano record diversi e non si sovrascrivono più. Ogni scrittura è
+// firmata (_updatedBy/_updatedAt): le rules lo pretendono e la Cloud Function
+// auditTrail ne ricava il registro delle modifiche.
+async function saveRecords(key, val) {
+  const { auth, setDoc, writeBatch, db, serverTimestamp, deleteField } = window._fb;
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error('Sessione scaduta: accedi di nuovo.');
+  const cfg = APPDATA_CONFIG[key];
+  const before = new Map((_serverSnap[key] || []).map(r => [String(r.id), r]));
+  const writes = [];
+  for (const raw0 of val) {
+    // Copia JSON: elimina i campi undefined (Firestore li rifiuta, il vecchio
+    // blob JSON li scartava in silenzio) e le date/oggetti non serializzabili.
+    const raw = JSON.parse(JSON.stringify(raw0));
+    const rec = cfg.buildings ? raw : { ...raw, edificioId: raw.edificioId ?? state.edificioAttivo };
+    const id = String(rec.id);
+    let prev = before.get(id);
+    before.delete(id);
+    if (prev && !cfg.buildings && String(prev.edificioId) !== String(rec.edificioId)) {
+      // Spostato in un altro edificio (es. condomino senza movimenti): nuovo
+      // documento nel nuovo edificio, cancellazione logica del vecchio.
+      writes.push([recordRef(key, prev), { _deleted: true, _deletedBy: uid, _updatedBy: uid, _updatedAt: serverTimestamp() }, { merge: true }]);
+      prev = null;
+    }
+    if (prev && stableStringify(prev) === stableStringify(rec)) continue;
+    const data = { ...rec, _updatedBy: uid, _updatedAt: serverTimestamp(), _deleted: false };
+    if (key === 'cm_condomini') data.emailLower = rec.email ? String(rec.email).toLowerCase() : null;
+    if (prev) {
+      // Modifica: fusione con il documento esistente (conserva autore e data
+      // di creazione), togliendo esplicitamente i campi rimossi dal record.
+      Object.keys(prev).forEach(k => { if (!(k in rec)) data[k] = deleteField(); });
+      writes.push([recordRef(key, rec), data, { merge: true }]);
+    } else {
+      writes.push([recordRef(key, rec), { ...data, _createdBy: uid, _createdAt: serverTimestamp() }, null]);
+    }
+  }
+  for (const prev of before.values()) {
+    writes.push([recordRef(key, prev), { _deleted: true, _deletedBy: uid, _updatedBy: uid, _updatedAt: serverTimestamp() }, { merge: true }]);
+  }
+  for (let i = 0; i < writes.length; i += 400) {
+    const batch = writeBatch(db);
+    writes.slice(i, i + 400).forEach(([ref, data, opts]) => opts ? batch.set(ref, data, opts) : batch.set(ref, data));
+    await batch.commit();
+  }
+}
+
 async function fbSaveKeyNow(key, val) {
   const cfg = APPDATA_CONFIG[key] || {};
   try {
-    if (RESTRICTED_KEYS.includes(key)) {
-      // QA REL-SAVE-12/13: si inviano anche i dati caricati (base) così il
-      // server fonde solo le modifiche di questo browser con quelle fatte da
-      // altri nel frattempo, invece di sovrascrivere l'intera sezione. Vale
-      // anche per il superAdmin, che prima scriveva il blob direttamente.
-      const { functionsInstance, httpsCallable } = window._fb;
-      const saveBuildingData = httpsCallable(functionsInstance, 'saveBuildingData');
-      const resp = await saveBuildingData({ key, records: val, base: _serverSnap[key] || [] });
-      const merged = resp.data?.records;
-      if (!Array.isArray(merged)) { setServerSnap(key, val); return; }
-      setServerSnap(key, merged);
-      // Il server ha restituito anche le modifiche altrui: si aggiornano i dati
-      // a schermo, ma solo se non ci sono altri salvataggi in coda per questa
-      // sezione (arriverebbero comunque) e nessun modulo aperto (un nuovo
-      // render cancellerebbe quanto si sta scrivendo).
-      const queued = _savePending[key] > 1;
-      if (!queued && JSON.stringify(merged) !== JSON.stringify(val)) {
-        _cache[key] = merged;
-        if (cfg.stateProp) state[cfg.stateProp] = normalizeRecords(merged);
-        if (!state.modal) render();
-      }
-      return;
+    if (RECORD_KEYS.includes(key)) await saveRecords(key, val);
+    else {
+      const { db, doc, setDoc } = window._fb;
+      await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
     }
-    const { db, doc, setDoc } = window._fb;
-    await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
     setServerSnap(key, val);
   } catch(e) {
-    // QA: prima, dopo un rifiuto, il dato restava a schermo come se fosse
-    // salvato e ogni salvataggio successivo della sezione lo reinviava,
-    // fallendo a sua volta finché non si ricaricava la pagina. Ora si torna
-    // all'ultimo stato confermato dal server.
+    // Dopo un rifiuto si torna all'ultimo stato confermato dal server, invece
+    // di lasciare a schermo un dato che non è stato salvato.
     console.warn('fbSave error', key, e);
     if (_serverSnap[key] !== undefined) {
       const restored = JSON.parse(JSON.stringify(_serverSnap[key]));
@@ -947,19 +989,54 @@ async function fbSaveKeyNow(key, val) {
       if (cfg.stateProp) state[cfg.stateProp] = cfg.writeRole ? normalizeRecords(restored) : restored;
       render();
     }
-    alert('⚠️ Salvataggio non riuscito: ' + (e.message || e) + '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.');
+    const msg = /permission|insufficient/i.test(e.code || e.message || '')
+      ? 'Non hai i permessi per questa modifica, oppure l’app è stata aggiornata: ricarica la pagina.'
+      : (e.message || e);
+    alert('⚠️ Salvataggio non riuscito: ' + msg + '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.');
   }
 }
-// Carica tutti i dati da Firestore all'avvio e popola la cache
+
+// Carica i dati globali (appdata). Best-effort per chiave: quelle riservate al
+// superAdmin falliscono da sole senza bloccare le altre.
 async function fbLoadAll() {
   if (!window._fb) return;
   const { db, doc, getDoc } = window._fb;
-  await Promise.all(APPDATA_KEYS.map(async (key) => {
+  await Promise.all(GLOBAL_KEYS.map(async (key) => {
     try {
       const snap = await getDoc(doc(db, 'appdata', key));
       if (snap.exists()) { _cache[key] = JSON.parse(snap.data().value); setServerSnap(key, _cache[key]); }
     } catch(e) { console.warn('fbLoadAll error', key, e.code || e.message); }
   }));
+}
+
+// Toglie i metadati (_updatedAt, _createdBy, …) e scarta i record cancellati.
+function fromDocs(docs) {
+  return docs.map(d => d.data()).filter(d => !d._deleted)
+    .map(d => Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith('_') && k !== 'emailLower')));
+}
+
+// Carica edifici e dati per edificio: tutti per il superAdmin, solo il proprio
+// per gli altri ruoli (le rules non permettono altro). Lancia un errore se non
+// riesce: senza questi dati l'app non è utilizzabile.
+async function fbLoadBuildings(profile) {
+  const { db, doc, getDoc, getDocs, collection } = window._fb;
+  let edifici;
+  if (isSuperAdmin(profile)) {
+    edifici = fromDocs((await getDocs(collection(db, 'buildings'))).docs);
+  } else {
+    const snap = await getDoc(doc(db, 'buildings', String(profile.edificioId)));
+    edifici = snap.exists() ? fromDocs([snap]) : [];
+  }
+  edifici.sort((a, b) => Number(a.id) - Number(b.id));
+  const perKey = {};
+  await Promise.all(RECORD_KEYS.filter(k => APPDATA_CONFIG[k].coll).map(async (key) => {
+    const parts = await Promise.all(edifici.map(async (ed) =>
+      fromDocs((await getDocs(collection(db, 'buildings', String(ed.id), APPDATA_CONFIG[key].coll))).docs)));
+    perKey[key] = parts.flat();
+  }));
+  _cache.cm_edifici = edifici;
+  setServerSnap('cm_edifici', edifici);
+  Object.entries(perKey).forEach(([key, arr]) => { _cache[key] = arr; setServerSnap(key, arr); });
 }
 
 // ===========================
@@ -1002,7 +1079,7 @@ function validatePassword(pw) {
 let state = {
   page: 'dashboard',
   user: null,
-  edifici: load('cm_edifici', [{id:1, nome:'Via Neri da Rimini 20', indirizzo:'Via Neri da Rimini 20, 47921 Rimini (RN)', colore:'#2563EB', note:''}]),
+  edifici: load('cm_edifici', []),
   edificioAttivo: load('cm_edificio_attivo', 1),
   condomini: load('cm_condomini', CONDOMINI_DEFAULT),
   spese: load('cm_spese', []),
@@ -1285,7 +1362,9 @@ function newId() {
 // ===========================
 function render() {
   const app = document.getElementById('app');
-  if (!state.user) { app.innerHTML = renderLogin(); applyA11y(app); bindLogin(); return; }
+  const nomeProdotto = getBranding().nomeProdotto;
+  if (!state.user) { document.title = nomeProdotto; app.innerHTML = renderLogin(); applyA11y(app); bindLogin(); return; }
+  document.title = nomeEdificioAttivo() ? nomeEdificioAttivo() + ' · ' + nomeProdotto : nomeProdotto;
   app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
   // Applica classe per pagine a piena larghezza
   const _pageEl = document.querySelector('.page');
@@ -1334,7 +1413,7 @@ function renderLogin() {
       <div class="login-logo">
         <div class="login-logo-icon">${svgHome()}</div>
         <div>
-          <div style="font-weight:800;font-size:1.15rem;color:var(--text)">Condominio Manager</div>
+          <div style="font-weight:800;font-size:1.15rem;color:var(--text)">${esc(getBranding().nomeProdotto)}</div>
           <div style="font-size:12px;color:var(--text2)">Accesso privato e sicuro</div>
         </div>
       </div>
@@ -1366,7 +1445,7 @@ function renderLogin() {
         Accedi con Google
       </button>
       <div style="text-align:center;margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)">
-        <span style="font-size:11px;color:var(--text2)">Powered by <strong>Gioele Consulting</strong></span>
+        <span style="font-size:11px;color:var(--text2)">Powered by <strong>${esc(getBranding().fornitore)}</strong></span>
       </div>
     </div>
   </div>`;
@@ -1695,7 +1774,7 @@ function renderApp() {
             <path d="M1 4.5 L12 1 L23 4.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
         </div>
-        <div><div class="label">Cond. Manager</div><div class="sub">Via Neri da Rimini 20</div></div>
+        <div style="min-width:0"><div class="label">${esc(getBranding().nomeProdotto)}</div><div class="sub">${esc(nomeEdificioAttivo())}</div></div>
       </div>
       <!-- Edificio attivo: cliccabile solo per superAdmin, label per adminEdificio, fisso per condomini -->
       ${isSuperAdmin(user) ? `
@@ -1741,7 +1820,7 @@ function renderApp() {
           </div>
         </div>
         <div style="padding:.5rem 1rem;font-size:10px;color:var(--text2);text-align:center;border-top:1px solid var(--border);margin-top:.5rem">
-          Powered by <strong>Gioele Consulting</strong>
+          Powered by <strong>${esc(getBranding().fornitore)}</strong>
         </div>
       </div>
     </aside>
@@ -1750,7 +1829,7 @@ function renderApp() {
         <div class="topbar-left">
           <button class="hamburger" id="btn-hamburger" aria-label="Apri il menu">${svgMenu()}</button>
           <div>
-            <div class="topbar-logo">🏠 Neri da Rimini 20</div>
+            <div class="topbar-logo">🏠 ${esc(nomeEdificioAttivo() || getBranding().nomeProdotto)}</div>
           </div>
         </div>
         <div class="topbar-right">
@@ -2676,7 +2755,7 @@ function renderLavoroCard(l, canManage) {
 // ===========================
 // Stesso trattamento di Verbali: atto formale + dato economico (budget) —
 // scrittura solo adminEdificio/superAdmin, lettura ristretta come le spese
-// (vedi firestore.rules e il bridge getBuildingData).
+// (buildings/{id}/resolutions, vedi firestore.rules).
 const DELIBERE_STATO_LABEL = {approvata:'Approvata', in_corso:'In corso', completata:'Completata', sospesa:'Sospesa'};
 const DELIBERE_STATO_BADGE = {approvata:'badge-blue', in_corso:'badge-amber', completata:'badge-green', sospesa:'badge-gray'};
 
@@ -4900,6 +4979,16 @@ function renderImpostazioni() {
       </div>
     </div>
 
+    ${isSuperAdmin(state.user) ? `
+    <div class="section-divider"><h3>🏷️ Nome del servizio</h3></div>
+    <div class="card" style="max-width:480px;margin-bottom:1.5rem">
+      <div class="field"><label>Nome del prodotto</label><input type="text" id="br-nome" value="${esc(getBranding().nomeProdotto)}" maxlength="60"></div>
+      <div class="field"><label>Fornitore (mostrato in fondo al menu e al login)</label><input type="text" id="br-fornitore" value="${esc(getBranding().fornitore)}" maxlength="60"></div>
+      <p class="hint" style="margin-bottom:.75rem">Il nome di ciascun condominio si modifica dalla sua scheda in "Gestione condomini" qui sotto.</p>
+      <button class="btn btn-primary" id="btn-save-branding">💾 Salva</button>
+    </div>
+    ` : ''}
+
     <!-- DATI E RESET (solo superAdmin: reset e categorie sono dati globali,
          firestore.rules ne nega comunque la scrittura agli altri ruoli) -->
     ${isSuperAdmin(state.user) ? `
@@ -5100,7 +5189,7 @@ function renderModalFornitore(d) {
 
         <div class="field">
           <label>Indirizzo</label>
-          <input type="text" id="fn-indirizzo" value="${esc(d?.indirizzo||'')}" placeholder="Via Neri da Rimini 20, 47921 Rimini (RN)">
+          <input type="text" id="fn-indirizzo" value="${esc(d?.indirizzo||'')}" placeholder="Via Roma 1, 00100 Roma (RM)">
         </div>
 
         <div class="field">
@@ -6965,6 +7054,15 @@ Sposta o elimina prima tutti i dati associati.`);
   });
 
   // Reset
+  const bBrand = document.getElementById('btn-save-branding');
+  if (bBrand) bBrand.onclick = () => {
+    if (!isSuperAdmin(state.user)) return;
+    const nomeProdotto = (document.getElementById('br-nome')?.value || '').trim() || BRANDING_DEFAULT.nomeProdotto;
+    const fornitore = (document.getElementById('br-fornitore')?.value || '').trim() || BRANDING_DEFAULT.fornitore;
+    save('cm_branding', { nomeProdotto, fornitore });
+    setState({});
+  };
+
   const bResetCats = document.getElementById('btn-reset-cats');
   if (bResetCats) bResetCats.onclick = () => {
     if (!confirm('Ripristinare le categorie predefinite? Le categorie personalizzate verranno eliminate.')) return;
@@ -8711,8 +8809,8 @@ async function initApp() {
         const resp = await whoami();
         profile = resp.data?.profile;
         // whoami può aver appena assegnato il custom claim (primo accesso): il
-        // token in mano al client non lo riflette ancora, la getBuildingData
-        // qui sotto fallirebbe con "Utente non provisionato". Forziamo il refresh.
+        // token in mano al client non lo riflette ancora e le rules negherebbero
+        // la lettura di buildings/** qui sotto. Forziamo il refresh.
         await firebaseUser.getIdToken(true);
       } catch (err) {
         const code = err.code || err.message || '';
@@ -8738,40 +8836,31 @@ async function initApp() {
           : "Il tuo account è stato disattivato. Contatta l'amministratore del condominio.");
         return;
       }
+      // Fase 2 (REB-01): edifici e dati per edificio si leggono direttamente da
+      // buildings/** — le rules lasciano leggere a ciascuno solo il proprio
+      // edificio (tutti al superAdmin). Senza questi dati l'app non è usabile:
+      // se il caricamento fallisce, si esce con un messaggio.
+      try {
+        await fbLoadBuildings(profile);
+      } catch (err) {
+        console.error('Caricamento edifici fallito:', err.code || err.message || err);
+        await window._fb.signOut(auth); state.user = null; render();
+        const b = document.getElementById('btn-login');
+        if (b) { b.disabled=false; b.textContent='Accedi'; }
+        showLoginErr('Impossibile caricare i dati del condominio. Controlla la connessione e riprova.');
+        return;
+      }
       state.user = profile;
       if (!isSuperAdmin(profile) && profile.edificioId) {
         state.edificioAttivo = profile.edificioId;
         // Solo in cache (applyLoadedDataFromCache qui sotto la rilegge), mai
-        // su Firestore: cm_edificio_attivo è un documento unico condiviso, e
-        // scriverlo qui cambiava l'edificio mostrato al superAdmin al suo
-        // accesso successivo. Ora firestore.rules lo riserva al superAdmin.
+        // su Firestore: cm_edificio_attivo è un documento unico condiviso,
+        // riservato al superAdmin dalle rules.
         _cache.cm_edificio_attivo = profile.edificioId;
+      } else if (isSuperAdmin(profile) && !_cache.cm_edifici.some(e => e.id === _cache.cm_edificio_attivo) && _cache.cm_edifici[0]) {
+        _cache.cm_edificio_attivo = _cache.cm_edifici[0].id;
       }
-      // SEC-03 (ponte transitorio): per i non-superAdmin, le firestore.rules non
-      // permettono più la lettura diretta di cm_spese/cm_entrate/cm_fornitori/
-      // cm_delibere (blob con tutti gli edifici) — li richiediamo filtrati per
-      // il proprio edificio tramite la Cloud Function getBuildingData. Le altre
-      // chiavi di RESTRICTED_KEYS (cm_condomini/cm_bacheca/cm_verbali/cm_lavori)
-      // restano leggibili direttamente, ma senza questo bridge conterrebbero
-      // comunque TUTTI gli edifici: vanno qui per lo stesso motivo, altrimenti
-      // un adminEdificio che salva finisce per inviare anche record di altri
-      // edifici a saveBuildingData, che li rifiuta in blocco. Stessa lista di
-      // RESTRICTED_KEYS (APPDATA_CONFIG) + 'cm_edifici', sempre incluso e mai
-      // filtrato per edificio (vedi getBuildingData lato server).
-      if (!isSuperAdmin(profile)) {
-        try {
-          const { functionsInstance, httpsCallable } = window._fb;
-          const getBuildingData = httpsCallable(functionsInstance, 'getBuildingData');
-          const resp = await getBuildingData();
-          const data = resp.data || {};
-          [...RESTRICTED_KEYS, 'cm_edifici'].forEach(k => {
-            if (data[k] !== undefined) { _cache[k] = data[k]; setServerSnap(k, data[k]); }
-          });
-          applyLoadedDataFromCache();
-        } catch (err) {
-          console.error('getBuildingData fallita:', err.message || err);
-        }
-      }
+      applyLoadedDataFromCache();
       if (wasLoggedOut) state.page = 'dashboard'; // l'accesso lo registra whoami (lato server)
       if (isSuperAdmin(profile)) {
         // Il registro è stato letto prima di whoami: si rilegge per includere
@@ -8792,7 +8881,7 @@ async function initApp() {
 function renderLoading() {
   return `<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#5A6E8A">
     <div style="width:48px;height:48px;background:#2563EB;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:26px">🏠</div>
-    <div style="font-weight:700;font-size:1.1rem;color:#1B2A4A">Cond. Neri da Rimini 20</div>
+    <div style="font-weight:700;font-size:1.1rem;color:#1B2A4A">${esc(getBranding().nomeProdotto)}</div>
     <div style="font-size:14px">Connessione a Firebase…</div>
     <div style="width:200px;height:3px;background:#EEF2F7;border-radius:10px;overflow:hidden">
       <div style="height:100%;background:#2563EB;border-radius:10px;animation:loading-bar 1.5s ease-in-out infinite"></div>
