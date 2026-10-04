@@ -18,7 +18,7 @@ const COLLECTION_OF = {
   cm_lavori: 'works',
   cm_delibere: 'resolutions',
 };
-const SUM_FIELD = { cm_spese: 'consuntivo', cm_entrate: 'importo', cm_delibere: 'budget' };
+const SUM_FIELD = { cm_spese: 'consuntivo', cm_entrate: 'importo', cm_delibere: 'budgetPrevisto' };
 const BATCH_SIZE = 400; // limite Firestore per batch: 500
 const MAX_RECORD_BYTES = 900 * 1024; // limite documento Firestore: 1 MiB
 

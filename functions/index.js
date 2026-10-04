@@ -223,12 +223,17 @@ exports.auditTrail = onDocumentWritten('buildings/{buildingId}/{coll}/{docId}', 
     buildingId: event.params.buildingId,
     collection: event.params.coll,
     recordId: event.params.docId,
-    titolo: clip(after?.titolo ?? after?.nome ?? before?.titolo ?? before?.nome ?? null),
+    // Etichetta leggibile: le delibere usano descrizioneSintetica invece di titolo.
+    titolo: clip(labelOf(after) ?? labelOf(before)),
     actorUid: actor,
     changes: type === 'updated' || type === 'restored' ? changes : {},
     at: FieldValue.serverTimestamp(),
   });
 });
+
+function labelOf(r) {
+  return r ? (r.titolo ?? r.nome ?? r.descrizioneSintetica ?? null) : null;
+}
 
 function clip(v) {
   if (v === undefined) return null;

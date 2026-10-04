@@ -14,7 +14,7 @@ const PAYLOAD = `"'><img src=x data-xss=1 onerror="window.__xss=(window.__xss||0
 // Campi che restano validi: identificativi, riferimenti, colori, date, importi
 // (il test riguarda il testo libero, non la robustezza ai tipi sbagliati).
 const KEEP = new Set(['id', 'edificioId', 'uid', 'color', 'colore', 'data', 'scadenza', 'condominoId',
-  'fornitoreId', 'verbaleRifId', 'delibereRifId', 'preventivo', 'consuntivo', 'importo', 'budget',
+  'fornitoreId', 'verbaleRifId', 'delibereRifId', 'preventivo', 'consuntivo', 'importo', 'budget', 'budgetPrevisto', 'dataApprovazione', 'dataPrevistaCompletamento',
   'percentuale', 'categoria', 'tipoSpesa', 'frequenza', 'ricorrenzaFine', 'createdAt', 'perc', 'email', 'stato', 'tipo']);
 
 function poison(v, key) {

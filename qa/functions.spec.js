@@ -225,6 +225,13 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.strictEqual(byType['record.deleted'].actorUid, 'u-editor1');
       assert.strictEqual(byType['record.updated'].collection, 'expenses');
     });
+    it('AUD-04 le delibere compaiono nel registro con la loro descrizione sintetica', async () => {
+      const a = await as('admin1@qa.test');
+      await fs.setDoc(fs.doc(a.db, 'buildings/1/resolutions/9600'), signed(a, { id: 9600, descrizioneSintetica: 'Rifacimento tetto', stato: 'approvata', edificioId: 1 }));
+      const ev = await waitFor(async () => (await auditOf(9600))[0], 30000);
+      assert.ok(ev, 'evento non registrato');
+      assert.strictEqual(ev.titolo, 'Rifacimento tetto');
+    });
     it('AUD-02 la migrazione non genera eventi', async () => {
       await new Promise((r) => setTimeout(r, 1500));
       assert.strictEqual((await admin.collection('auditEvents').where('actorUid', '==', 'backfill').get()).size, 0);
