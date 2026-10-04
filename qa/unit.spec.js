@@ -47,7 +47,7 @@ describe('UNIT — spese ricorrenti (generaOccorrenze)', () => {
   it('mensile dal 31/01: nessuna data salta il mese (fine mese)', () => {
     const occ = app.generaOccorrenze(base('2027-01-31', 'mensile'), '2027-06-30');
     const mesi = occ.map((o) => o.data.slice(0, 7));
-    assert.deepStrictEqual(mesi, ['2027-02', '2027-03', '2027-04', '2027-05', '2027-06'], `date: ${occ.map((o) => o.data).join(', ')}`);
+    assert.strictEqual(mesi.join(','), '2027-02,2027-03,2027-04,2027-05,2027-06', `date: ${occ.map((o) => o.data).join(', ')}`);
   });
   it('le occorrenze future hanno consuntivo vuoto (solo preventivo)', () => {
     const occ = app.generaOccorrenze(base('2027-01-15', 'trimestrale'), '2027-12-31');

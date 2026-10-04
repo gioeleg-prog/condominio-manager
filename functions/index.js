@@ -256,8 +256,10 @@ exports.whoami = onCall(async (request) => {
         updatedAt: FieldValue.serverTimestamp(), updatedBy: 'whoami-auto',
       }, { merge: true });
     }
-    return { profile: { id: 0, uid, email, nome: 'Super Admin', appartamento: 'Admin',
-      superAdmin: true, isAdmin: true, canEdit: true, color: '#1B2A4A' }, isSuperAdmin: true };
+    const profile = { id: 0, uid, email, nome: 'Super Admin', appartamento: 'Admin',
+      superAdmin: true, isAdmin: true, canEdit: true, color: '#1B2A4A' };
+    await recordLogin(profile);
+    return { profile, isSuperAdmin: true };
   }
 
   // Non-superAdmin: cerca per uid, poi per email. Rifiuta 2+ corrispondenze
@@ -303,8 +305,45 @@ exports.whoami = onCall(async (request) => {
 
   // Il record del chiamante, senza il flag superAdmin (non autorevole qui).
   const { superAdmin, ...safe } = record;
+  if (!safe.disabled) await recordLogin(safe);
   return { profile: safe, isSuperAdmin: false };
 });
+
+// Registro accessi (cm_login_stats), aggregato per utente e mese: prima lo
+// scriveva il client, quindi ogni utente autenticato doveva poter leggere e
+// riscrivere l'intero documento — QA PRIV-01/INT-02: un condomino vedeva nomi
+// e orari di accesso di tutti gli edifici e poteva azzerare il registro. Ora
+// lo scrive solo whoami e lo legge solo il superAdmin (unico a mostrarlo).
+// Orari in ora italiana, come li registrava il browser.
+async function recordLogin(profile) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date()).map((p) => [p.type, p.value]));
+  const giorno = `${parts.year}-${parts.month}-${parts.day}`;
+  const mese = giorno.slice(0, 7);
+  const ref = db.collection('appdata').doc('cm_login_stats');
+  try {
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      let stats = {};
+      try { stats = JSON.parse(snap.data()?.value || '{}') || {}; } catch { stats = {}; }
+      const key = String(profile.id);
+      const prev = stats[key] || { totale: 0, mensile: {} };
+      stats[key] = {
+        nome: profile.nome,
+        superAdmin: !!profile.superAdmin,
+        ultimoLogin: `${giorno} ${parts.hour}:${parts.minute}`,
+        totale: (prev.totale || 0) + 1,
+        mensile: { ...(prev.mensile || {}), [mese]: ((prev.mensile || {})[mese] || 0) + 1 },
+      };
+      tx.set(ref, { value: JSON.stringify(stats) });
+    });
+  } catch (e) {
+    // Il registro è informativo: un suo errore non deve impedire l'accesso.
+    console.error('recordLogin', e);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // saveBuildingData
@@ -331,7 +370,7 @@ exports.saveBuildingData = onCall(async (request) => {
     throw new HttpsError('permission-denied', 'Utente non provisionato (nessun ruolo assegnato).');
   }
 
-  const { key, records } = request.data || {};
+  const { key, records, base } = request.data || {};
   if (!RESTRICTED_KEYS.includes(key)) {
     throw new HttpsError('invalid-argument', 'Chiave non valida.');
   }
@@ -359,11 +398,25 @@ exports.saveBuildingData = onCall(async (request) => {
     }
   }
 
+  if (base != null && !Array.isArray(base)) {
+    throw new HttpsError('invalid-argument', 'base deve essere un array.');
+  }
+
   if (callerRole === 'superAdmin') {
-    // Il superAdmin vede e gestisce tutti gli edifici: comportamento
-    // invariato, sostituisce l'intero array come già fa oggi.
-    await db.collection('appdata').doc(key).set({ value: JSON.stringify(records) });
-    return { ok: true, count: records.length };
+    // Il superAdmin vede e gestisce tutti gli edifici. Con `base` le sue
+    // modifiche si fondono record per record con quelle fatte da altri dopo
+    // il suo caricamento (QA REL-SAVE-12: prima sovrascriveva l'intero blob
+    // dallo stato caricato al login, cancellandole). Senza `base` (client
+    // vecchio) sostituisce l'intero array come prima.
+    const ref = db.collection('appdata').doc(key);
+    const merged = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const current = parseBlob(snap);
+      const out = base ? mergeRecords(current, records, base, () => true, (r) => r) : records;
+      tx.set(ref, { value: JSON.stringify(out) });
+      return out;
+    });
+    return { ok: true, count: merged.length, records: merged };
   }
 
   const buildingIdStr = String(callerBuildingId || '');
@@ -408,18 +461,17 @@ exports.saveBuildingData = onCall(async (request) => {
   // fetta appena salvata dal primo. Ora Firestore riprova la lettura se il
   // documento è cambiato nel frattempo.
   const ref = db.collection('appdata').doc(key);
-  const count = await db.runTransaction(async (tx) => {
+  const isMine = (r) => String(r?.edificioId) === buildingIdStr;
+  const merged = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    let current = [];
-    try { current = JSON.parse(snap.data()?.value || '[]'); } catch { current = []; }
+    const current = parseBlob(snap);
     // Mantiene intatto tutto ciò che NON appartiene al proprio edificio
-    // (altri edifici, e record senza edificioId come il superAdmin) —
-    // sostituisce solo la propria fetta con quella inviata dal client.
-    const others = current.filter((r) => String(r?.edificioId) !== buildingIdStr);
-    const mine = new Map(current.filter((r) => String(r?.edificioId) === buildingIdStr).map((r) => [String(r.id), r]));
+    // (altri edifici, e record senza edificioId come il superAdmin).
+    const others = current.filter((r) => !isMine(r));
+    const mine = new Map(current.filter(isMine).map((r) => [String(r.id), r]));
     const otherIds = new Set(others.map((r) => String(r?.id)));
 
-    const cleaned = records.map((rec) => {
+    const clean = (rec) => {
       // Un id già usato da un record di un altro edificio creerebbe un
       // duplicato che poi si confonde con l'originale (modifica/cancellazione).
       if (otherIds.has(String(rec.id))) {
@@ -441,10 +493,67 @@ exports.saveBuildingData = onCall(async (request) => {
         if (prev?.uid) out.uid = prev.uid;
       }
       return out;
-    });
-    const merged = [...others, ...cleaned];
-    tx.set(ref, { value: JSON.stringify(merged) });
-    return merged.length;
+    };
+    // Con `base` (lo stato che il client aveva caricato) si applicano solo le
+    // sue modifiche, record per record: QA REL-SAVE-13 — prima la fetta veniva
+    // sostituita per intero, e un admin e un editor dello stesso edificio si
+    // cancellavano a vicenda le spese inserite nel frattempo. Senza `base`
+    // (client vecchio) la fetta viene sostituita come prima.
+    const out = base
+      ? mergeRecords(current, records, base, isMine, clean)
+      : [...others, ...records.map(clean)];
+    tx.set(ref, { value: JSON.stringify(out) });
+    return out;
   });
-  return { ok: true, count };
+  return { ok: true, count: merged.length, records: merged.filter(isMine) };
 });
+
+function parseBlob(snap) {
+  try {
+    const arr = JSON.parse(snap.data()?.value || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch { return []; }
+}
+
+// Serializzazione con chiavi ordinate: due copie dello stesso record possono
+// avere le proprietà in ordine diverso (spread, ricostruzione nei form).
+function stableStringify(v) {
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  if (v && typeof v === 'object') {
+    return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+  }
+  return JSON.stringify(v);
+}
+
+// Fusione a tre vie per record (chiave: id). `base` è ciò che il client aveva
+// caricato, `records` ciò che vuole salvare, `current` ciò che c'è ora sul
+// server. Nell'ambito `inScope` (il proprio edificio, o tutto per il superAdmin):
+// - record invariato rispetto a base → resta la versione del server (che può
+//   essere stata aggiornata da altri nel frattempo);
+// - record modificato o nuovo → vince la versione del client, passata da `clean`;
+// - record presente in base ma non in records → cancellato dal client;
+// - record sul server assente da base → aggiunto da altri, resta.
+// Fuori ambito non si tocca nulla.
+function mergeRecords(current, records, base, inScope, clean) {
+  const idOf = (r) => String(r?.id);
+  const baseById = new Map(base.filter(inScope).map((r) => [idOf(r), stableStringify(r)]));
+  const pending = new Map(records.map((r) => [idOf(r), r]));
+  const out = [];
+  for (const cur of current) {
+    if (!inScope(cur)) { out.push(cur); continue; }
+    const id = idOf(cur);
+    if (pending.has(id)) {
+      const rec = pending.get(id);
+      pending.delete(id);
+      out.push(baseById.get(id) === stableStringify(rec) ? cur : clean(rec));
+    } else if (!baseById.has(id)) {
+      out.push(cur);
+    }
+  }
+  for (const [id, rec] of pending) {
+    // Era in base ma nel frattempo qualcun altro l'ha cancellato: resta cancellato.
+    if (baseById.has(id) && baseById.get(id) === stableStringify(rec)) continue;
+    out.push(clean(rec));
+  }
+  return out;
+}
