@@ -26,6 +26,8 @@ async function call(fn, email, data = {}) {
   if (j.error) return { ok: false, status: j.error.status, message: j.error.message };
   return { ok: true, data: j.result };
 }
+const clone = (v) => JSON.parse(JSON.stringify(v));
+const own = async (email, key) => (await call('getBuildingData', email)).data[key];
 async function readBlob(key) {
   const r = await fetch(`${FS}/appdata/${key}`, { headers: { Authorization: 'Bearer owner' } });
   const j = await r.json();
@@ -83,6 +85,13 @@ describe('INTEGRAZIONE — Cloud Functions su emulatore', function () {
       const r = await call('whoami', null);
       assert.strictEqual(r.status, 'UNAUTHENTICATED');
     });
+    it('FT-AUTH-09 ogni accesso viene registrato lato server nel registro accessi', async () => {
+      await call('whoami', 'member1@qa.test');
+      await call('whoami', 'member1@qa.test');
+      const stats = await readBlob('cm_login_stats');
+      assert.strictEqual(stats['103'].totale, 2);
+      assert.match(stats['103'].ultimoLogin, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    });
     it('FT-AUTH-08 profilo disabilitato viene restituito con disabled:true (il client lo blocca)', async () => {
       const r = await call('whoami', 'disabled@qa.test');
       assert.ok(r.ok && r.data.profile.disabled === true);
@@ -112,7 +121,6 @@ describe('INTEGRAZIONE — Cloud Functions su emulatore', function () {
   });
 
   describe('saveBuildingData — matrice permessi e integrità', () => {
-    const own = async (email, key) => (await call('getBuildingData', email)).data[key];
 
     it('FT-SAVE-01 editor salva una spesa: la fetta dell\'edificio 2 resta intatta', async () => {
       const mine = await own('editor1@qa.test', 'cm_spese');
@@ -178,13 +186,16 @@ describe('INTEGRAZIONE — Cloud Functions su emulatore', function () {
       assert.ok(ids.includes(1500) && ids.includes(2500), 'un salvataggio concorrente è andato perso');
     });
     it('REL-SAVE-12 superAdmin con dati caricati in precedenza non cancella le modifiche recenti di un admin', async () => {
-      // Il superAdmin salva l'intero blob dallo stato caricato al login.
+      // Il superAdmin ha caricato i dati al login, prima della modifica dell'admin.
       const snapshot = (await call('getBuildingData', 'superadmin@qa.test')).data.cm_spese;
+      const sBase = clone(snapshot);
       const a = await own('admin1@qa.test', 'cm_spese');
+      const aBase = clone(a);
       a.push({ id: 1600, titolo: 'Inserita da admin dopo il login del superAdmin', edificioId: 1 });
-      await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_spese', records: a });
+      await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_spese', records: a, base: aBase });
       snapshot.push({ id: 1700, titolo: 'Inserita dal superAdmin', edificioId: 2 });
-      await call('saveBuildingData', 'superadmin@qa.test', { key: 'cm_spese', records: snapshot });
+      const r = await call('saveBuildingData', 'superadmin@qa.test', { key: 'cm_spese', records: snapshot, base: sBase });
+      assert.ok(r.ok, r.message);
       const ids = (await readBlob('cm_spese')).map((s) => s.id);
       assert.ok(ids.includes(1600), 'la spesa inserita dall\'admin è stata cancellata dal salvataggio del superAdmin');
     });
@@ -197,12 +208,44 @@ describe('INTEGRAZIONE — Cloud Functions su emulatore', function () {
         call('getBuildingData', 'admin1@qa.test').then((r) => r.data.cm_spese),
         call('getBuildingData', 'editor1@qa.test').then((r) => r.data.cm_spese),
       ]);
+      const [aBase, eBase] = [clone(a), clone(e)];
       a.push({ id: 1801, titolo: 'Spesa inserita dall\'admin', edificioId: 1 });
-      await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_spese', records: a });
+      await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_spese', records: a, base: aBase });
       e.push({ id: 1802, titolo: 'Spesa inserita dall\'editor un minuto dopo', edificioId: 1 });
-      await call('saveBuildingData', 'editor1@qa.test', { key: 'cm_spese', records: e });
+      const r = await call('saveBuildingData', 'editor1@qa.test', { key: 'cm_spese', records: e, base: eBase });
+      assert.ok(r.ok, r.message);
       const ids = (await readBlob('cm_spese')).map((s) => s.id);
       assert.ok(ids.includes(1801), 'la spesa dell\'admin è stata cancellata dal salvataggio dell\'editor');
+      assert.ok(ids.includes(1802) && ids.includes(2001));
+      // La risposta restituisce la fetta aggiornata, comprese le modifiche altrui.
+      assert.ok(r.data.records.some((s) => s.id === 1801) && !r.data.records.some((s) => s.id === 2001));
+    });
+    it('REL-SAVE-14 una cancellazione si applica senza annullare le modifiche concorrenti', async () => {
+      const a = await own('admin1@qa.test', 'cm_spese');
+      const aBase = clone(a);
+      const e = await own('editor1@qa.test', 'cm_spese');
+      const eBase = clone(e);
+      e.find((s) => s.id === 1002).titolo = 'Ascensore (rinegoziato)';
+      await call('saveBuildingData', 'editor1@qa.test', { key: 'cm_spese', records: e, base: eBase });
+      const r = await call('saveBuildingData', 'admin1@qa.test', { key: 'cm_spese', records: a.filter((s) => s.id !== 1001), base: aBase });
+      assert.ok(r.ok, r.message);
+      const all = await readBlob('cm_spese');
+      assert.ok(!all.some((s) => s.id === 1001), 'la spesa cancellata è ancora presente');
+      assert.strictEqual(all.find((s) => s.id === 1002).titolo, 'Ascensore (rinegoziato)', 'la modifica dell\'editor è stata annullata');
+    });
+    it('REL-SAVE-15 il superAdmin modifica un edificio senza annullare le modifiche fatte in un altro', async () => {
+      const snap = (await call('getBuildingData', 'superadmin@qa.test')).data.cm_bacheca;
+      const base = clone(snap);
+      const b2 = await own('admin2@qa.test', 'cm_bacheca');
+      const b2Base = clone(b2);
+      b2[0].titolo = 'Avviso edificio 2 aggiornato';
+      await call('saveBuildingData', 'admin2@qa.test', { key: 'cm_bacheca', records: b2, base: b2Base });
+      snap.find((b) => b.id === 7001).titolo = 'Chiusura acqua (rinviata)';
+      const r = await call('saveBuildingData', 'superadmin@qa.test', { key: 'cm_bacheca', records: snap, base });
+      assert.ok(r.ok, r.message);
+      const all = await readBlob('cm_bacheca');
+      assert.strictEqual(all.find((b) => b.id === 7001).titolo, 'Chiusura acqua (rinviata)');
+      assert.strictEqual(all.find((b) => b.id === 7002).titolo, 'Avviso edificio 2 aggiornato');
     });
   });
 

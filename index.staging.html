@@ -884,26 +884,72 @@ const APPDATA_CONFIG = {
 const RESTRICTED_KEYS = Object.keys(APPDATA_CONFIG).filter(k => APPDATA_CONFIG[k].writeRole);
 const APPDATA_KEYS = Object.keys(APPDATA_CONFIG);
 
+// Ultimo stato confermato dal server per chiave (copia profonda): è la "base"
+// che saveBuildingData usa per applicare solo le modifiche fatte in questo
+// browser, ed è lo stato a cui si torna se un salvataggio viene rifiutato.
+const _serverSnap = {};
+function setServerSnap(key, val) {
+  _serverSnap[key] = val === undefined ? undefined : JSON.parse(JSON.stringify(val));
+}
+// Salvataggi in coda per chiave: due salvataggi ravvicinati della stessa
+// sezione devono partire in ordine, ognuno con la base aggiornata dal precedente.
+const _saveQueue = {};
+const _savePending = {};
+
 // Salva un singolo documento {key} nella collection "appdata"
-async function fbSaveKey(key, val) {
-  if (!window._fb) return;
+function fbSaveKey(key, val) {
+  if (!window._fb) return Promise.resolve();
+  _savePending[key] = (_savePending[key] || 0) + 1;
+  const run = () => fbSaveKeyNow(key, val).finally(() => { _savePending[key]--; });
+  const p = (_saveQueue[key] || Promise.resolve()).then(run, run);
+  _saveQueue[key] = p;
+  return p;
+}
+
+async function fbSaveKeyNow(key, val) {
+  const cfg = APPDATA_CONFIG[key] || {};
   try {
-    if (RESTRICTED_KEYS.includes(key) && !isSuperAdmin(state.user)) {
+    if (RESTRICTED_KEYS.includes(key)) {
+      // QA REL-SAVE-12/13: si inviano anche i dati caricati (base) così il
+      // server fonde solo le modifiche di questo browser con quelle fatte da
+      // altri nel frattempo, invece di sovrascrivere l'intera sezione. Vale
+      // anche per il superAdmin, che prima scriveva il blob direttamente.
       const { functionsInstance, httpsCallable } = window._fb;
       const saveBuildingData = httpsCallable(functionsInstance, 'saveBuildingData');
-      await saveBuildingData({ key, records: val });
+      const resp = await saveBuildingData({ key, records: val, base: _serverSnap[key] || [] });
+      const merged = resp.data?.records;
+      if (!Array.isArray(merged)) { setServerSnap(key, val); return; }
+      setServerSnap(key, merged);
+      // Il server ha restituito anche le modifiche altrui: si aggiornano i dati
+      // a schermo, ma solo se non ci sono altri salvataggi in coda per questa
+      // sezione (arriverebbero comunque) e nessun modulo aperto (un nuovo
+      // render cancellerebbe quanto si sta scrivendo).
+      const queued = _savePending[key] > 1;
+      if (!queued && JSON.stringify(merged) !== JSON.stringify(val)) {
+        _cache[key] = merged;
+        if (cfg.stateProp) state[cfg.stateProp] = merged;
+        if (!state.modal) render();
+      }
       return;
     }
     const { db, doc, setDoc } = window._fb;
     await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
+    setServerSnap(key, val);
   } catch(e) {
-    // Prima l'errore finiva solo in console: l'utente credeva di aver
-    // salvato. Ora saveBuildingData può rifiutare dati non validi.
+    // QA: prima, dopo un rifiuto, il dato restava a schermo come se fosse
+    // salvato e ogni salvataggio successivo della sezione lo reinviava,
+    // fallendo a sua volta finché non si ricaricava la pagina. Ora si torna
+    // all'ultimo stato confermato dal server.
     console.warn('fbSave error', key, e);
-    alert('⚠️ Salvataggio non riuscito: ' + (e.message || e) + '\nRicarica la pagina per vedere i dati effettivamente salvati.');
+    if (_serverSnap[key] !== undefined) {
+      const restored = JSON.parse(JSON.stringify(_serverSnap[key]));
+      _cache[key] = restored;
+      if (cfg.stateProp) state[cfg.stateProp] = restored;
+      render();
+    }
+    alert('⚠️ Salvataggio non riuscito: ' + (e.message || e) + '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.');
   }
 }
-
 // Carica tutti i dati da Firestore all'avvio e popola la cache
 async function fbLoadAll() {
   if (!window._fb) return;
@@ -911,7 +957,7 @@ async function fbLoadAll() {
   await Promise.all(APPDATA_KEYS.map(async (key) => {
     try {
       const snap = await getDoc(doc(db, 'appdata', key));
-      if (snap.exists()) _cache[key] = JSON.parse(snap.data().value);
+      if (snap.exists()) { _cache[key] = JSON.parse(snap.data().value); setServerSnap(key, _cache[key]); }
     } catch(e) { console.warn('fbLoadAll error', key, e.code || e.message); }
   }));
 }
@@ -1222,8 +1268,16 @@ function initials(nome) {
 function avatarStyle(color) {
   return `background:${esc(color)}22;color:${esc(color)};`;
 }
+// Id numerici (molti punti fanno parseInt su data-id). QA: prima era
+// millisecondi + casuale 0–999 e gli id creati nello stesso istante (rate,
+// occorrenze ricorrenti) collidevano spesso. Ora millisecondi × 1000 + casuale,
+// strettamente crescente nella sessione: unico qui, e tra browser diversi una
+// collisione richiede stesso millisecondo e stesso numero casuale.
+// Resta sotto Number.MAX_SAFE_INTEGER (≈ 9·10^15) fino all'anno 2255.
+let _lastId = 0;
 function newId() {
-  return Date.now() + Math.floor(Math.random()*1000);
+  _lastId = Math.max(_lastId + 1, Date.now() * 1000 + Math.floor(Math.random() * 1000));
+  return _lastId;
 }
 
 // ===========================
@@ -1535,7 +1589,7 @@ window.esportaDati = function() {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = 'backup-condominio-' + new Date().toISOString().slice(0,10) + '.json';
+  a.download = 'backup-condominio-' + ymdLocale(new Date()) + '.json';
   a.click();
   URL.revokeObjectURL(url);
   alert('Backup scaricato! Conserva il file JSON in un posto sicuro.');
@@ -2390,7 +2444,7 @@ function renderVita() {
 // di Spese/Entrate/Fornitori dove editor può scrivere.
 function renderBachecaTab() {
   const canManage = canUserAdmin(state.user);
-  const oggi = new Date().toISOString().slice(0,10);
+  const oggi = ymdLocale(new Date());
   const items = getBachecaVisibili().slice().sort((a,b) =>
     (b.prioritaria?1:0) - (a.prioritaria?1:0) || new Date(b.createdAt||0) - new Date(a.createdAt||0)
   );
@@ -2644,24 +2698,29 @@ function renderDeliberaCard(d, canManage) {
 function generaOccorrenze(spesaBase, fineStr) {
   const freq = spesaBase.frequenza || 'mensile';
   if (!fineStr) return []; // data fine obbligatoria
-  const fine = new Date(fineStr);
+  // QA: calcolo in date di calendario locali, sempre a partire dalla data
+  // iniziale. Prima si sommavano i mesi alla data precedente e si formattava
+  // in UTC: con l'ora legale le scadenze cadevano il giorno prima, e da un
+  // 29–31 il mese corto veniva saltato (31/01 → 03/03 → 02/04…).
+  const [y0, m0, g0] = String(spesaBase.data).split('-').map(Number);
+  const mesiMap = {mensile:1, bimestrale:2, trimestrale:3, semestrale:6, annuale:12};
   const occorrenze = [];
-  let d = new Date(spesaBase.data);
-  const mesiMap = {settimanale:0, mensile:1, bimestrale:2, trimestrale:3, semestrale:6, annuale:12};
-  const settimane = freq === 'settimanale';
-
-  for (let i = 0; i < 52; i++) {
-    if (settimane) d = new Date(d.getTime() + 7*24*60*60*1000);
+  // Limite di sicurezza ampio (10 anni settimanali): prima il tetto di 52
+  // troncava in silenzio, ad esempio, una mensile su 5 anni.
+  for (let i = 1; i <= 520; i++) {
+    let d;
+    if (freq === 'settimanale') d = new Date(y0, m0 - 1, g0 + 7 * i);
     else {
-      const mesi = mesiMap[freq] || 1;
-      d = new Date(d);
-      d.setMonth(d.getMonth() + mesi);
+      const mesi = (mesiMap[freq] || 1) * i;
+      const ultimoGiorno = new Date(y0, m0 - 1 + mesi + 1, 0).getDate();
+      d = new Date(y0, m0 - 1 + mesi, Math.min(g0, ultimoGiorno));
     }
-    if (d > fine) break;
+    const data = ymdLocale(d);
+    if (data > fineStr) break;
     occorrenze.push({
       ...spesaBase,
       id: newId(),
-      data: d.toISOString().slice(0,10),
+      data,
       consuntivo: '', // le future sono solo preventivo
     });
   }
@@ -5773,7 +5832,7 @@ function renderModalSpesa(d) {
         </div>
 
         <div class="form-row">
-          <div class="field"><label>Data *</label><input type="date" id="m-data" value="${esc(d?.data||new Date().toISOString().slice(0,10))}"></div>
+          <div class="field"><label>Data *</label><input type="date" id="m-data" value="${esc(d?.data||ymdLocale(new Date()))}"></div>
           <div class="field">
             <label>Fornitore</label>
             <select id="m-fornitore">
@@ -5940,7 +5999,7 @@ function renderModalEntrata(d) {
           <div class="rata-row" id="rata-row-${i}" style="display:${i<=2?'flex':'none'};align-items:center;gap:.5rem;margin-bottom:.5rem;padding:.625rem .75rem;background:var(--surface2);border-radius:var(--radius-sm)">
             <div style="font-size:12px;font-weight:600;color:var(--accent);min-width:20px">R${i}</div>
             <div class="field" style="flex:1;margin:0">
-              <input type="date" id="rata-data-${i}" value="${i===1?new Date().toISOString().slice(0,10):''}">
+              <input type="date" id="rata-data-${i}" value="${i===1?ymdLocale(new Date()):''}">
             </div>
             <div class="field" style="flex:1;margin:0">
               <input type="number" id="rata-importo-${i}" placeholder="€ importo" min="0" step="0.01" style="width:100%">
@@ -5965,7 +6024,7 @@ function renderModalEntrata(d) {
                 ${condominiList.map(c=>`<option value="${c.id}" ${c.id===d?.condominoId?'selected':''}>${esc(c.nome)} — ${esc(c.appartamento)}</option>`).join('')}
               </select>
             </div>
-            <div class="field"><label>Data *</label><input type="date" id="m-data-s" value="${esc(d?.data||new Date().toISOString().slice(0,10))}"></div>
+            <div class="field"><label>Data *</label><input type="date" id="m-data-s" value="${esc(d?.data||ymdLocale(new Date()))}"></div>
           </div>
           <div class="form-row">
             <div class="field">
@@ -6078,7 +6137,11 @@ function esportaSpeseCSV(spese, nomeFile) {
   function csvField(v) {
     const s = String(v ?? '');
     // Escapa i campi che contengono il separatore, virgolette o a-capo (standard CSV)
-    return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+    // QA (CSV injection): un testo che inizia con = + - @ verrebbe eseguito da
+    // Excel come formula (es. =HYPERLINK). Si antepone un apice, che Excel
+    // non mostra; i numeri (anche negativi) restano numeri.
+    const t = /^[=+\-@\t\r]/.test(s) && !/^-?\d+(,\d+)?$/.test(s) ? "'" + s : s;
+    return /[;"\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
   }
   function numCSV(n) {
     // Virgola come separatore decimale: coerente con Excel in locale italiano quando il
@@ -6159,7 +6222,7 @@ function bindPageActions() {
     const sel = state.speseSelezionate;
     const idsDaEsportare = (sel && sel.size > 0) ? idsVisibili.filter(id => sel.has(id)) : idsVisibili;
     const speseDaEsportare = state.spese.filter(s => idsDaEsportare.includes(s.id));
-    const nomeFile = 'spese-condominio-' + (sel && sel.size > 0 ? 'selezionate-' : '') + new Date().toISOString().slice(0,10) + '.csv';
+    const nomeFile = 'spese-condominio-' + (sel && sel.size > 0 ? 'selezionate-' : '') + ymdLocale(new Date()) + '.csv';
     esportaSpeseCSV(speseDaEsportare, nomeFile);
   };
 
@@ -7666,7 +7729,7 @@ function bindModal() {
     const existing = origId ? state.lavori.find(l=>l.id===parseInt(origId)) : null;
     const storicoAggiornamenti = [...(existing?.storicoAggiornamenti||[])];
     if (nota) {
-      storicoAggiornamenti.push({ data: new Date().toISOString().slice(0,10), autore: state.user?.nome||'', nota });
+      storicoAggiornamenti.push({ data: ymdLocale(new Date()), autore: state.user?.nome||'', nota });
     }
     const edificioIdLavoro = existing?.edificioId || getUserEdificio(state.user);
 
@@ -8004,11 +8067,17 @@ function bindSplit() {
       c.edificioId === state.edificioAttivo && !c.disabled && !c.superAdmin
     );
     const n    = condAttivi.length || 1;
-    const each = parseFloat((100 / n).toFixed(4));
+    // QA: si ripartisce in centesimi e il resto va ai primi condomini, così
+    // percentuali ed euro sommano esattamente a 100% e al totale (prima
+    // 6 × 16,67% = 100,02%, cioè 6 € in più su 30.000 €).
+    const parti = (totCent) => condAttivi.map((_, i) =>
+      (Math.floor(totCent / n) + (i < totCent % n ? 1 : 0)) / 100);
+    const percs = parti(10000);
+    const euros = ref > 0 ? parti(Math.round(ref * 100)) : condAttivi.map(() => 0);
     const pMap = {}, eMap = {};
-    condAttivi.forEach(c => {
-      pMap[String(c.id)] = each;
-      eMap[String(c.id)] = ref > 0 ? parseFloat((each/100*ref).toFixed(2)) : 0;
+    condAttivi.forEach((c, i) => {
+      pMap[String(c.id)] = percs[i];
+      eMap[String(c.id)] = euros[i];
     });
     // sblocca tutti e aggiorna
     document.querySelectorAll('.split-lock-btn').forEach(b => {
@@ -8495,28 +8564,10 @@ async function loadSuperAdminConfig() {
   } catch(e) { console.warn('cm_config:', e.message); }
 }
 
-// ===========================
-// LOG ACCESSI — registra ogni login riuscito (form o sessione persistente)
-// ===========================
-// Struttura volutamente compatta (aggregata per utente/mese, non un evento per riga) per non far
-// crescere il documento Firestore indefinitamente: { condominoId: { nome, ultimoLogin, totale, mensile } }.
-function registraLogin(profile) {
-  const now = new Date();
-  const key = String(profile.id);
-  const mese = ymdLocale(now).slice(0, 7); // "AAAA-MM"
-  const ora = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
-  const stats = { ...(state.loginStats || {}) };
-  const prev = stats[key] || { totale: 0, mensile: {} };
-  stats[key] = {
-    nome: profile.nome, // aggiornato ad ogni login, così segue eventuali cambi di nome
-    superAdmin: !!profile.superAdmin,
-    ultimoLogin: ymdLocale(now) + ' ' + ora,
-    totale: (prev.totale || 0) + 1,
-    mensile: { ...(prev.mensile || {}), [mese]: ((prev.mensile || {})[mese] || 0) + 1 },
-  };
-  state.loginStats = stats;
-  save('cm_login_stats', stats);
-}
+// LOG ACCESSI: ogni accesso riuscito (form o sessione persistente) lo
+// registra la Cloud Function whoami in cm_login_stats, leggibile solo dal
+// superAdmin (QA PRIV-01/INT-02). Struttura invariata, aggregata per
+// utente/mese: { condominoId: { nome, ultimoLogin, totale, mensile } }.
 
 async function initApp() {
   // Mostra una schermata di caricamento SENZA campo password finché non sappiamo se
@@ -8622,7 +8673,9 @@ async function initApp() {
         await window._fb.signOut(auth); state.user = null; render();
         const b = document.getElementById('btn-login');
         if (b) { b.disabled=false; b.textContent='Accedi'; }
-        if (!profile) showLoginErr("Account non configurato. Contatta l'amministratore.");
+        // QA: per un account disattivato prima non compariva alcun messaggio.
+        showLoginErr(!profile ? "Account non configurato. Contatta l'amministratore."
+          : "Il tuo account è stato disattivato. Contatta l'amministratore del condominio.");
         return;
       }
       state.user = profile;
@@ -8652,14 +8705,23 @@ async function initApp() {
           const resp = await getBuildingData();
           const data = resp.data || {};
           [...RESTRICTED_KEYS, 'cm_edifici'].forEach(k => {
-            if (data[k] !== undefined) _cache[k] = data[k];
+            if (data[k] !== undefined) { _cache[k] = data[k]; setServerSnap(k, data[k]); }
           });
           applyLoadedDataFromCache();
         } catch (err) {
           console.error('getBuildingData fallita:', err.message || err);
         }
       }
-      if (wasLoggedOut) { state.page = 'dashboard'; registraLogin(profile); }
+      if (wasLoggedOut) state.page = 'dashboard'; // l'accesso lo registra whoami (lato server)
+      if (isSuperAdmin(profile)) {
+        // Il registro è stato letto prima di whoami: si rilegge per includere
+        // anche l'accesso appena registrato (lo mostra solo al superAdmin).
+        try {
+          const { db, doc, getDoc } = window._fb;
+          const snap = await getDoc(doc(db, 'appdata', 'cm_login_stats'));
+          if (snap.exists()) { _cache.cm_login_stats = JSON.parse(snap.data().value); state.loginStats = _cache.cm_login_stats; }
+        } catch (e) { console.warn('cm_login_stats:', e.message); }
+      }
     } else {
       state.user = null;
     }

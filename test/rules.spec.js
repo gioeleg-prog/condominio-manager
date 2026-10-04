@@ -191,10 +191,21 @@ describe('appdata — modello attuale', () => {
     }
   });
 
-  it('un member PUÒ ancora leggere le chiavi necessarie al login (cm_edifici, cm_categorie, cm_edificio_attivo, cm_config)', async () => {
+  it('un member PUÒ ancora leggere le chiavi necessarie all\'app (cm_edifici, cm_categorie, cm_edificio_attivo)', async () => {
     const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    for (const k of ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo', 'cm_login_stats', 'cm_config']) {
+    for (const k of ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo']) {
       await assertSucceeds(db.collection('appdata').doc(k).get());
+    }
+  });
+
+  it('QA PRIV-01/03: member e adminEdificio NON leggono cm_login_stats né cm_config, il superAdmin sì', async () => {
+    const member = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
+    const admin = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
+    const superA = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    for (const k of ['cm_login_stats', 'cm_config']) {
+      await assertFails(member.collection('appdata').doc(k).get());
+      await assertFails(admin.collection('appdata').doc(k).get());
+      await assertSucceeds(superA.collection('appdata').doc(k).get());
     }
   });
 
@@ -230,11 +241,15 @@ describe('appdata — modello attuale', () => {
     }
   });
 
-  it('chiunque sia autenticato PUÒ scrivere cm_login_stats (contatore di login), un anonimo no', async () => {
+  it('QA INT-02: cm_login_stats lo scrive solo il superAdmin (ripristino backup); member, adminEdificio e anonimi no', async () => {
     const member = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    await assertSucceeds(member.collection('appdata').doc('cm_login_stats').set({ value: '{}' }));
+    await assertFails(member.collection('appdata').doc('cm_login_stats').set({ value: '{}' }));
+    const admin = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
+    await assertFails(admin.collection('appdata').doc('cm_login_stats').set({ value: '{}' }));
     const anon = testEnv.unauthenticatedContext().firestore();
     await assertFails(anon.collection('appdata').doc('cm_login_stats').set({ value: '{}' }));
+    const superA = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertSucceeds(superA.collection('appdata').doc('cm_login_stats').set({ value: '{}' }));
   });
 });
 
