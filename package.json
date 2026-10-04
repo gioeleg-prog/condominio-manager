@@ -2,10 +2,14 @@
   "name": "condominio-manager-tests",
   "private": true,
   "scripts": {
-    "test": "firebase emulators:exec --only firestore \"mocha test/rules.spec.js --timeout 20000\""
+    "test": "firebase emulators:exec --only firestore \"mocha test/rules.spec.js --timeout 20000\"",
+    "test:unit": "mocha qa/unit.spec.js",
+    "test:functions": "firebase emulators:exec --project demo-qa --only auth,firestore,functions \"mocha qa/functions.spec.js --timeout 30000\"",
+    "qa:emulators": "firebase emulators:start --project demo-qa --only auth,firestore,functions,storage"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",
+    "axe-core": "^4.13.0",
     "mocha": "^10.7.3"
   }
 }
