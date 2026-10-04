@@ -131,6 +131,25 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Errori dell'app segnalati dai browser (fase 3): ogni utente autenticato
+    // può solo AGGIUNGERE segnalazioni a proprio nome, con campi e lunghezze
+    // limitati; le legge e cancella solo il superAdmin. dailyBackup elimina
+    // quelle più vecchie di 30 giorni.
+    match /clientErrors/{id} {
+      allow read, delete: if isSuperAdmin();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['message', 'stack', 'page', 'uid', 'role', 'buildingId', 'ua', 'at'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.at == request.time
+        && request.resource.data.message is string && request.resource.data.message.size() <= 500
+        && request.resource.data.get('stack', '') is string && request.resource.data.get('stack', '').size() <= 2000
+        && request.resource.data.get('page', '') is string && request.resource.data.get('page', '').size() <= 40
+        && request.resource.data.get('ua', '') is string && request.resource.data.get('ua', '').size() <= 200
+        && (request.resource.data.get('role', null) == null || request.resource.data.get('role', null) is string)
+        && (request.resource.data.get('buildingId', null) == null || request.resource.data.get('buildingId', null) is string);
+      allow update: if false;
+    }
+
     // Audit trail: append-only, scritto solo da Cloud Functions.
     match /auditEvents/{eventId} {
       allow read: if isSuperAdmin();

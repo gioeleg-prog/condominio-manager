@@ -417,3 +417,32 @@ describe('migrationJobs/{jobId} — mai accessibile dal client', () => {
     await assertFails(db.doc('migrationJobs/job1/sourceSnapshot/cm_spese').get());
   });
 });
+
+describe('clientErrors — segnalazioni di errore dai browser (fase 3)', () => {
+  const firebase = require('firebase/compat/app').default;
+  require('firebase/compat/firestore');
+  const now = () => firebase.firestore.FieldValue.serverTimestamp();
+  const ok = (uid, extra = {}) => ({ message: 'TypeError: x', stack: 'at f', page: 'spese', uid, role: 'member', buildingId: '1', ua: 'test', at: now(), ...extra });
+  const member = () => testEnv.authenticatedContext('u_member', { role: 'member', buildingId: '1' }).firestore();
+  const superA = () => testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+
+  it('un utente autenticato aggiunge una segnalazione a proprio nome', async () => {
+    await assertSucceeds(member().collection('clientErrors').add(ok('u_member')));
+  });
+  it('non a nome di altri, non da anonimo, non con campi extra o troppo lunghi', async () => {
+    await assertFails(member().collection('clientErrors').add(ok('u_altro')));
+    await assertFails(testEnv.unauthenticatedContext().firestore().collection('clientErrors').add(ok('u_member')));
+    await assertFails(member().collection('clientErrors').add(ok('u_member', { extra: 1 })));
+    await assertFails(member().collection('clientErrors').add(ok('u_member', { message: 'x'.repeat(501) })));
+    await assertFails(member().collection('clientErrors').add(ok('u_member', { at: new Date(2020, 0, 1) })));
+  });
+  it('solo il superAdmin legge e cancella; nessuno modifica', async () => {
+    await testEnv.withSecurityRulesDisabled((c) => c.firestore().doc('clientErrors/e1').set({ message: 'x', uid: 'u_member' }));
+    const ref = { id: 'e1' };
+    await assertFails(member().collection('clientErrors').get());
+    await assertSucceeds(superA().collection('clientErrors').get());
+    await assertFails(superA().doc(`clientErrors/${ref.id}`).update({ message: 'y' }));
+    await assertFails(member().doc(`clientErrors/${ref.id}`).delete());
+    await assertSucceeds(superA().doc(`clientErrors/${ref.id}`).delete());
+  });
+});

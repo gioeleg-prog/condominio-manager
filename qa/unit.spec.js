@@ -129,3 +129,22 @@ describe('UNIT — saldo e riporto (getSaldoRiporto)', () => {
     assert.strictEqual(app.getSaldoRiporto(2026), 700);
   });
 });
+
+describe('UNIT — segnalazione errori (reportClientError)', () => {
+  it('non lancia mai eccezioni, anche senza Firebase o senza utente', () => {
+    const app = loadApp();
+    assert.doesNotThrow(() => app.reportClientError('x'));
+    app.__set('state', { ...app.__get('state'), user: { id: 1, nome: 'A' } });
+    app._fb = { auth: { currentUser: { uid: 'u' } }, setDoc: () => { throw new Error('rete'); } };
+    assert.doesNotThrow(() => app.reportClientError('y'));
+  });
+  it('invia al massimo 5 segnalazioni e mai due volte la stessa', () => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), user: { id: 1, nome: 'A', edificioId: 1 } });
+    const inviate = [];
+    app._fb = { auth: { currentUser: { uid: 'u' } }, db: {}, serverTimestamp: () => 'TS', collection: () => ({}), doc: () => ({}),
+      setDoc: (_ref, p) => { inviate.push(p.message); return Promise.resolve(); } };
+    ['a', 'a', 'b', 'c', 'd', 'e', 'f', 'g'].forEach((m) => app.reportClientError(m));
+    assert.strictEqual(inviate.join(','), 'a,b,c,d,e');
+  });
+});

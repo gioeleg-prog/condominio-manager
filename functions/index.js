@@ -1,5 +1,8 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { getStorage } = require('firebase-admin/storage');
+const { runBackup } = require('./backup');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
@@ -200,6 +203,9 @@ exports.auditTrail = onDocumentWritten('buildings/{buildingId}/{coll}/{docId}', 
   const after = event.data?.after?.exists ? event.data.after.data() : null;
   const actor = after?._deletedBy && after?._deleted ? after._deletedBy : (after?._updatedBy ?? null);
   if (actor === 'backfill' || actor === 'whoami-auto') return;
+  // Scrittura di un ripristino da backup (vedi backup.js): non è un'azione
+  // dell'ultimo autore del record.
+  if (after?._restoredAt && stableStringify(after._restoredAt) !== stableStringify(before?._restoredAt)) return;
 
   let type;
   if (!before) type = 'created';
@@ -250,4 +256,35 @@ function stableStringify(v) {
     return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
   }
   return JSON.stringify(v ?? null);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// dailyBackup
+// Ogni notte alle 3 (ora italiana) salva tutto Firestore in un file JSON su
+// Cloud Storage (backups/AAAA-MM-GG.json, non accessibile dall'app: le
+// storage.rules negano tutto fuori da buildings/), tiene 30 giorni di
+// copie e registra l'esito in appSettings/backupStatus, mostrato al superAdmin.
+// Pulisce anche le segnalazioni di errore più vecchie di 30 giorni.
+// Ripristino: scripts/restore-backup.js.
+// ═══════════════════════════════════════════════════════════════
+exports.dailyBackup = onSchedule({ schedule: '0 3 * * *', timeZone: 'Europe/Rome', region: 'europe-west1', timeoutSeconds: 300 }, async () => {
+  const status = db.doc('appSettings/backupStatus');
+  try {
+    const res = await runBackup(db, getStorage().bucket());
+    await purgeOldClientErrors();
+    await status.set({ ok: true, at: FieldValue.serverTimestamp(), ...res, error: null });
+  } catch (e) {
+    console.error('dailyBackup', e);
+    await status.set({ ok: false, at: FieldValue.serverTimestamp(), error: String(e.message || e).slice(0, 500) }, { merge: true });
+    throw e;
+  }
+});
+
+async function purgeOldClientErrors() {
+  const limit = new Date(Date.now() - 30 * 86400000);
+  const old = await db.collection('clientErrors').where('at', '<', limit).limit(400).get();
+  if (old.empty) return;
+  const batch = db.batch();
+  old.docs.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
 }

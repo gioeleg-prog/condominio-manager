@@ -1,0 +1,49 @@
+# Esegue le tre suite di test (regole Firestore, unitari, integrazione Cloud
+# Functions sugli emulatori) a ogni pull request e a ogni push su main.
+# Tutto gira sugli emulatori locali del progetto demo-qa: nessun accesso a
+# staging o produzione, nessun segreto necessario.
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      # L'emulatore di Firestore richiede Java.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Dipendenze
+        run: |
+          npm ci
+          npm ci --prefix functions
+          npm install -g firebase-tools@15
+
+      - name: Unitari (logica di calcolo)
+        run: npm run test:unit
+
+      - name: Regole Firestore
+        run: npm test
+
+      - name: Integrazione (Cloud Functions, regole, migrazione)
+        run: npm run test:functions

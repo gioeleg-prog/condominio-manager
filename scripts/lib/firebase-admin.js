@@ -4,6 +4,7 @@ const req = require('module').createRequire(path.join(__dirname, '..', '..', 'fu
 const { initializeApp, getApps, applicationDefault } = req('firebase-admin/app');
 const { getFirestore, FieldValue, Timestamp } = req('firebase-admin/firestore');
 const { getAuth } = req('firebase-admin/auth');
+const { getStorage } = req('firebase-admin/storage');
 
 // Sugli emulatori (FIRESTORE_EMULATOR_HOST impostato) niente credenziali reali.
 function adminDb(projectId) {
@@ -12,4 +13,4 @@ function adminDb(projectId) {
     : { credential: applicationDefault(), projectId });
   return getFirestore(app);
 }
-module.exports = { adminDb, FieldValue, Timestamp, getAuth, getApps, initializeApp };
+module.exports = { adminDb, FieldValue, Timestamp, getAuth, getStorage, getApps, initializeApp };

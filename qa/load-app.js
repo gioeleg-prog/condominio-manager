@@ -23,6 +23,7 @@ function loadApp({ file = 'index.html', now } = {}) {
     Blob: class { constructor(parts) { this.text = parts.join(''); } },
     URL: { createObjectURL: (b) => { downloads.push({ blob: b }); return 'blob:x'; }, revokeObjectURL() {} },
     __downloads: downloads,
+    addEventListener() {}, removeEventListener() {},
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
