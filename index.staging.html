@@ -2142,13 +2142,40 @@ function bindAllegatiInTable(sources) {
         try {
           const { storage, ref, deleteObject } = window._fb;
           await deleteObject(ref(storage, toDelete.storagePath));
-        } catch (err) { console.warn('deleteObject:', err.message); }
+        } catch (err) {
+          // File già assente: si toglie comunque il riferimento. Qualunque altro
+          // errore (permessi, rete): ci si ferma, altrimenti il record perderebbe
+          // il collegamento a un file che invece esiste ancora.
+          if (err.code !== 'storage/object-not-found') {
+            alert('Impossibile eliminare l’allegato: ' + (err.code === 'storage/unauthorized'
+              ? 'non hai i permessi per eliminarlo.' : (err.message || err)));
+            return;
+          }
+        }
       }
       const nuoviRecords = state[src.stateKey].map(r => ({
         ...r,
         allegati: (r.allegati||[]).filter(a=>a.id!==id)
       }));
       save(src.appdataKey, nuoviRecords);
+      // Se l'allegato è stato eliminato dalla scheda di modifica aperta, anche la
+      // copia del record usata dalla scheda va aggiornata: prima restava, l'allegato
+      // sembrava non eliminato e un successivo "Salva" lo rimetteva (con il file
+      // ormai cancellato da Storage).
+      const md = state.modal?.data;
+      if (md && Array.isArray(md.allegati) && md.allegati.some(a => a.id === id)) {
+        // Scheda aperta: si aggiorna lo stato senza ridisegnarla (le modifiche
+        // non ancora salvate nei campi restano) e si toglie solo la riga.
+        state[src.stateKey] = nuoviRecords;
+        state.modal = { ...state.modal, data: { ...md, allegati: md.allegati.filter(a => a.id !== id) } };
+        // Tutte le righe di questo allegato (es. nei verbali compare sia nella
+        // scheda sia nella lista dietro).
+        document.querySelectorAll('[data-del-allegato]').forEach(b => {
+          try { if (JSON.parse(b.dataset.delAllegato).id === id) b.closest('.allegato-item')?.remove(); } catch (e) { /* ignora */ }
+        });
+        btn.closest('.allegato-item')?.remove();
+        return;
+      }
       setState({[src.stateKey]: nuoviRecords});
     };
   });
