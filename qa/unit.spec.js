@@ -148,3 +148,23 @@ describe('UNIT — segnalazione errori (reportClientError)', () => {
     assert.strictEqual(inviate.join(','), 'a,b,c,d,e');
   });
 });
+
+describe('UNIT — graffetta allegati accanto al titolo (renderAllegatiClip)', () => {
+  const app = loadApp();
+  const all = (n, nome = 'f.pdf') => Array.from({ length: n }, (_, i) => ({ id: i + 1, nome, mime: 'application/pdf' }));
+  it('niente graffetta se la spesa non ha allegati', () => {
+    assert.strictEqual(app.renderAllegatiClip({ allegati: [] }), '');
+    assert.strictEqual(app.renderAllegatiClip({}), '');
+  });
+  it('una graffetta per allegato, al massimo 3, poi "+N"', () => {
+    assert.strictEqual((app.renderAllegatiClip({ allegati: all(2) }).match(/class="attach-clip"/g) || []).length, 2);
+    const h = app.renderAllegatiClip({ allegati: all(5) });
+    assert.strictEqual((h.match(/class="attach-clip"/g) || []).length, 3);
+    assert.ok(h.includes('+2'));
+  });
+  it('usa lo stesso data-view-allegato della colonna e fa l\'escape del nome del file', () => {
+    const h = app.renderAllegatiClip({ allegati: [{ id: 7, nome: '"><img src=x onerror=alert(1)>\'.pdf' }] });
+    assert.ok(h.includes(`data-view-allegato='{"id":7}'`));
+    assert.ok(!h.includes('<img'), 'nome del file non escapato');
+  });
+});

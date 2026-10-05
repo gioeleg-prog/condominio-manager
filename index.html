@@ -411,6 +411,10 @@
   /* Chip badge allegati in tabella */
   .attach-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; background: var(--accent-light); color: var(--accent); font-size: 11px; font-weight: 500; cursor: pointer; border: none; }
   .attach-chip:hover { background: #bfdbfe; }
+  .attach-clip { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 4px; padding: 0; border: none; border-radius: 6px; background: var(--accent-light); cursor: pointer; font-size: 13px; vertical-align: middle; }
+  .attach-clip:hover { background: #bfdbfe; }
+  .attach-clip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .attach-clip-more { font-size: 11px; color: var(--text2); margin-left: 3px; vertical-align: middle; }
   /* Viewer modale allegato */
   .viewer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 2000; display: flex; flex-direction: column; }
   .viewer-bar { display: flex; align-items: center; justify-content: space-between; padding: .75rem 1rem; background: rgba(0,0,0,.5); }
@@ -1325,6 +1329,20 @@ function renderQuotaCell(spesa) {
     <div style="font-weight:600;color:var(--accent)">${fmt(myEuro)}</div>
     <div style="font-size:11px;color:var(--text2)">${(mySplit.perc||0).toFixed(1)}%</div>
   </div>`;
+}
+
+// Graffetta accanto al titolo della spesa: la colonna "Allegati" è l'ultima
+// della tabella e su finestre strette (o con zoom) finisce fuori schermo.
+// Una graffetta per allegato (massimo 3, il resto resta nella colonna), con lo
+// stesso data-view-allegato dei pulsanti della colonna: stesso visualizzatore.
+function renderAllegatiClip(spesa) {
+  const allegati = spesa.allegati || [];
+  if (allegati.length === 0) return '';
+  const extra = allegati.length > 3 ? `<span class="attach-clip-more">+${allegati.length - 3}</span>` : '';
+  return ' ' + allegati.slice(0, 3).map(a => {
+    const safe = JSON.stringify({id:a.id}).replace(/'/g,'&#39;');
+    return `<button class="attach-clip" data-view-allegato='${safe}' title="Apri allegato: ${esc(a.nome)}" aria-label="Apri allegato ${esc(a.nome)}">📎</button>`;
+  }).join('') + extra;
 }
 
 function renderAllegatiChip(spesa) {
@@ -3509,7 +3527,7 @@ function renderSpese() {
               </div></td>`:''}
               <td class="col-data" style="font-size:13px">${esc(s.data)}</td>
               <td class="col-title">
-                <div style="font-weight:500">${esc(s.titolo)}</div>
+                <div style="font-weight:500">${esc(s.titolo)}${renderAllegatiClip(s)}</div>
                 ${s.descrizione?`<div style="font-size:12px;color:var(--text2)">${esc(s.descrizione)}</div>`:''}
                 ${s.ricorrente?`<span class="ricorrente-badge">🔁 ${esc(s.frequenza||'mensile')}</span>`:''}
               </td>
