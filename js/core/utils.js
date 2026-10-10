@@ -14,7 +14,7 @@ function initials(nome) {
 }
 
 function avatarStyle(color) {
-  return `background:${esc(color)}22;color:color-mix(in srgb, ${esc(color)} 55%, #000);`;
+  return `background:${esc(color)}22;color:color-mix(in srgb, ${esc(color)} 55%, var(--text));`;
 }
 
 // Id numerici (molti punti fanno parseInt su data-id). QA: prima era

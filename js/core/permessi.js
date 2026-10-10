@@ -6,7 +6,7 @@
 // ===========================
 function getEdificio() {
   const ed = state.edifici.find(e=>e.id===state.edificioAttivo);
-  return ed || state.edifici[0] || {id:1, nome:'—', indirizzo:'', colore:'#2563EB'};
+  return ed || state.edifici[0] || {id:1, nome:'—', indirizzo:'', colore:'var(--accent)'};
 }
 
 // Filtra condomini per edificio attivo

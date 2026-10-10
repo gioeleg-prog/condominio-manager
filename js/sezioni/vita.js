@@ -215,7 +215,7 @@ function renderLavoroCard(l, canManage) {
           </div>
           <div style="font-weight:600;font-size:15px;margin-bottom:8px">${esc(l.titolo)}</div>
           <div style="display:flex;align-items:center;gap:8px;max-width:320px">
-            <div class="progress-wrap" style="flex:1"><div class="progress-fill" style="width:${pct}%;background:var(--accent)"></div></div>
+            <div class="progress-wrap" style="flex:1"><div class="progress-fill" style="width:${pct}%;background:var(--accent-fill)"></div></div>
             <span style="font-size:12px;font-weight:600;color:var(--text2);min-width:32px;text-align:right">${pct}%</span>
           </div>
         </div>

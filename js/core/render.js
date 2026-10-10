@@ -116,7 +116,7 @@ function renderApp() {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;color:var(--accent)"><path d="M6 9l6 6 6-6"/></svg>
       </button>` : `
       <div style="display:flex;align-items:center;gap:8px;padding:.5rem .875rem;margin:.5rem .75rem;background:var(--surface2);border-radius:8px;">
-        <div style="width:28px;height:28px;border-radius:6px;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🏢</div>
+        <div style="width:28px;height:28px;border-radius:6px;background:var(--accent-fill);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0">🏢</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
             ${esc((state.edifici.find(e=>e.id===getUserEdificio(user))||state.edifici[0]||{nome:'—'}).nome)}
@@ -126,6 +126,7 @@ function renderApp() {
           </div>
         </div>
       </div>`}
+      <div class="ric-side"><input type="search" id="ricerca-globale" placeholder="🔍 Cerca nel sito  ( / )" aria-label="Cerca nel sito: scrivi e premi Invio" autocomplete="off" data-focus-key="ricerca-globale"></div>
       <nav>
         <div class="section-label">Menu</div>
         ${navLinks.map(l=>`<a class="${page===l.id?'active':''}" data-page="${l.id}">${l.icon}<span>${l.label}</span></a>`).join('')}
@@ -145,6 +146,7 @@ function renderApp() {
           </div>
           <div style="display:flex;flex-direction:column;gap:4px">
             <button class="logout-btn" id="btn-change-pw" title="Cambia password" style="font-size:13px">🔑</button>
+            <button class="logout-btn" id="btn-tema" title="${TEMI[temaScelto()]} (tocca per cambiare)" aria-label="${TEMI[temaScelto()].slice(3)}, tocca per cambiare" style="font-size:13px">${TEMI[temaScelto()].slice(0, 2)}</button>
             <button class="logout-btn" id="btn-logout" title="Esci">${svgLogout()}</button>
           </div>
         </div>
@@ -166,6 +168,7 @@ function renderApp() {
           <button id="btn-topbar-switch-ed" style="background:var(--accent-light);border:1px solid var(--accent);border-radius:8px;padding:5px 10px;font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis" title="Cambia condominio">
             🏢 ${(state.edifici.find(e=>e.id===state.edificioAttivo)||state.edifici[0]||{nome:'—'}).nome.split(' ').slice(-2).join(' ')}
           </button>` : ''}
+          <button id="btn-topbar-ricerca" class="topbar-cerca" aria-label="Cerca nel sito" title="Cerca">🔍</button>
           <button id="btn-change-pw-top" class="topbar-avatar" style="${avatarStyle(user.color)}" title="Profilo e impostazioni">${initials(user.nome)}</button>
         </div>
         <!-- Menu profilo mobile (appare sul click avatar) -->
@@ -181,6 +184,7 @@ function renderApp() {
           </button>` : ''}
           <div class="mpm-sep"></div>
           <button class="mpm-item" id="mpm-change-pw">🔑 Cambia password</button>
+          <button class="mpm-item" id="mpm-tema">${TEMI[temaScelto()]}</button>
           ${canUserSeeImpostazioni(user) ? '<button class="mpm-item" id="mpm-impostazioni">⚙️ Impostazioni</button>' : ''}
           <div class="mpm-sep"></div>
           <button class="mpm-item danger" id="mpm-logout">↩️ Esci</button>
@@ -284,6 +288,8 @@ function bindApp() {
   if (mainEl) mainEl.addEventListener('click', e => {
     if (state.sidebarOpen && window.innerWidth <= 768) setState({sidebarOpen:false});
   }, {once:false, capture:false});
+  ['btn-tema', 'mpm-tema'].forEach(id => { const b = document.getElementById(id); if (b) b.onclick = cambiaTema; });
+  bindCampoRicerca();
   bindPageActions();
   bindGuida();
   bindFiltroAnni();
@@ -301,6 +307,7 @@ function renderPage() {
     case 'entrate': return renderEntrate();
     case 'bilancio': return renderBilancio();
     case 'confronto': return renderConfronto();
+    case 'ricerca': return renderRicerca();
     case 'fornitori': return renderFornitori();
     case 'vita': return renderVita();
     case 'condomini': return renderCondomini();
@@ -357,12 +364,12 @@ function renderModal() {
 })();
 
 function renderLoading() {
-  return `<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:#5A6E8A">
-    <div style="width:48px;height:48px;background:#2563EB;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:26px">🏠</div>
-    <div style="font-weight:700;font-size:1.1rem;color:#1B2A4A">${esc(getBranding().nomeProdotto)}</div>
+  return `<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;color:var(--text2)">
+    <div style="width:48px;height:48px;background:var(--accent-fill);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:26px">🏠</div>
+    <div style="font-weight:700;font-size:1.1rem;color:var(--text)">${esc(getBranding().nomeProdotto)}</div>
     <div style="font-size:14px">Connessione a Firebase…</div>
-    <div style="width:200px;height:3px;background:#EEF2F7;border-radius:10px;overflow:hidden">
-      <div style="height:100%;background:#2563EB;border-radius:10px;animation:loading-bar 1.5s ease-in-out infinite"></div>
+    <div style="width:200px;height:3px;background:var(--surface2);border-radius:10px;overflow:hidden">
+      <div style="height:100%;background:var(--accent-fill);border-radius:10px;animation:loading-bar 1.5s ease-in-out infinite"></div>
     </div>
     <style>@keyframes loading-bar{0%{width:0%;margin-left:0}50%{width:60%;margin-left:20%}100%{width:0%;margin-left:100%}}</style>
   </div>`;

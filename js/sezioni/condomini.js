@@ -100,7 +100,7 @@ function renderModalFirebaseUserCreated(u) {
           <div style="display:flex;flex-direction:column;gap:.5rem">
             <div>1️⃣ Apri <a href="https://console.firebase.google.com/project/condominio-manager-9e99a/authentication/users" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">Firebase Console → Authentication</a></div>
             <div>2️⃣ Clicca <strong>"Aggiungi utente"</strong></div>
-            <div>3️⃣ Email: <code style="background:white;padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${esc(u.email||'(nessuna email inserita)')}</code></div>
+            <div>3️⃣ Email: <code style="background:var(--surface);padding:2px 6px;border-radius:4px;border:1px solid var(--border)">${esc(u.email||'(nessuna email inserita)')}</code></div>
             <div>4️⃣ Password: la password che hai impostato nel wizard</div>
             <div>5️⃣ Clicca <strong>"Aggiungi utente"</strong></div>
           </div>
@@ -207,7 +207,7 @@ function renderModalNuovoUtente() {
       <div class="ruolo-cards">
         <div class="ruolo-card ${r==='lettura'?'selected-lettura':''}" data-pick-ruolo="lettura">
           <div class="rc-icon">👁️</div>
-          <div class="rc-title" style="color:#475569">Lettura</div>
+          <div class="rc-title" style="color:var(--text2)">Lettura</div>
           <div class="rc-desc">Consulta spese, entrate e bilancio</div>
         </div>
         <div class="ruolo-card ${r==='modifica'?'selected-modifica':''}" data-pick-ruolo="modifica">

@@ -87,18 +87,18 @@ function renderFornitori() {
       </div>
 
       <!-- Forecast anno -->
-      <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid #7c3aed">
-        <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:.06em;margin-bottom:4px">🔮 FORECAST ${annoLbl}</div>
-        <div style="font-size:1.8rem;font-weight:800;color:${speseAnnoForecast>0?'#7c3aed':'var(--text2)'};line-height:1.1">${speseAnnoForecast>0?fmt(speseAnnoForecast):'—'}</div>
+      <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid var(--purple)">
+        <div style="font-size:9px;font-weight:700;color:var(--purple);letter-spacing:.06em;margin-bottom:4px">🔮 FORECAST ${annoLbl}</div>
+        <div style="font-size:1.8rem;font-weight:800;color:${speseAnnoForecast>0?'var(--purple)':'var(--text2)'};line-height:1.1">${speseAnnoForecast>0?fmt(speseAnnoForecast):'—'}</div>
         <div style="font-size:11px;color:var(--text2);margin-top:4px">con fornitore</div>
         <div style="font-size:11px;color:var(--text2);margin-top:2px">+ ${fmt(senzaAnnoForecast)} senza fornitore</div>
         <div style="font-size:12px;font-weight:700;color:var(--text);margin-top:5px;padding-top:5px;border-top:1px dashed var(--border)">Totale: ${fmt(totaleAnnoForecast)}</div>
       </div>
 
       <!-- Storico -->
-      <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid #0E7490">
-        <div style="font-size:9px;font-weight:700;color:#0E7490;letter-spacing:.06em;margin-bottom:4px">📊 STORICO</div>
-        <div style="font-size:1.8rem;font-weight:800;color:#0E7490;line-height:1.1">${fmt(speseTotali)}</div>
+      <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid var(--teal)">
+        <div style="font-size:9px;font-weight:700;color:var(--teal);letter-spacing:.06em;margin-bottom:4px">📊 STORICO</div>
+        <div style="font-size:1.8rem;font-weight:800;color:var(--teal);line-height:1.1">${fmt(speseTotali)}</div>
         <div style="font-size:11px;color:var(--text2);margin-top:4px">con fornitore</div>
         <div style="font-size:11px;color:var(--text2);margin-top:2px">+ ${fmt(senzaTotali)} senza fornitore</div>
         <div style="font-size:12px;font-weight:700;color:var(--text);margin-top:5px;padding-top:5px;border-top:1px dashed var(--border)">Totale: ${fmt(totaleStoricoAll)}</div>
@@ -162,20 +162,20 @@ function renderFornitoreCard(f, canEdit, archived=false) {
     <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:.625rem .75rem;margin-bottom:.5rem">
       <div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:6px">SPESE ${annoLbl}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
-        <div style="text-align:center;background:${totActual>0?'#fef2f2':'var(--surface)'};border-radius:5px;padding:5px 4px">
+        <div style="text-align:center;background:${totActual>0?'var(--red-light)':'var(--surface)'};border-radius:5px;padding:5px 4px">
           <div style="font-size:9px;color:var(--red);font-weight:700;letter-spacing:.04em">ACTUAL</div>
           <div style="font-size:1rem;font-weight:800;color:${totActual>0?'var(--red)':'var(--text2)'}">${totActual>0?fmt(totActual):'—'}</div>
           <div style="font-size:10px;color:var(--text2)">${actualAnno.length} interventi</div>
         </div>
-        <div style="text-align:center;background:${totForecast>0?'#f5f3ff':'var(--surface)'};border-radius:5px;padding:5px 4px">
-          <div style="font-size:9px;color:#7c3aed;font-weight:700;letter-spacing:.04em">FORECAST</div>
-          <div style="font-size:1rem;font-weight:800;color:${totForecast>0?'#7c3aed':'var(--text2)'}">${totForecast>0?fmt(totForecast):'—'}</div>
+        <div style="text-align:center;background:${totForecast>0?'var(--purple-light)':'var(--surface)'};border-radius:5px;padding:5px 4px">
+          <div style="font-size:9px;color:var(--purple);font-weight:700;letter-spacing:.04em">FORECAST</div>
+          <div style="font-size:1rem;font-weight:800;color:${totForecast>0?'var(--purple)':'var(--text2)'}">${totForecast>0?fmt(totForecast):'—'}</div>
           <div style="font-size:10px;color:var(--text2)">${forecastAnno.length} preventivi</div>
         </div>
       </div>
       ${totActual>0||totForecast>0?`<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:600;margin-top:6px;padding-top:5px;border-top:1px solid var(--border)">
         <span style="color:var(--text2)">Totale ${annoLbl}</span>
-        <span style="color:#0E7490">${fmt(totActual+totForecast)}</span>
+        <span style="color:var(--teal)">${fmt(totActual+totForecast)}</span>
       </div>`:''}
     </div>
 

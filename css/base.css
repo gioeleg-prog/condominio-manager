@@ -20,6 +20,56 @@
   --radius-sm: 6px;
   --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  /* Tinte usate nelle pagine (prima scritte a mano nei singoli elementi). */
+  --accent-fill: #1D4ED8;      /* sfondo dei pulsanti pieni, con testo bianco */
+  --accent-border: #BFDBFE;
+  --info-text: #1E40AF;
+  --green-border: #BBF7D0;
+  --red-border: #FECACA;
+  --red-strong: #991B1B;
+  --amber-border: #FDE68A;
+  --purple-strong: #5B21B6;
+  --purple-border: #DDD6FE;
+  --teal: #0E7490;
+  --teal-light: #CFFAFE;
+  color-scheme: light;
+}
+
+/* Tema scuro: stessi nomi, valori per lo sfondo scuro. Vale con "Scuro" scelto
+   nel pulsante 🌓, oppure con "Automatico" se il dispositivo è in modalità scura
+   (js/core/tema.js imposta data-theme su <html>). Testi e sfondi verificati con
+   il controllo di contrasto WCAG AA. */
+:root[data-theme="dark"] {
+  --bg: #0F1623;
+  --surface: #172131;
+  --surface2: #1F2B3E;
+  --border: #2E3D55;
+  --text: #E6ECF5;
+  --text2: #A3B1C6;
+  --accent: #7AA7FF;
+  --accent-light: #1B2C4C;
+  --accent-fill: #2F5FCF;
+  --accent-border: #2D4775;
+  --info-text: #A8C4FF;
+  --green: #5EE08F;
+  --green-light: #12291D;
+  --green-border: #1F4D33;
+  --red: #FF8A8A;
+  --red-light: #301818;
+  --red-border: #5C2A2A;
+  --red-strong: #FFB3B3;
+  --amber: #FCC94D;
+  --amber-light: #2C2310;
+  --amber-border: #5C4716;
+  --purple: #B9A2FF;
+  --purple-light: #241C3E;
+  --purple-strong: #D3C4FF;
+  --purple-border: #43357A;
+  --teal: #4FD8EE;
+  --teal-light: #0F2E36;
+  --shadow: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 6px 16px rgba(0,0,0,0.5);
+  color-scheme: dark;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
@@ -29,7 +79,7 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; back
 .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
 .login-card { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-md); padding: 2rem 1.5rem; width: 100%; max-width: 400px; }
 .login-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 2rem; }
-.login-logo-icon { width: 44px; height: 44px; background: var(--accent); border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.login-logo-icon { width: 44px; height: 44px; background: var(--accent-fill); border-radius: 10px; display: flex; align-items: center; justify-content: center; }
 .login-logo-icon svg { width: 24px; height: 24px; fill: white; }
 .login-logo h1 { font-size: 1.25rem; font-weight: 700; color: var(--text); }
 .login-logo p { font-size: 12px; color: var(--text2); }
@@ -40,20 +90,20 @@ body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; back
 .field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: var(--surface); color: var(--text); outline: none; transition: border-color .15s; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: var(--radius-sm); border: none; cursor: pointer; font-size: 14px; font-weight: 500; transition: all .15s; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-.btn-primary { background: var(--accent); color: white; width: 100%; }
-.btn-primary:hover { background: #1d4ed8; }
+.btn-primary { background: var(--accent-fill); color: white; width: 100%; }
+.btn-primary:hover { background: var(--accent-fill); }
 .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
 .btn-secondary:hover { background: var(--border); }
-.btn-danger { background: var(--red-light); color: var(--red); border: 1px solid #fecaca; }
-.btn-danger:hover { background: #fecaca; }
-.btn-success { background: var(--green-light); color: var(--green); border: 1px solid #bbf7d0; }
+.btn-danger { background: var(--red-light); color: var(--red); border: 1px solid var(--red-border); }
+.btn-danger:hover { background: var(--red-border); }
+.btn-success { background: var(--green-light); color: var(--green); border: 1px solid var(--green-border); }
 .btn-sm { padding: 6px 12px; font-size: 13px; }
 
 /* --- APP SHELL --- */
 .app { display: flex; min-height: 100vh; }
 .sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; height: 100vh; z-index: 100; transition: transform .25s; }
 .sidebar-logo { padding: 1.25rem 1rem; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
-.sidebar-logo .icon { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.sidebar-logo .icon { width: 36px; height: 36px; background: var(--accent-fill); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
 .sidebar-logo .icon svg { width: 20px; height: 20px; fill: white; }
 .sidebar-logo .label { font-weight: 700; font-size: 15px; }
 .sidebar-logo .sub { font-size: 11px; color: var(--text2); }

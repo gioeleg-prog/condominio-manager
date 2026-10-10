@@ -470,7 +470,7 @@ function renderImpostazioni() {
         const isActive   = e.id === state.edificioAttivo;
         return `<div class="edificio-card ${isActive?'active':''}" style="cursor:default">
           <div class="ec-head">
-            <div class="ec-icon" style="background:${esc(e.colore||'#2563EB')}22;font-size:22px">${esc(e.emoji||'🏢')}</div>
+            <div class="ec-icon" style="background:${esc(e.colore||'var(--accent)')}22;font-size:22px">${esc(e.emoji||'🏢')}</div>
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;font-size:15px">${esc(e.nome)}</div>
               <div style="font-size:12px;color:var(--text2)">${esc(e.indirizzo||'—')}</div>
@@ -512,17 +512,17 @@ function renderImpostazioni() {
       const firstEd = state.edifici.find(e=>e.id===stats.firstEdId) || state.edifici[0] || {nome:'—'};
       return `
       <div class="section-divider"><h3>⚠️ Migrazione dati — Identificativo condominio</h3></div>
-      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem">
-        <div style="font-weight:700;color:#92400e;margin-bottom:.75rem">
+      <div style="background:var(--amber-light);border:1px solid var(--amber-border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem">
+        <div style="font-weight:700;color:var(--amber);margin-bottom:.75rem">
           ${stats.totale} record senza identificativo condominio
         </div>
-        <div style="font-size:13px;color:#92400e;margin-bottom:1rem;display:flex;flex-direction:column;gap:3px">
+        <div style="font-size:13px;color:var(--amber);margin-bottom:1rem;display:flex;flex-direction:column;gap:3px">
           ${stats.condSenza>0?`<div>👥 ${stats.condSenza} condomini</div>`:''}
           ${stats.speseSenza>0?`<div>📋 ${stats.speseSenza} spese</div>`:''}
           ${stats.entSenza>0?`<div>💰 ${stats.entSenza} versamenti</div>`:''}
           ${stats.fornSenza>0?`<div>🏢 ${stats.fornSenza} fornitori</div>`:''}
         </div>
-        <div style="font-size:13px;color:#92400e;margin-bottom:1rem">
+        <div style="font-size:13px;color:var(--amber);margin-bottom:1rem">
           Questi record sono stati creati prima del supporto multi-condominio.
           Clicca il pulsante per associarli a <strong>${esc(firstEd.nome)}</strong> (il condominio originale).
         </div>
@@ -553,7 +553,7 @@ function renderImpostazioni() {
           </label>
         </div>
       </div>
-      <div style="font-size:12px;color:var(--amber);margin-top:.75rem;padding:.5rem .75rem;background:#fffbeb;border-radius:var(--radius-sm)">
+      <div style="font-size:12px;color:var(--amber);margin-top:.75rem;padding:.5rem .75rem;background:var(--amber-light);border-radius:var(--radius-sm)">
         ⚠️ Fai un backup prima di ogni aggiornamento del file o operazione di reset. Il backup include spese, versamenti, condomini, fornitori ed edifici.
       </div>
     </div>
@@ -590,11 +590,11 @@ function renderImpostazioni() {
          firestore.rules ne nega comunque la scrittura agli altri ruoli) -->
     ${isSuperAdmin(state.user) ? `
     <div class="section-divider"><h3>⚠️ Zona pericolosa</h3></div>
-    <div style="background:var(--red-light);border:1px solid #fecaca;border-radius:var(--radius);padding:1.25rem;max-width:480px">
+    <div style="background:var(--red-light);border:1px solid var(--red-border);border-radius:var(--radius);padding:1.25rem;max-width:480px">
       <div style="font-weight:600;margin-bottom:.4rem;color:var(--red)">Svuota i dati di questo condominio</div>
-      <div style="font-size:13px;color:#7f1d1d;margin-bottom:.75rem">Elimina spese, entrate, fornitori, bacheca, verbali, lavori e delibere di <strong>${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome)}</strong>. Gli altri condomini, i condomini registrati e i loro account non vengono toccati. Operazione irreversibile: scarica prima il backup.</div>
+      <div style="font-size:13px;color:var(--red-strong);margin-bottom:.75rem">Elimina spese, entrate, fornitori, bacheca, verbali, lavori e delibere di <strong>${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome)}</strong>. Gli altri condomini, i condomini registrati e i loro account non vengono toccati. Operazione irreversibile: scarica prima il backup.</div>
       <button class="btn btn-danger" id="btn-reset">🗑 Svuota dati del condominio</button>
-      <button class="btn btn-danger" id="btn-reset-cats" style="background:var(--amber-light);color:var(--amber);border-color:#fde68a">↩ Ripristina categorie default</button>
+      <button class="btn btn-danger" id="btn-reset-cats" style="background:var(--amber-light);color:var(--amber);border-color:var(--amber-border)">↩ Ripristina categorie default</button>
     </div>
     ` : ''}
   </div>`;
@@ -618,7 +618,7 @@ function renderModalSwitchEdificio() {
             const isActive = e.id === state.edificioAttivo;
             return `<div class="edificio-card ${isActive?'active':''}" data-sel-edificio="${e.id}">
               <div class="ec-head">
-                <div class="ec-icon" style="background:${esc(e.colore||'#2563EB')}22">${esc(e.emoji||'🏢')}</div>
+                <div class="ec-icon" style="background:${esc(e.colore||'var(--accent)')}22">${esc(e.emoji||'🏢')}</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:700;font-size:15px">${esc(e.nome)}</div>
                   <div style="font-size:12px;color:var(--text2)">${esc(e.indirizzo||'')}</div>
@@ -668,11 +668,11 @@ function renderModalEdificio(d) {
           <div class="field">
             <label>Colore</label>
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
-              ${['#2563EB','#16A34A','#D97706','#DC2626','#7C3AED','#06B6D4','#1B2A4A'].map(c=>
-                `<button type="button" class="ed-color-opt" data-ed-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};border:3px solid ${(d?.colore||'#2563EB')===c?'white':'transparent'};box-shadow:${(d?.colore||'#2563EB')===c?'0 0 0 2px '+c:'none'};cursor:pointer"></button>`
+              ${['var(--accent)','#16A34A','#D97706','#DC2626','var(--purple)','#06B6D4','var(--text)'].map(c=>
+                `<button type="button" class="ed-color-opt" data-ed-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};border:3px solid ${(d?.colore||'var(--accent)')===c?'white':'transparent'};box-shadow:${(d?.colore||'var(--accent)')===c?'0 0 0 2px '+c:'none'};cursor:pointer"></button>`
               ).join('')}
             </div>
-            <input type="hidden" id="ed-colore" value="${esc(d?.colore||'#2563EB')}">
+            <input type="hidden" id="ed-colore" value="${esc(d?.colore||'var(--accent)')}">
           </div>
         </div>
         <div class="field">
@@ -980,7 +980,7 @@ function bindSchedaImpostazioni() {
       const nome     = document.getElementById('ed-nome')?.value?.trim();
       const indirizzo= document.getElementById('ed-indirizzo')?.value?.trim();
       const emoji    = document.getElementById('ed-emoji')?.value || '🏢';
-      const colore   = document.getElementById('ed-colore')?.value || '#2563EB';
+      const colore   = document.getElementById('ed-colore')?.value || 'var(--accent)';
       const note     = document.getElementById('ed-note')?.value?.trim();
       const origId   = bSaveEd.dataset.id;
       const errEl    = document.getElementById('ed-err');
