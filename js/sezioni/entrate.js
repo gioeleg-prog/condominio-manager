@@ -267,7 +267,7 @@ function renderEntrate() {
                   <div style="font-size:11px;color:var(--text2)">${esc(cond.appartamento)}</div>
                 </div>
               </div></td>
-              <td style="font-size:13px">${esc(e.descrizione||'—')}</td>
+              <td style="font-size:13px"><div class="testo-2-righe" style="max-width:260px" title="${esc(e.descrizione||'')}">${esc(e.descrizione||'—')}</div></td>
               <td><span class="badge badge-green" style="font-size:10px">${esc(cat.label)}</span></td>
               <td class="${e.previsionale?'':'amount-pos'}" style="font-weight:700;color:${e.previsionale?'var(--amber)':'var(--green)'}">
                 ${fmt(e.importo)}

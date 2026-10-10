@@ -356,7 +356,7 @@ function renderSpese() {
               <td class="col-data" style="font-size:13px">${esc(s.data)}</td>
               <td class="col-title">
                 <div style="font-weight:500">${esc(s.titolo)}${renderAllegatiClip(s)}</div>
-                ${s.descrizione?`<div style="font-size:12px;color:var(--text2)">${esc(s.descrizione)}</div>`:''}
+                ${s.descrizione?`<div class="testo-2-righe" style="font-size:12px;color:var(--text2)" title="${esc(s.descrizione)}">${esc(s.descrizione)}</div>`:''}
                 ${s.ricorrente?`<span class="ricorrente-badge">🔁 ${esc(s.frequenza||'mensile')}</span>`:''}
               </td>
               <td><span class="badge badge-gray">${esc(cat.label)}</span></td>

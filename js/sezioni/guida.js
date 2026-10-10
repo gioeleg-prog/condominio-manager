@@ -38,6 +38,7 @@ const GUIDA = {
       'La graffetta 📎 accanto al titolo: la spesa ha documenti allegati, tocca per aprirli.',
       'I pulsanti degli anni in alto: accendine uno o più (gli importi si sommano) oppure "Tutti".',
       'Ricerca e filtri per tipo, categoria, stato e fornitore; "✕ Reset" li azzera.',
+      'Le descrizioni lunghe mostrano solo le prime due righe: aprendo la spesa (✏️) le leggi intere.',
       '"📊 Esporta Excel" scarica l\'elenco filtrato.',
     ],
     fare: [

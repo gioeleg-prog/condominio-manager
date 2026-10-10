@@ -128,3 +128,20 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 
 /* Accesso */
 .login-card { border-radius: 16px; border: 1px solid var(--border); box-shadow: var(--shadow-lg); }
+
+/* Tema scuro: testo degli avvisi chiaro su fondo appena tinto, il colore
+   resta nella barra a sinistra e nel bordo (testo colorato su fondo colorato
+   in scuro si legge male). */
+:root[data-theme="dark"] .alert { color: var(--text); border-left-width: 3px; }
+:root[data-theme="dark"] .alert-success { border-left-color: var(--green); }
+:root[data-theme="dark"] .alert-warning { border-left-color: var(--amber); }
+:root[data-theme="dark"] .alert-danger { border-left-color: var(--red); }
+:root[data-theme="dark"] .alert-info { border-left-color: var(--accent); }
+
+/* Note lunghe nelle liste: solo le prime due righe; il testo intero resta nel
+   dettaglio (✏️) e nel suggerimento al passaggio del mouse. */
+.testo-2-righe { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
+:root[data-theme="dark"] .cf-zero-warn { color: var(--text); border-left-width: 3px; }
+:root[data-theme="dark"] .cf-zero-warn.ok { border-left-color: var(--green); }
+:root[data-theme="dark"] .cf-zero-warn.warn { border-left-color: var(--amber); }
+:root[data-theme="dark"] .cf-zero-warn.critical { border-left-color: var(--red); }
