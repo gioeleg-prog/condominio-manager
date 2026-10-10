@@ -61,8 +61,8 @@ function renderBilancio() {
     // fino a quello di oggi risultavano "passati".
     const isPast    = isAnnoPassatoBil || (isCurrYear && m <= meseCurr);
     const isCurrent = isCurrYear && m === meseCurr;
-    const speseM      = spese.filter(s=>new Date(s.data).getMonth()===m);
-    const entrateM    = entrate.filter(e=>new Date(e.data).getMonth()===m);
+    const speseM      = spese.filter(s=>meseDi(s.data)===m);
+    const entrateM    = entrate.filter(e=>meseDi(e.data)===m);
     const consActual  = speseM.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
     const prevForecast= speseM.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
     const incActual   = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
@@ -143,32 +143,22 @@ function renderBilancio() {
 
   // KPI per condomino — distingue actual da previsionale
   // STRICT: solo condomini con edificioId esatto dell'edificio attivo
+  // Anche chi è stato archiviato, se ha movimenti nell'anno scelto (prima spariva
+  // dagli anni in cui c'era). Il saldo comprende il riporto degli anni precedenti.
   const condominiKPI = state.condomini
-    .filter(c => c.edificioId === state.edificioAttivo && !c.disabled && !c.superAdmin)
+    .filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin
+      && (!c.disabled || entrate.some(e => e.condominoId === c.id) || spese.some(s => s.split?.some(x => x.id === c.id && (x.perc||0) > 0))))
     .map(c=>{
     const versato       = entrate.filter(e=>e.condominoId===c.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
     const versatoPrevis = entrate.filter(e=>e.condominoId===c.id &&  e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
     // Quota ACTUAL: solo consuntivo — coerente con totSpeseCons e quotaPersonale dashboard
-    const quota = spese.reduce((acc,s)=>{
-      const ref = parseFloat(s.consuntivo||0);
-      if (!ref) return acc;
-      if (s.split?.length) {
-        const entry = s.split.find(x=>x.id===c.id);
-        return acc + (entry?(entry.perc||0)/100*ref : ref/nAttivi);
-      }
-      return acc + ref/nAttivi;
-    }, 0);
+    const quota = spese.reduce((acc,s)=>acc + quotaSuSpesa(s, c.id, parseFloat(s.consuntivo||0), nAttivi), 0);
     // Quota FULL: consuntivo + preventivi aperti (per il forecast)
-    const quotaFull = spese.reduce((acc,s)=>{
-      const ref = parseFloat(s.consuntivo||s.preventivo||0);
-      if (!ref) return acc;
-      if (s.split?.length) {
-        const entry = s.split.find(x=>x.id===c.id);
-        return acc + (entry?(entry.perc||0)/100*ref : ref/nAttivi);
-      }
-      return acc + ref/nAttivi;
-    }, 0);
-    const diff = versato - quota;
+    const quotaFull = spese.reduce((acc,s)=>acc + quotaSuSpesa(s, c.id, parseFloat(s.consuntivo||s.preventivo||0), nAttivi), 0);
+    // Debito o credito che arriva dagli anni precedenti (prima un debito vecchio
+    // spariva: chi pagava la quota dell'anno risultava "in regola").
+    const riporto = riportoCondomino(c.id, d => annoDi(d) < anno, nAttivi);
+    const diff = riporto + versato - quota;
     const perc = quota > 0 ? Math.min(100, Math.round(versato/quota*100)) : 0;
     const nSpese = spese.filter(s=>s.split?.some(x=>x.id===c.id)||(!s.split?.length)).length;
     const versatoFull = versato + versatoPrevis;
@@ -176,7 +166,7 @@ function renderBilancio() {
     const percFull = quota > 0 ? Math.min(100, Math.round(versatoFull/quota*100)) : 0;
     const diffFull2 = versatoFull - quotaFull;
     const percFull2 = quotaFull > 0 ? Math.min(100, Math.round(versatoFull/quotaFull*100)) : 0;
-    return {...c, versato, versatoPrevis, versatoFull, quota, quotaFull, diff, perc, diffFull:diffFull2, percFull:percFull2, nSpese};
+    return {...c, riporto, versato, versatoPrevis, versatoFull, quota, quotaFull, diff, perc, diffFull:diffFull2, percFull:percFull2, nSpese};
   });
 
   const TABS = [
@@ -231,11 +221,15 @@ function renderBilancio() {
     <div class="kpi-strip" style="margin-bottom:1rem">
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Entrate (incl. prev.)</div><div class="kpi-value" style="color:#7c3aed">${fmt(totEntrateFull)}</div><div class="kpi-sub">+${fmt(totEntratePrevis)} previsionali</div></div>
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Uscite (incl. prev.)</div><div class="kpi-value" style="color:#7c3aed">${fmt(totUsciteFull)}</div><div class="kpi-sub">+${fmt(totPrevForecast)} da consuntivare</div></div>
-      <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Saldo proiettato</div><div class="kpi-value" style="color:${saldoFull>=0?'#7c3aed':'var(--red)'}">${fmt(saldoFull)}</div><div class="kpi-sub">Con tutti i previsionali</div></div>
+      <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Risultato previsto dell'anno</div><div class="kpi-value" style="color:${saldoFull>=0?'#7c3aed':'var(--red)'}">${fmt(saldoFull)}</div><div class="kpi-sub">Entrate − uscite dell'anno, previsionali inclusi (senza riporto)</div></div>
       <div class="kpi-card kpi-amber"><div class="kpi-label">Runway stimato</div><div class="kpi-value" style="color:${runwayMesi===0?'var(--red)':'var(--amber)'};">${runwayMesi>11?'>12':runwayMesi} mesi</div><div class="kpi-sub">${meseZero!==null?'cassa a zero a '+nomiMesi[meseZero]:'coperto fino a fine '+anno+' · min. '+fmt(minBalAnno)}</div></div>
     </div>
 
     <div class="cf-zero-warn ${alertStatus}" style="margin-bottom:1rem">${alertMsg}</div>
+    ${isAnnoPassatoBil && (speseOnlyPrev.length || entratePrevis.length) ? `
+    <div class="cf-zero-warn warn" style="margin-bottom:1rem">📌 Nel ${anno}, ormai chiuso, sono rimasti aperti
+      ${speseOnlyPrev.length ? speseOnlyPrev.length + (speseOnlyPrev.length === 1 ? ' spesa' : ' spese') + ' con solo preventivo (' + fmt(totPrevForecast) + ')' : ''}${speseOnlyPrev.length && entratePrevis.length ? ' e ' : ''}${entratePrevis.length ? entratePrevis.length + (entratePrevis.length === 1 ? ' versamento previsto' : ' versamenti previsti') + ' mai validati (' + fmt(totEntratePrevis) + ')' : ''}.
+      Non contano nella cassa: consuntivali o validali se sono avvenuti, altrimenti eliminali.</div>` : ''}
 
     <!-- RIPORTO ANNI PRECEDENTI -->
     ${saldoRiporto !== 0 ? `
@@ -314,7 +308,7 @@ function renderBilancio() {
       </div>
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Uscite da consuntivare</div><div class="kpi-value" style="color:#7c3aed">${fmt(totForecastUscite)}</div><div class="kpi-sub">${speseToForecast.length} spese aperte</div></div>
       <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Entrate previsionali</div><div class="kpi-value" style="color:#7c3aed">${fmt(totForecastEntrate)}</div><div class="kpi-sub">${entratePrevis.length} versamenti attesi</div></div>
-      <div class="kpi-card ${saldoConForecast>=0?'kpi-green':'kpi-red'}"><div class="kpi-label">Saldo proiettato</div><div class="kpi-value" style="color:${saldoConForecast>=0?'var(--green)':'var(--red)'}">${fmt(saldoConForecast)}</div><div class="kpi-sub">Dopo tutti i previsionali</div></div>
+      <div class="kpi-card ${saldoConForecast>=0?'kpi-green':'kpi-red'}"><div class="kpi-label">Saldo proiettato</div><div class="kpi-value" style="color:${saldoConForecast>=0?'var(--green)':'var(--red)'}">${fmt(saldoConForecast)}</div><div class="kpi-sub">Cassa con riporto, dopo tutti i previsionali</div></div>
     </div>
 
     <div class="card" style="margin-bottom:1.25rem">
@@ -468,7 +462,7 @@ function renderBilancio() {
 
     return `
     <div class="kpi-strip" style="margin-bottom:1.25rem">
-      <div class="kpi-card kpi-green"><div class="kpi-label">In regola</div><div class="kpi-value" style="color:var(--green)">${inRegola}/${nAttivi}</div><div class="kpi-sub">Hanno versato la quota</div></div>
+      <div class="kpi-card kpi-green"><div class="kpi-label">In regola</div><div class="kpi-value" style="color:var(--green)">${inRegola}/${condominiKPI.length}</div><div class="kpi-sub">Saldo in pari, riporto compreso</div></div>
       <div class="kpi-card ${inRitardo>0?'kpi-red':'kpi-green'}"><div class="kpi-label">In ritardo</div><div class="kpi-value" style="color:${inRitardo>0?'var(--red)':'var(--green)'}">${inRitardo}</div><div class="kpi-sub">Quota non coperta</div></div>
       <div class="kpi-card kpi-red"><div class="kpi-label">Da incassare ancora</div><div class="kpi-value" style="color:var(--red)">${fmt(daIncassare)}</div><div class="kpi-sub">Totale scoperto</div></div>
       <div class="kpi-card kpi-blue"><div class="kpi-label">Copertura media</div><div class="kpi-value" style="color:var(--accent)">${totDovuto>0?Math.round(totVersato/totDovuto*100):0}%</div><div class="kpi-sub">${fmt(totVersato)} su ${fmt(totDovuto)}</div></div>
@@ -477,7 +471,7 @@ function renderBilancio() {
     <div class="bil-condo-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem;margin-bottom:1.25rem">
       ${condominiKPI.map(c=>{
         const coloreActual  = c.diff>=0 ? 'var(--green)' : 'var(--red)';
-        const saldoProiett  = c.versato + c.versatoPrevis - c.quotaFull;
+        const saldoProiett  = c.riporto + c.versato + c.versatoPrevis - c.quotaFull;
         const percActual    = c.quota>0 ? Math.min(100,Math.round(c.versato/c.quota*100)) : 0;
         const percPrev      = c.quotaFull>0 ? Math.min(100,Math.round((c.versato+c.versatoPrevis)/c.quotaFull*100)) : 0;
         const coloreBar     = percActual>=100?'var(--green)':percActual>=60?'var(--amber)':'var(--red)';
@@ -490,7 +484,7 @@ function renderBilancio() {
             <div class="avatar" style="${avatarStyle(c.color)};width:38px;height:38px;font-size:14px">${initials(c.nome)}</div>
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;font-size:14px">${esc(c.nome)}</div>
-              <div style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</div>
+              <div style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}${c.disabled ? ' · non più attivo' : ''}</div>
             </div>
             <span class="badge ${c.diff>=0?'badge-green':'badge-red'}" style="font-size:11px">${statoLabel}</span>
           </div>
@@ -498,6 +492,10 @@ function renderBilancio() {
           <!-- SEZIONE ACTUAL -->
           <div style="background:#f0fdf4;border-radius:6px;padding:.5rem .75rem;margin-bottom:.5rem">
             <div style="font-size:9px;font-weight:700;color:var(--green);letter-spacing:.06em;margin-bottom:5px">✅ ACTUAL</div>
+            ${Math.abs(c.riporto) > 0.005 ? `<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span style="color:var(--text2)">Riporto anni prec.</span>
+              <span style="font-weight:600;color:${c.riporto>=0?'var(--green)':'var(--red)'}">${c.riporto>=0?'+':''}${fmt(c.riporto)}</span>
+            </div>` : ''}
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
               <span style="color:var(--text2)">Versato</span>
               <span style="font-weight:700;color:var(--green)">${fmt(c.versato)}</span>
@@ -507,7 +505,7 @@ function renderBilancio() {
               <span style="font-weight:600;color:var(--red)">−${fmt(c.quota)}</span>
             </div>
             <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px solid #bbf7d0;margin-top:4px;padding-top:4px">
-              <span>Saldo reale</span>
+              <span>Saldo reale${Math.abs(c.riporto) > 0.005 ? ' (con riporto)' : ''}</span>
               <span style="color:${coloreActual}">${c.diff>=0?'+':''}${fmt(c.diff)}</span>
             </div>
             <!-- Barra actual -->

@@ -41,7 +41,9 @@ function renderEntrate() {
     return cond.nome.toLowerCase().includes(state.searchQ.toLowerCase())||e.descrizione?.toLowerCase().includes(state.searchQ.toLowerCase());
   });
   items = [...items].sort((a,b)=>new Date(b.data)-new Date(a.data));
-  const totale = items.reduce((a,e)=>a+parseFloat(e.importo||0),0);
+  // Totale in verde = solo versamenti reali; le rate previste sono indicate a parte.
+  const totale = items.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+  const totalePrevisto = items.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
 
   const anni = getAnni();
   const perCondomino = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).map(c=>{
@@ -61,14 +63,7 @@ function renderEntrate() {
       const hasPrev = parseFloat(s.preventivo||0) > 0;
       const refActual = parseFloat(s.consuntivo||0);
       const refFull   = parseFloat(s.consuntivo||s.preventivo||0);
-      const getPerc = (ref) => {
-        if (!ref) return 0;
-        if (s.split?.length) {
-          const e = s.split.find(x=>x.id===condId);
-          return e ? (e.perc||0)/100*ref : ref/nAttiviEnt;
-        }
-        return ref/nAttiviEnt;
-      };
+      const getPerc = (ref) => quotaSuSpesa(s, condId, ref, nAttiviEnt); // regola comune (js/core/utils.js)
       if (hasCons) {
         if (s.tipoSpesa==='straordinaria') straord += getPerc(refActual);
         else ord += getPerc(refActual);
@@ -120,20 +115,10 @@ function renderEntrate() {
             const annoMax       = anniSel.length ? anniSel[anniSel.length - 1] : 0;
             const nelRiporto    = (d) => { const a = annoDi(d); return a < annoMax && !anniSel.includes(a); };
             const annoSel       = anniSel.length === 1 ? anniSel[0] : 0; // per l'etichetta "Versato <anno>"
-            const versatiPrec   = (state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo))
-              .filter(e=>e.condominoId===c.id && !e.previsionale && nelRiporto(e.data))
-              .reduce((a,e)=>a+parseFloat(e.importo||0),0);
-            const spesePrecQuota= (state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo))
-              .filter(s=>nelRiporto(s.data) && parseFloat(s.consuntivo||0)>0)
-              .reduce((acc,s)=>{
-                const ref=parseFloat(s.consuntivo||0);
-                if(s.split?.length){const e=s.split.find(x=>x.id===c.id);return acc+(e?(e.perc||0)/100*ref:ref/nAttiviEnt);}
-                return acc+ref/nAttiviEnt;
-              },0);
-            const riporto       = versatiPrec - spesePrecQuota;
+            const riporto       = riportoCondomino(c.id, nelRiporto, nAttiviEnt);
             const diffActual    = versato - q.totActual;
             const saldoCassa    = riporto + diffActual;  // saldo reale con riporto
-            const diffFull      = versato + versatoPrev - q.totFull;
+            const diffFull      = riporto + versato + versatoPrev - q.totFull; // con il riporto, come il saldo reale
             const percActual    = q.totActual>0 ? Math.min(100,Math.round(versato/q.totActual*100)) : 0;
             const percFull      = q.totFull>0   ? Math.min(100,Math.round((versato+versatoPrev)/q.totFull*100)) : 0;
             const coloreBar     = percActual>=100?'var(--green)':percActual>=60?'var(--amber)':'var(--red)';
@@ -228,9 +213,7 @@ function renderEntrate() {
         speseAperte.map(s=>{
           const ref = parseFloat(s.preventivo||0);
           const quoteCond = perCondomino.map(c=>{
-            let q = 0;
-            if (s.split?.length) { const e=s.split.find(x=>x.id===c.id); q=e?(e.perc||0)/100*ref:ref/nAttiviEnt; }
-            else q = ref/nAttiviEnt;
+            const q = quotaSuSpesa(s, c.id, ref, nAttiviEnt);
             return '<td style="text-align:right;font-size:12px;color:#7c3aed">' + fmt(q) + '</td>';
           }).join('');
           return '<tr>' +
@@ -246,10 +229,7 @@ function renderEntrate() {
         perCondomino.map(c=>{
           const tot = speseAperte.reduce((a,s)=>{
             const ref=parseFloat(s.preventivo||0);
-            let q=0;
-            if(s.split?.length){const e=s.split.find(x=>x.id===c.id);q=e?(e.perc||0)/100*ref:ref/nAttiviEnt;}
-            else q=ref/nAttiviEnt;
-            return a+q;
+            return a + quotaSuSpesa(s, c.id, ref, nAttiviEnt);
           },0);
           return '<td style="text-align:right;color:#7c3aed">' + fmt(tot) + '</td>';
         }).join('') +
@@ -259,7 +239,7 @@ function renderEntrate() {
     ${anniSel.length === 1 ? renderPianoRateBox(anniSel[0], canEdit) : (canEdit && anniSel.length > 1 ? '<div class="alert alert-info" style="font-size:13px;margin-bottom:1rem">📅 Il piano rate si calcola su un anno alla volta: lascia acceso un solo anno per vederlo.</div>' : '') /* con più anni o "Tutti" il piano non compare */}
 
     <div class="card">
-      <div class="card-header"><h3>Tutti i versamenti</h3><strong style="color:var(--green)">${fmt(totale)}</strong></div>
+      <div class="card-header"><h3>Tutti i versamenti</h3><div style="text-align:right"><strong style="color:var(--green)">${fmt(totale)}</strong>${totalePrevisto > 0 ? `<div style="font-size:11px;color:#7c3aed">+ ${fmt(totalePrevisto)} previsti</div>` : ''}</div></div>
       ${renderEntrateMobileCards(items, canEdit)}
       <div class="table-wrap">
         ${items.length===0?`<div class="empty">${svgEmpty()}<p>Nessun versamento registrato</p></div>`:
@@ -433,8 +413,8 @@ function calcolaPianoRate(anno, nRate = 3) {
   // le spese ancora da consuntivare e più i versamenti previsti prima di quell'anno
   // (prima si usava la sola cassa di oggi e le rate risultavano troppo basse).
   let saldoPartenza = getSaldoStimatoInizioAnno(anno).stimato;
-  const speseRealizzateAnno   = allSpese.filter(s => new Date(s.data).getFullYear()===anno && parseFloat(s.consuntivo||0)>0);
-  const entrateRealizzateAnno = allEntrate.filter(e => !e.previsionale && new Date(e.data).getFullYear()===anno);
+  const speseRealizzateAnno   = allSpese.filter(s => annoDi(s.data)===anno && parseFloat(s.consuntivo||0)>0);
+  const entrateRealizzateAnno = allEntrate.filter(e => !e.previsionale && annoDi(e.data)===anno);
   saldoPartenza += entrateRealizzateAnno.reduce((a,e)=>a+parseFloat(e.importo||0),0)
                  - speseRealizzateAnno.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
   saldoPartenza = Math.round(saldoPartenza*100)/100;
@@ -449,11 +429,14 @@ function calcolaPianoRate(anno, nRate = 3) {
   const nAttivi = condominiAttivi.length || 1;
 
   const speseAperte = allSpese
-    .filter(s => new Date(s.data).getFullYear()===anno)
+    .filter(s => annoDi(s.data)===anno)
     .filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
 
   const uscite = speseAperte.map(s => {
-    let d = new Date(s.data);
+    // Data locale (new Date('AAAA-MM-GG') è mezzanotte UTC, cioè l'1 o le 2 di notte
+    // in Italia: una spesa del 31 finiva nel grafico del mese dopo).
+    const [ya, ma, ga] = String(s.data).split('-').map(Number);
+    let d = new Date(ya, ma - 1, ga);
     if (d < dataRata1) d = new Date(dataRata1); // spesa scaduta e non ancora pagata → rischio da subito
     return { data:d, importo:parseFloat(s.preventivo) };
   }).sort((a,b)=>a.data-b.data);
@@ -499,10 +482,7 @@ function calcolaPianoRate(anno, nRate = 3) {
   speseAperte.forEach(s => {
     const ref = parseFloat(s.preventivo||0);
     if (!ref) return;
-    condominiAttivi.forEach(c => {
-      const split = s.split?.find(x=>x.id===c.id);
-      quotaCondomino[c.id] += split ? (split.perc||0)/100*ref : ref/nAttivi;
-    });
+    condominiAttivi.forEach(c => { quotaCondomino[c.id] += quotaSuSpesa(s, c.id, ref, nAttivi); });
   });
 
   // ── 7. Posizionamento greedy delle rate: la 1a è fissa, le successive si piazzano
@@ -861,8 +841,14 @@ function bindAzioniEntrate() {
   document.querySelectorAll('[data-valida-entrata]').forEach(btn => {
     btn.onclick = () => {
       const id = parseInt(btn.dataset.validaEntrata);
-      if (!confirm('Confermi il versamento come effettivo? Verrà spostato dagli importi previsionali a quelli reali.')) return;
-      const entrate = state.entrate.map(e => e.id===id ? {...e, previsionale:false} : e);
+      const e0 = state.entrate.find(e => e.id === id);
+      const oggiStr = ymdLocale(new Date());
+      // Una rata pianificata nel futuro e confermata oggi è un pagamento di oggi:
+      // con la data pianificata finirebbe nella cassa del mese (o dell'anno) sbagliato.
+      const futura = e0 && e0.data > oggiStr;
+      if (!confirm('Confermi il versamento come effettivo? Verrà spostato dagli importi previsionali a quelli reali.'
+        + (futura ? '\nEra previsto per il ' + e0.data.split('-').reverse().join('/') + ': verrà registrato con la data di oggi. Per un\'altra data usa ✏️ Modifica.' : ''))) return;
+      const entrate = state.entrate.map(e => e.id===id ? {...e, previsionale:false, ...(futura ? { data: oggiStr } : {})} : e);
       save('cm_entrate', entrate);
       setState({entrate});
     };

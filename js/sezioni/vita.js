@@ -93,11 +93,11 @@ function renderAvvisoCard(a, canManage, oggi) {
 function renderVerbaliTab() {
   const canManage = canUserAdmin(state.user);
   const tuttiVerbali = getVerbaliVisibili();
-  const anniVerbali = [...new Set(tuttiVerbali.map(v => new Date(v.data).getFullYear()))].sort((a,b)=>b-a);
+  const anniVerbali = [...new Set(tuttiVerbali.map(v => annoDi(v.data)))].filter(a => a > 0).sort((a,b)=>b-a); // niente opzione "NaN" per date non valide
   const anno = state.filterAnnoVerbali || 0;
 
   let items = tuttiVerbali;
-  if (anno) items = items.filter(v => new Date(v.data).getFullYear() === anno);
+  if (anno) items = items.filter(v => annoDi(v.data) === anno);
   if (state.searchQ) {
     const q = state.searchQ.toLowerCase();
     items = items.filter(v =>

@@ -394,3 +394,91 @@ describe('UNIT — export del Confronto anni', () => {
     assert.ok(righe.some((r) => r.endsWith(';0,00;250,50')));
   });
 });
+
+describe('UNIT — difetti aperti chiusi dopo il riassessment', () => {
+  const Y = new Date().getFullYear();
+  const base = (extra) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], filterAnno: Y, filterAnni: [Y],
+      user: { id: 101, nome: 'A', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 101, nome: 'Anna', edificioId: 1 }, { id: 102, nome: 'Bruno', edificioId: 1 }], spese: [], entrate: [], ...extra });
+    return app;
+  };
+  it('meseDi legge il mese dal testo e scarta le date non valide', () => {
+    const app = loadApp();
+    assert.strictEqual(app.meseDi('2027-01-01'), 0);
+    assert.strictEqual(app.meseDi('2026-12-31'), 11);
+    assert.ok(Number.isNaN(app.meseDi('')));
+  });
+  it('riporto per condomino: versamenti reali meno la sua quota delle spese consuntivate degli anni prima', () => {
+    const app = base({
+      spese: [{ data: `${Y - 1}-05-01`, consuntivo: '1000', split: [{ id: 101, perc: 60 }, { id: 102, perc: 40 }], edificioId: 1 },
+        { data: `${Y - 1}-06-01`, preventivo: '500', consuntivo: '', split: [], edificioId: 1 }],
+      entrate: [{ data: `${Y - 1}-02-01`, importo: '200', condominoId: 101, edificioId: 1 },
+        { data: `${Y - 1}-12-01`, importo: '999', condominoId: 101, edificioId: 1, previsionale: true }] });
+    assert.strictEqual(app.riportoCondomino(101, (d) => app.annoDi(d) < Y, 2), -400); // 200 − 600
+    assert.strictEqual(app.riportoCondomino(102, (d) => app.annoDi(d) < Y, 2), -400); //   0 − 400
+  });
+  it('Bilancio per condomino: chi ha un debito dagli anni prima non risulta "in regola"', () => {
+    const app = base({ page: 'bilancio', bilancioTab: 'condomini',
+      spese: [{ id: 1, data: `${Y - 1}-05-01`, consuntivo: '1000', split: [{ id: 101, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 },
+        { id: 2, data: `${Y}-03-01`, consuntivo: '200', split: [{ id: 101, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 }],
+      entrate: [{ id: 3, data: `${Y}-03-10`, importo: '100', condominoId: 101, edificioId: 1 },
+        { id: 4, data: `${Y - 1}-06-10`, importo: '500', condominoId: 102, edificioId: 1 },
+        { id: 5, data: `${Y}-03-10`, importo: '100', condominoId: 102, edificioId: 1 }] });
+    const h = app.renderBilancio();
+    assert.ok(h.includes('Riporto anni prec.'), 'riga del riporto mancante');
+    assert.ok(h.includes('-500,00'), 'debito di Anna dagli anni prima (0 − 500)');
+    assert.ok(/In regola<\/div><div class="kpi-value"[^>]*>1\/2</.test(h), 'solo Bruno è in pari');
+  });
+  it('chi non è nella ripartizione di una spesa non paga una parte uguale (totale quote = spesa)', () => {
+    const app = base({ page: 'bilancio', bilancioTab: 'condomini',
+      condomini: [{ id: 101, nome: 'Anna', edificioId: 1 }, { id: 102, nome: 'Bruno', edificioId: 1 }, { id: 103, nome: 'Carla', edificioId: 1 }],
+      spese: [{ id: 1, data: `${Y}-03-01`, consuntivo: '900', split: [{ id: 101, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 }] });
+    const h = app.renderBilancio();
+    const i = h.indexOf('Carla');
+    assert.ok(i > 0);
+    assert.ok(h.slice(i, i + 2500).includes('−€ 0,00'), 'Carla, entrata dopo, non deve avere quota');
+  });
+  it('"La tua situazione" mostra il debito degli anni precedenti', () => {
+    const app = base({ page: 'dashboard', user: { id: 103, nome: 'M', edificioId: 1 }, condomini: [{ id: 103, nome: 'M', edificioId: 1 }],
+      spese: [{ data: `${Y - 1}-05-01`, consuntivo: '300', split: [], edificioId: 1 }] });
+    const d = app.renderDashboard();
+    const i = d.indexOf('La tua situazione');
+    assert.ok(d.slice(i, i + 2000).includes('Dagli anni precedenti') && d.slice(i, i + 2000).includes('-300,00'));
+  });
+  it('Entrate: il totale in verde conta solo i versamenti reali, le rate previste sono a parte', () => {
+    const app = base({ page: 'entrate', entrate: [
+      { id: 1, data: `${Y}-02-01`, importo: '100', condominoId: 101, edificioId: 1 },
+      { id: 2, data: `${Y}-11-01`, importo: '400', condominoId: 101, edificioId: 1, previsionale: true }] });
+    const h = app.renderEntrate();
+    assert.ok(/Tutti i versamenti<\/h3><div[^>]*><strong[^>]*>€ 100,00/.test(h), 'totale reale');
+    assert.ok(h.includes('400,00 previsti'));
+  });
+  it('Bilancio di un anno chiuso segnala preventivi e rate rimasti aperti', () => {
+    const app = base({ page: 'bilancio', bilancioTab: 'overview', filterAnno: Y - 1,
+      spese: [{ id: 1, data: `${Y - 1}-05-01`, preventivo: '300', consuntivo: '', edificioId: 1, split: [] }],
+      entrate: [{ id: 2, data: `${Y - 1}-06-01`, importo: '50', edificioId: 1, previsionale: true }] });
+    const h = app.renderBilancio();
+    assert.ok(h.includes('sono rimasti aperti') && h.includes('1 spesa con solo preventivo') && h.includes('1 versamento previsto'));
+  });
+});
+
+describe('UNIT — ripartizione esatta al 100%', () => {
+  it('parti uguali in centesimi: la somma è sempre 100,00%', () => {
+    const app = loadApp();
+    for (const n of [1, 3, 6, 7, 9, 12]) {
+      const p = app.partiUguali(n);
+      assert.strictEqual(p.length, n);
+      assert.strictEqual(Math.round(p.reduce((a, x) => a + x, 0) * 100), 10000, 'n=' + n);
+    }
+  });
+  it('una ripartizione salvata a 100,02% (6 × 16,67%) chiede esattamente la spesa, non 6 € in più', () => {
+    const app = loadApp();
+    const split = [1, 2, 3, 4, 5, 6].map((id) => ({ id, perc: 16.67 }));
+    const quote = split.map((x) => app.quotaSuSpesa({ split }, x.id, 30000, 6));
+    assert.strictEqual(Math.round(quote.reduce((a, q) => a + q, 0) * 100) / 100, 30000);
+    // una ripartizione volutamente diversa da 100% (es. 80%) non viene toccata
+    assert.strictEqual(app.percEffettiva([{ perc: 50 }, { perc: 30 }], 50), 50);
+  });
+});

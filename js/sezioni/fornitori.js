@@ -297,7 +297,7 @@ function renderModalStoricoFornitore(f) {
   // Raggruppa per anno
   const perAnno = {};
   speseF.forEach(s => {
-    const y = new Date(s.data).getFullYear();
+    const y = annoDi(s.data);
     if (!perAnno[y]) perAnno[y] = [];
     perAnno[y].push(s);
   });

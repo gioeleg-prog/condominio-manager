@@ -71,6 +71,12 @@ function annoDi(d) {
   return a > 1900 && a < 3000 ? a : NaN;
 }
 
+// Mese (0-11) di una data 'AAAA-MM-GG' letto dal testo, come annoDi; NaN se non valida.
+function meseDi(d) {
+  const m = parseInt(String(d || '').slice(5, 7), 10);
+  return m >= 1 && m <= 12 ? m - 1 : NaN;
+}
+
 function getAnni() {
   const anni = new Set();
   const filtSpese   = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
@@ -111,6 +117,48 @@ function getSaldoStimatoInizioAnno(anno) {
     .reduce((a, e) => a + (parseFloat(e.importo) || 0), 0);
   const stimato = Math.round((reale - speseAperte + entratePreviste) * 100) / 100;
   return { reale, speseAperte, entratePreviste, stimato };
+}
+
+// Quota di un condomino su una spesa: la percentuale salvata nella ripartizione;
+// se la spesa ha una ripartizione e lui non c'è, zero (come la pagina Spese e
+// l'export); senza ripartizione, parti uguali tra i condomini attivi.
+// Prima Bilancio, Dashboard ed Entrate davano a chi mancava dalla ripartizione
+// anche una parte uguale: un condomino arrivato dopo pagava quote di spese
+// vecchie e il totale delle quote superava la spesa.
+function quotaSuSpesa(s, condId, importo, nAttivi) {
+  if (!importo) return 0;
+  if (s.split?.length) {
+    const e = s.split.find(x => x.id === condId);
+    return e ? percEffettiva(s.split, e.perc) / 100 * importo : 0;
+  }
+  return importo / (nAttivi || 1);
+}
+
+// Percentuale da usare nei calcoli: le caselle della ripartizione hanno due
+// decimali, quindi in parti uguali si salvava ad esempio 6 × 16,67% = 100,02%
+// (6 € in più su 30.000 €). Una ripartizione che per arrotondamento somma tra
+// 99,9% e 100,1% viene letta come 100% esatto, anche per le spese già salvate.
+function percEffettiva(split, perc) {
+  const tot = (split || []).reduce((a, x) => a + (parseFloat(x.perc) || 0), 0);
+  return tot > 99.9 && tot < 100.1 ? (parseFloat(perc) || 0) * 100 / tot : (parseFloat(perc) || 0);
+}
+
+// n parti uguali che sommano esattamente a 100,00%: si divide in centesimi e il
+// resto va ai primi (stessa regola del pulsante "Parti uguali").
+function partiUguali(n) {
+  n = n || 1;
+  return Array.from({ length: n }, (_, i) => (Math.floor(10000 / n) + (i < 10000 % n ? 1 : 0)) / 100);
+}
+
+// Riporto di un condomino: versamenti reali meno quota delle spese consuntivate,
+// sui movimenti la cui data soddisfa nelRiporto (es. tutti gli anni prima di quello scelto).
+function riportoCondomino(condId, nelRiporto, nAttivi) {
+  const edOk = (r) => !r.edificioId || r.edificioId === state.edificioAttivo;
+  const versati = state.entrate.filter(e => edOk(e) && e.condominoId === condId && !e.previsionale && nelRiporto(e.data))
+    .reduce((a, e) => a + (parseFloat(e.importo) || 0), 0);
+  const quote = state.spese.filter(s => edOk(s) && nelRiporto(s.data))
+    .reduce((a, s) => a + quotaSuSpesa(s, condId, parseFloat(s.consuntivo) || 0, nAttivi), 0);
+  return versati - quote;
 }
 
 // Campo CSV (separatore ";"): virgolette se contiene separatore, virgolette o a-capo.

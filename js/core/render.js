@@ -54,6 +54,15 @@ function applyA11y(root) {
       || (ctrl.tagName === 'SELECT' && ctrl.options[0] ? ctrl.options[0].textContent.trim() : '');
     if (name) ctrl.setAttribute('aria-label', name);
   });
+  // Tabelle più larghe dello schermo (es. a 1024 px): l'area che scorre di lato
+  // deve essere raggiungibile da tastiera (WCAG 2.1.1) e avere un nome.
+  root.querySelectorAll('.table-wrap, .ops-table-wrap').forEach(el => {
+    if (el.hasAttribute('tabindex') || el.scrollWidth <= el.clientWidth) return;
+    el.tabIndex = 0;
+    el.setAttribute('role', 'region');
+    const titolo = el.closest('.card')?.querySelector('h3')?.textContent?.trim();
+    el.setAttribute('aria-label', (titolo || 'Tabella') + ' (scorre di lato)');
+  });
 }
 
 function renderApp() {

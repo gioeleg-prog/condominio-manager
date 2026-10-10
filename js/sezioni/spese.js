@@ -23,12 +23,12 @@ function renderQuotaCell(spesa) {
     const refPerc = validSplit[0].perc;
     const isEqual = validSplit.length === nCond && validSplit.every(s=>Math.abs((s.perc||0)-refPerc)<0.1);
     if (isEqual) {
-      return `<div style="font-size:12px;color:var(--text2)">${fmt(refPerc/100*importoRef)} <span>× ${nCond}</span></div>`;
+      return `<div style="font-size:12px;color:var(--text2)">${fmt(percEffettiva(spesa.split, refPerc)/100*importoRef)} <span>× ${nCond}</span></div>`;
     }
     const isEqualPartial = validSplit.every(s=>Math.abs((s.perc||0)-refPerc)<0.1);
     if (isEqualPartial) {
       // Suddivisa in parti uguali ma solo tra un sottoinsieme dei condomini (es. 4 su 6)
-      return `<div style="font-size:12px;color:var(--text2)">${fmt(refPerc/100*importoRef)} <span>× ${validSplit.length}</span></div>`;
+      return `<div style="font-size:12px;color:var(--text2)">${fmt(percEffettiva(spesa.split, refPerc)/100*importoRef)} <span>× ${validSplit.length}</span></div>`;
     }
     return `<div style="font-size:11px;color:var(--text2)">Split personalizzato <span>(${validSplit.length} cond.)</span></div>`;
   }
@@ -39,7 +39,7 @@ function renderQuotaCell(spesa) {
   }
   const mySplit = validSplit.find(s=>s.id===user.id);
   if (!mySplit) return '<span style="color:var(--text2);font-size:12px">—</span>'; // escluso da questa spesa
-  const myEuro = (mySplit.perc||0)/100*importoRef;
+  const myEuro = percEffettiva(spesa.split, mySplit.perc)/100*importoRef;
   return `<div>
     <div style="font-weight:600;color:var(--accent)">${fmt(myEuro)}</div>
     <div style="font-size:11px;color:var(--text2)">${(mySplit.perc||0).toFixed(1)}%</div>
@@ -113,7 +113,7 @@ function renderQuotaCellText(spesa) {
   if (validSplit.length === 0) return fmt(importoRef/nCond);
   const mySplit = validSplit.find(s=>s.id===user.id);
   if (!mySplit) return ''; // escluso da questa spesa → nessuna riga "tua" mostrata
-  return fmt((mySplit.perc||0)/100*importoRef);
+  return fmt(percEffettiva(spesa.split, mySplit.perc)/100*importoRef);
 }
 
 // ===========================
@@ -417,16 +417,16 @@ function renderModalSpesa(d) {
     const filtered = d.split.filter(s => validIds.has(s.id));
     if (filtered.length === 0) {
       // Nessun condomino valido nel split salvato → rigenera uguale
-      splitData = _condSplit.map(c=>({id:c.id, perc: parseFloat((100/Math.max(_condSplit.length,1)).toFixed(4)), locked:false}));
+      splitData = _condSplit.map((c,i)=>({id:c.id, perc: partiUguali(_condSplit.length)[i], locked:false}));
     } else {
       // Ricalibra: normalizza le % al 100% escludendo i rimossi
       const totPerc = filtered.reduce((a,s)=>a+(s.perc||0), 0);
       splitData = totPerc > 0
         ? filtered.map(s=>({...s, perc: parseFloat((s.perc/totPerc*100).toFixed(4))}))
-        : _condSplit.map(c=>({id:c.id, perc: parseFloat((100/Math.max(_condSplit.length,1)).toFixed(4)), locked:false}));
+        : _condSplit.map((c,i)=>({id:c.id, perc: partiUguali(_condSplit.length)[i], locked:false}));
     }
   } else {
-    splitData = _condSplit.map(c=>({id:c.id, perc: parseFloat((100/Math.max(_condSplit.length,1)).toFixed(4)), locked:false}));
+    splitData = _condSplit.map((c,i)=>({id:c.id, perc: partiUguali(_condSplit.length)[i], locked:false}));
   }
   const importoRef = parseFloat(d?.consuntivo||d?.preventivo||0);
 
@@ -630,7 +630,7 @@ function esportaSpeseCSV(spese, nomeFile) {
     const validSplit = (spesa.split||[]).filter(s => condEd.some(c=>c.id===s.id) && (s.perc||0) > 0);
     if (validSplit.length === 0) return importoRef / nCond;
     const mySplit = validSplit.find(s => s.id === condId);
-    return mySplit ? (mySplit.perc||0)/100*importoRef : 0;
+    return mySplit ? percEffettiva(spesa.split, mySplit.perc)/100*importoRef : 0;
   }
   const csvField = csvCampo; // js/core/utils.js (escape CSV e protezione dalle formule di Excel)
   function numCSV(n) {
