@@ -749,3 +749,31 @@ describe('UNIT — subentri (date di ingresso e uscita)', () => {
     assert.strictEqual(s.modal, null);
   });
 });
+
+describe('UNIT — subentro solo per amministratori', () => {
+  const casi = [
+    ['lettura', { id: 102, canEdit: false, isAdmin: false }, false],
+    ['modifica', { id: 102, canEdit: true, isAdmin: false }, false],
+    ['amm. edificio', { id: 102, canEdit: true, isAdmin: true }, true],
+    ['super admin', { id: 900, superAdmin: true }, true],
+  ];
+  for (const [nome, user, puo] of casi) {
+    it(`${nome}: ${puo ? 'può' : 'non può'} registrare un subentro`, () => {
+      const app = loadApp();
+      app.__set('state', { ...app.__get('state'), edificioAttivo: 1, user: { ...user, edificioId: 1 },
+        condomini: [{ id: 201, nome: 'Dario', appartamento: 'Int. 3', edificioId: 1 }], spese: [], entrate: [],
+        modal: { type: 'subentro', data: { id: 201, nome: 'Dario', edificioId: 1 } } });
+      const salvati = {};
+      app.save = (k, v) => { salvati[k] = v; };
+      app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+      const campi = { 'btn-sub-conferma': { dataset: { cond: '201' } }, 'sub-data': { value: '2027-01-01' }, 'sub-nome': { value: 'Elena' },
+        'sub-email': { value: '' }, 'sub-ruolo': { value: 'lettura' }, 'sub-passa': { checked: true }, 'sub-err': { style: {} } };
+      app.document.getElementById = (id) => campi[id] || null;
+      assert.strictEqual(app.renderModalSubentro({ id: 201, nome: 'Dario', edificioId: 1 }).includes('btn-sub-conferma'), puo);
+      app.bindSchedaSubentro();
+      if (campi['btn-sub-conferma'].onclick) campi['btn-sub-conferma'].onclick();
+      assert.strictEqual(!!salvati.cm_condomini, puo);
+      assert.strictEqual(app.__get('state').condomini.some((c) => c.nome === 'Elena'), puo);
+    });
+  }
+});
