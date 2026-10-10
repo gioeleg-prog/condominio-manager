@@ -22,7 +22,7 @@ const GUIDA = {
       ['Vedere un altro anno', 'Usa il menu dell\'anno in alto a destra.'],
       ['Andare a una sezione', 'Tocca una voce del menu, oppure "Vedi tutti" sotto ogni riquadro.'],
       ['Cercare qualcosa', 'Campo "🔍 Cerca nel sito" nella barra laterale (dal telefono 🔍 in alto): trova spese, versamenti, fornitori, avvisi e verbali.'],
-      ['Modalità scura', 'Pulsante 🌓 accanto a 🔑 in basso nella barra laterale (dal telefono, nel menu del profilo): automatico, chiaro o scuro.'],
+      ['Modalità scura', 'Interruttore sole/luna accanto a "Guida", in cima a ogni pagina: spostalo per passare dal tema chiaro a quello scuro. Finché non lo tocchi, l\'app segue l\'impostazione del telefono o del computer.'],
     ],
     sapere: [
       '<b>Previsionale</b>: importo stimato, non ancora pagato. <b>Definitiva</b>: spesa con l\'importo reale.',
@@ -240,7 +240,8 @@ function btnGuida() {
   const nuova = !guidaVista(state.page);
   return `<button type="button" class="btn-guida${state.guidaAperta ? ' attivo' : ''}" data-guida-apri aria-label="Guida di questa pagina" aria-expanded="${state.guidaAperta ? 'true' : 'false'}" title="Come funziona questa pagina">`
     + `<span class="btn-guida-icona" aria-hidden="true">?</span><span class="btn-guida-testo">Guida</span>`
-    + (nuova ? '<span class="btn-guida-nuova" aria-hidden="true"></span>' : '') + `</button>`;
+    + (nuova ? '<span class="btn-guida-nuova" aria-hidden="true"></span>' : '') + `</button>`
+    + renderInterruttoreTema(); // interruttore chiaro/scuro accanto alla guida (js/core/tema.js)
 }
 
 function renderGuida() {

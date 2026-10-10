@@ -655,6 +655,7 @@ describe('UNIT — ricerca nel sito e tema', () => {
   it('tema: scelta non valida o assente = automatico; senza scuro del dispositivo resta chiaro', () => {
     const app = loadApp();
     assert.strictEqual(app.temaScelto(), 'auto');
-    assert.strictEqual(typeof app.cambiaTema, 'function');
+    assert.strictEqual(typeof app.interruttoreTema, 'function');
+    assert.ok(app.renderInterruttoreTema().includes('role="switch"') && app.renderInterruttoreTema().includes('aria-checked="false"'));
   });
 });

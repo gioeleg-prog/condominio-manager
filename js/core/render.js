@@ -63,6 +63,9 @@ function applyA11y(root) {
     const titolo = el.closest('.card')?.querySelector('h3')?.textContent?.trim();
     el.setAttribute('aria-label', (titolo || 'Tabella') + ' (scorre di lato)');
   });
+  // Menu laterale su schermi bassi: se scorre in verticale dev'essere raggiungibile da tastiera.
+  const nav = root.querySelector('.sidebar nav');
+  if (nav && !nav.hasAttribute('tabindex') && nav.scrollHeight > nav.clientHeight) { nav.tabIndex = 0; nav.setAttribute('aria-label', 'Menu (scorre)'); }
 }
 
 function renderApp() {
@@ -146,7 +149,6 @@ function renderApp() {
           </div>
           <div style="display:flex;flex-direction:column;gap:4px">
             <button class="logout-btn" id="btn-change-pw" title="Cambia password" style="font-size:13px">🔑</button>
-            <button class="logout-btn" id="btn-tema" title="${TEMI[temaScelto()]} (tocca per cambiare)" aria-label="${TEMI[temaScelto()].slice(3)}, tocca per cambiare" style="font-size:13px">${TEMI[temaScelto()].slice(0, 2)}</button>
             <button class="logout-btn" id="btn-logout" title="Esci">${svgLogout()}</button>
           </div>
         </div>
@@ -184,7 +186,6 @@ function renderApp() {
           </button>` : ''}
           <div class="mpm-sep"></div>
           <button class="mpm-item" id="mpm-change-pw">🔑 Cambia password</button>
-          <button class="mpm-item" id="mpm-tema">${TEMI[temaScelto()]}</button>
           ${canUserSeeImpostazioni(user) ? '<button class="mpm-item" id="mpm-impostazioni">⚙️ Impostazioni</button>' : ''}
           <div class="mpm-sep"></div>
           <button class="mpm-item danger" id="mpm-logout">↩️ Esci</button>
@@ -288,7 +289,7 @@ function bindApp() {
   if (mainEl) mainEl.addEventListener('click', e => {
     if (state.sidebarOpen && window.innerWidth <= 768) setState({sidebarOpen:false});
   }, {once:false, capture:false});
-  ['btn-tema', 'mpm-tema'].forEach(id => { const b = document.getElementById(id); if (b) b.onclick = cambiaTema; });
+  document.querySelectorAll('[data-tema-switch]').forEach(b => { b.onclick = interruttoreTema; });
   bindCampoRicerca();
   bindPageActions();
   bindGuida();
