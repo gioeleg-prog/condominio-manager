@@ -168,3 +168,37 @@ describe('UNIT — graffetta allegati accanto al titolo (renderAllegatiClip)', (
     assert.ok(!h.includes('<img'), 'nome del file non escapato');
   });
 });
+
+describe('UNIT — guida rapida delle pagine', () => {
+  const app = loadApp();
+  const GUIDA = app.__get('GUIDA');
+  const user = (r) => ({ lettura: { nome: 'L' }, mod: { nome: 'M', canEdit: true }, admin: { nome: 'A', isAdmin: true }, super: { nome: 'S', superAdmin: true } }[r]);
+  const guida = (page, ruolo) => { app.__set('state', { ...app.__get('state'), page, user: user(ruolo) }); return app.renderGuida(); };
+
+  it('ogni pagina del menu ha la sua guida', () => {
+    for (const p of ['dashboard', 'spese', 'entrate', 'bilancio', 'fornitori', 'vita', 'condomini', 'impostazioni']) {
+      assert.ok(GUIDA[p] && GUIDA[p].titolo && GUIDA[p].breve, 'manca la guida di ' + p);
+    }
+  });
+  it('ogni voce ha un livello riconosciuto e un testo', () => {
+    const livelli = ['lettura', 'noadmin', 'mod', 'admin', 'super'];
+    for (const [p, g] of Object.entries(GUIDA)) {
+      for (const v of [...g.trovi, ...g.sapere]) {
+        if (Array.isArray(v)) assert.ok(v.length === 2 && livelli.includes(v[0]), `${p}: voce con livello errato ${JSON.stringify(v)}`);
+      }
+      for (const v of g.fare) {
+        assert.ok(Array.isArray(v) && (v.length === 2 || (v.length === 3 && livelli.includes(v[0]))), `${p}: passo errato ${JSON.stringify(v)}`);
+      }
+    }
+  });
+  it('chi è in sola lettura non vede le istruzioni per modificare, e viceversa', () => {
+    const l = guida('spese', 'lettura'), m = guida('spese', 'mod');
+    assert.ok(!l.includes('Aggiungere una spesa') && l.includes('Chiedere una modifica'));
+    assert.ok(m.includes('Aggiungere una spesa') && !m.includes('Chiedere una modifica'));
+  });
+  it('le voci da super admin restano nascoste agli altri ruoli', () => {
+    assert.ok(!guida('impostazioni', 'admin').includes('Zona pericolosa'));
+    assert.ok(guida('impostazioni', 'super').includes('Zona pericolosa'));
+    assert.ok(guida('vita', 'mod').includes('rivolgiti') && !guida('vita', 'admin').includes('Proporre un avviso'));
+  });
+});

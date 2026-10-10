@@ -67,7 +67,7 @@ function renderApp() {
   ];
   return `
   <div class="sidebar-overlay ${sidebarOpen?'show':''}" id="sidebar-overlay"></div>
-  <div class="app">
+  <div class="app${state.guidaAperta ? ' guida-aperta' : ''}">
     <aside class="sidebar ${sidebarOpen?'open':''}">
       <div class="sidebar-logo">
         <div class="icon">
@@ -198,6 +198,7 @@ function renderApp() {
     <button class="fab" id="fab-add" title="Aggiungi">+</button>` : ''}
 
   </div>
+  ${state.guidaAperta ? renderGuida() : ''}
   ${state.modal ? renderModal() : ''}`;
 }
 
@@ -269,6 +270,7 @@ function bindApp() {
     if (state.sidebarOpen && window.innerWidth <= 768) setState({sidebarOpen:false});
   }, {once:false, capture:false});
   bindPageActions();
+  bindGuida();
   if (state.modal) bindModal();
   if (state.viewer) bindViewer();
 }
