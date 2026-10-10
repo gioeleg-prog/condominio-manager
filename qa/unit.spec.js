@@ -499,3 +499,67 @@ describe('UNIT — spese ricorrenti come serie', () => {
     assert.strictEqual(app.renderBoxSerie(serie[3]), '');
   });
 });
+
+describe('UNIT — rendiconto annuale', () => {
+  const Y = new Date().getFullYear();
+  const base = (extra) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [{ id: 5, nome: 'Pulito Srl' }],
+      user: { id: 101, nome: 'Anna', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 }, { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }],
+      spese: [
+        { id: 1, data: `${Y - 2}-05-01`, consuntivo: '400', split: [], edificioId: 1 },
+        { id: 2, data: `${Y - 1}-03-01`, titolo: 'Pulizie', categoria: 'pulizie', tipoSpesa: 'ordinaria', preventivo: '1000', consuntivo: '1100', fornitoreId: 5, split: [{ id: 101, perc: 60 }, { id: 102, perc: 40 }], allegati: [{ id: 1 }], edificioId: 1 },
+        { id: 3, data: `${Y - 1}-09-01`, titolo: 'Tetto', categoria: 'tetto', tipoSpesa: 'straordinaria', preventivo: '2000', consuntivo: '', split: [], edificioId: 1 },
+        { id: 4, data: `${Y + 1}-02-01`, titolo: 'Assicurazione', categoria: 'assicurazione', tipoSpesa: 'ordinaria', preventivo: '800', consuntivo: '', split: [], edificioId: 1 },
+      ],
+      entrate: [
+        { id: 10, data: `${Y - 2}-01-10`, importo: '1000', condominoId: 101, edificioId: 1 },
+        { id: 11, data: `${Y - 1}-02-10`, importo: '500', condominoId: 101, edificioId: 1 },
+        { id: 12, data: `${Y - 1}-12-10`, importo: '300', condominoId: 102, edificioId: 1, previsionale: true },
+      ], ...extra });
+    return app;
+  };
+  it('anno chiuso: cassa iniziale + versamenti - spese consuntivate = cassa finale', () => {
+    const d = base().datiRendiconto(Y - 1);
+    assert.strictEqual(d.preventivo, false);
+    assert.strictEqual(d.riporto, 600);          // 1000 - 400
+    assert.strictEqual(d.entrate, 500);
+    assert.strictEqual(d.uscite, 1100);
+    assert.strictEqual(d.cassaFine, 0);          // 600 + 500 - 1100
+    assert.strictEqual(d.usciteOrd, 1100);
+    assert.strictEqual(d.daConsuntivare, 2000);
+    assert.strictEqual(d.chiuseCons - d.chiusePrev, 100);
+    assert.strictEqual(d.entratePreviste, 300);
+    assert.strictEqual(JSON.stringify(d.categorie.map((c) => c.tipo + ':' + c.categoria)), JSON.stringify(['ordinaria:Pulizie', 'straordinaria:Rifacimento tetto']));
+  });
+  it('riparto: quote dalla ripartizione, riporto per condomino e saldo', () => {
+    const d = base().datiRendiconto(Y - 1);
+    const a = d.riparto.find((r) => r.nome === 'Anna'), b = d.riparto.find((r) => r.nome === 'Bruno');
+    assert.strictEqual(a.dovuto, 660); assert.strictEqual(b.dovuto, 440);
+    assert.strictEqual(a.riporto, 800);          // 1000 versati - 200 (metà dei 400 senza ripartizione)
+    assert.strictEqual(a.saldo, 800 + 500 - 660);
+    assert.strictEqual(b.saldo, -200 - 440);     // la rata prevista non conta
+  });
+  it('registri del dettagliato: spese con fornitore e allegati, versamenti reali separati dai previsti', () => {
+    const d = base().datiRendiconto(Y - 1);
+    assert.strictEqual(d.registroSpese.length, 2);
+    assert.strictEqual(d.registroSpese[0].fornitore, 'Pulito Srl');
+    assert.strictEqual(d.registroSpese[0].allegati, 1);
+    assert.strictEqual(d.registroVersamenti.length, 1);
+    assert.strictEqual(d.registroPrevisti.length, 1);
+  });
+  it('anno prossimo: diventa bilancio preventivo con gli importi a preventivo', () => {
+    const d = base().datiRendiconto(Y + 1);
+    assert.strictEqual(d.preventivo, true);
+    assert.strictEqual(d.uscite, 800);
+    assert.strictEqual(d.riparto.find((r) => r.nome === 'Anna').dovuto, 400);
+  });
+  it('importi nel PDF sempre con il punto delle migliaia e la virgola dei decimali', () => {
+    const app = loadApp();
+    assert.strictEqual(app.euroPdf(1234.5), '€ 1.234,50');
+    assert.strictEqual(app.euroPdf(-32950), '-€ 32.950,00');
+    assert.strictEqual(app.euroPdf(0), '€ 0,00');
+    assert.strictEqual(app.dataPdf('2026-03-31'), '31/03/2026');
+  });
+});

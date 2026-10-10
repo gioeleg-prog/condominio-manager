@@ -331,6 +331,7 @@ function renderModal() {
   if (m.type === 'storico-fornitore') return renderModalStoricoFornitore(m.data);
   if (m.type === 'change-pw') return renderModalChangePw();
   if (m.type === 'admin-reset-pw') return renderModalAdminResetPw(m.data);
+  if (m.type === 'rendiconto') return renderModalRendiconto(m.data);
   return '';
 }
 

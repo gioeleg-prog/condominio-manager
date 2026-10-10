@@ -689,6 +689,7 @@ function renderBilancio() {
     <div class="page-header">
       <div><div class="page-title">Bilancio ${btnGuida()}</div><div class="page-sub">${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome)} · ${anno}</div></div>
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        ${canUserEdit(state.user) ? `<button class="btn btn-primary btn-sm" id="btn-rendiconto-pdf" title="Rendiconto annuale da scaricare e inviare">📄 Rendiconto PDF</button>` : ''}
         <button class="btn btn-secondary btn-sm" data-page="confronto" title="Confronta più anni">📈 Confronta anni</button>
         <select style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;" id="anno-bilancio">
           ${anni.map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
@@ -702,6 +703,8 @@ function renderBilancio() {
 
 // Anno, schede e dettaglio per condomino della pagina Bilancio. Chiamata da bindPageActions() (azioni.js).
 function bindAzioniBilancio() {
+  const br = document.getElementById('btn-rendiconto-pdf');
+  if (br) br.onclick = () => setState({ modal: { type: 'rendiconto', data: { anno: state.filterAnno || new Date().getFullYear() } } });
   const ab = document.getElementById('anno-bilancio');
   if (ab) ab.onchange = e => { const a = parseInt(e.target.value)||new Date().getFullYear(); setState({filterAnno: a, filterAnni: [a]}); }; // anno singolo, allineato al filtro delle pagine elenco
   document.querySelectorAll('.bil-tab:not(.vita-tab)').forEach(t => {

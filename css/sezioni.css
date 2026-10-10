@@ -399,3 +399,10 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .cf-tab tbody th, .cf-tab tfoot th { text-transform: none; letter-spacing: normal; font-size: 13.5px; color: var(--text); background: none; }
 .cf-tab tr.cf-sotto th { color: var(--text2); }
 @media (max-width: 768px) { .cf-tab tbody th, .cf-tab tfoot th { font-size: 12.5px; } }
+
+/* ── Scheda Rendiconto PDF (js/sezioni/rendiconto.js) ──────────────── */
+.rend-scelte { display: flex; flex-direction: column; gap: .5rem; }
+.rend-scelta { display: flex; gap: 10px; align-items: flex-start; padding: .65rem .75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; }
+.rend-scelta:has(input:checked) { border-color: var(--accent); background: var(--accent-light); }
+.rend-scelta input { margin-top: 3px; }
+.rend-scelta small { color: var(--text2); }
