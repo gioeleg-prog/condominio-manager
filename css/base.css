@@ -1,11 +1,13 @@
 /* Variabili (colori, raggi, ombre), base, login, struttura dell'app. */
 :root {
-  --bg: #F4F7FB;
+  /* Neutri senza tinta, come il sito di riferimento (thecolorsofmotion.com):
+     il colore resta ai dati (verde, rosso, ambra, blu). */
+  --bg: #FAFAFA;
   --surface: #FFFFFF;
-  --surface2: #EEF2F7;
-  --border: #D8E2EE;
-  --text: #1B2A4A;
-  --text2: #5A6E8A;
+  --surface2: #F5F5F5;
+  --border: #E5E5E5;
+  --text: #0A0A0A;
+  --text2: #636363;
   --accent: #1D4ED8;
   --accent-light: #EFF4FF;
   --green: #166534;
@@ -16,10 +18,19 @@
   --amber-light: #FFFBEB;
   --purple: #7C3AED;
   --purple-light: #F5F3FF;
-  --radius: 10px;
-  --radius-sm: 6px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --radius: 12px;             /* schede, finestre */
+  --radius-sm: 8px;           /* pulsanti, campi, avvisi */
+  --radius-xs: 6px;           /* voci di menu, piccoli controlli */
+  --shadow: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1);
+  /* Pulsanti pieni e selezioni attive: quasi nero con testo chiaro. */
+  --primary: #171717;
+  --on-primary: #FAFAFA;
+  --ring: #0A0A0A;            /* contorno del fuoco da tastiera */
+  --ring-soft: rgba(10,10,10,0.08);
+  --scroll: #D4D4D4;
+  --scroll-hover: #A3A3A3;
   /* Tinte usate nelle pagine (prima scritte a mano nei singoli elementi). */
   --accent-fill: #1D4ED8;      /* sfondo dei pulsanti pieni, con testo bianco */
   --accent-border: #BFDBFE;
@@ -40,12 +51,19 @@
    (js/core/tema.js imposta data-theme su <html>). Testi e sfondi verificati con
    il controllo di contrasto WCAG AA. */
 :root[data-theme="dark"] {
-  --bg: #0F1623;
-  --surface: #172131;
-  --surface2: #1F2B3E;
-  --border: #2E3D55;
-  --text: #E6ECF5;
-  --text2: #A3B1C6;
+  --bg: #0A0A0A;
+  --surface: #121212;
+  --surface2: #1C1C1C;
+  --border: #2A2A2A;
+  --text: #FAFAFA;
+  --text2: #A3A3A3;
+  --primary: #FAFAFA;
+  --on-primary: #171717;
+  --ring: #D4D4D4;
+  --ring-soft: rgba(250,250,250,0.10);
+  --scroll: #3A3A3A;
+  --scroll-hover: #555555;
+  --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.6), 0 4px 6px -4px rgba(0,0,0,0.5);
   --accent: #7AA7FF;
   --accent-light: #1B2C4C;
   --accent-fill: #2F5FCF;
@@ -67,12 +85,12 @@
   --purple-border: #43357A;
   --teal: #4FD8EE;
   --teal-light: #0F2E36;
-  --shadow: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.3);
-  --shadow-md: 0 6px 16px rgba(0,0,0,0.5);
+  --shadow: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.5), 0 2px 4px -2px rgba(0,0,0,0.4);
   color-scheme: dark;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+body { font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 * { -webkit-tap-highlight-color: transparent; }
 
 /* --- LOGIN --- */
