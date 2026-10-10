@@ -3,12 +3,13 @@
   "private": true,
   "scripts": {
     "test": "firebase emulators:exec --project demo-qa --only firestore \"mocha test/rules.spec.js --timeout 20000\"",
-    "test:unit": "mocha qa/unit.spec.js",
+    "test:unit": "mocha qa/unit.spec.js qa/assets.spec.js",
     "test:functions": "firebase emulators:exec --project demo-qa --only auth,firestore,functions,storage \"mocha qa/functions.spec.js --timeout 40000 --exit\"",
     "qa:emulators": "firebase emulators:start --project demo-qa --only auth,firestore,functions,storage"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
+    "acorn": "^8.19.0",
     "axe-core": "^4.13.0",
     "firebase": "^12.19.0",
     "mocha": "^12.0.3"

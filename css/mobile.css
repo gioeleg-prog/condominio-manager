@@ -1,0 +1,81 @@
+/* Adattamenti per schermi stretti (telefono). */
+@media (max-width: 768px) {
+  /* Layout */
+  .sidebar { transform: translateX(-100%); width: 280px; }
+  .sidebar.open { transform: translateX(0); box-shadow: 0 0 0 100vw rgba(0,0,0,.3); }
+  .sidebar-overlay { display: none; } /* gestito con box-shadow ora */
+  .main { margin-left: 0; padding-bottom: 72px; }
+  .topbar { display: flex; }
+  .bottom-nav { display: block; }
+  .fab { display: flex; }
+
+  /* Nascondi topbar sidebar su mobile */
+  .sidebar-logo { padding: 1rem; }
+
+  /* Page padding */
+  .page { padding: .875rem; }
+  .page-header { flex-direction: row; align-items: center; flex-wrap: wrap; gap: .5rem; }
+  .page-header .btn { font-size: 13px; padding: 8px 14px; white-space: nowrap; }
+
+  /* Stats grid 2 colonne */
+  .stats-grid { grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: 1rem; }
+  .stat-card { padding: .75rem 1rem; }
+  .stat-card .stat-value { font-size: 1.3rem; }
+
+  /* Form rows → 1 colonna */
+  .form-row, .form-row-3 { grid-template-columns: 1fr; gap: .75rem; }
+
+  /* Tabelle → card list su mobile */
+  .table-wrap { display: none !important; }
+  .mobile-card-list { display: flex !important; }
+
+  /* Modal: full bottom sheet */
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal {
+    border-radius: 20px 20px 0 0;
+    max-height: 92vh;
+    width: 100%;
+    max-width: 100%;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  /* Wizard ruolo cards 1 colonna */
+  .ruolo-cards { grid-template-columns: 1fr; }
+
+  /* Condomini grid 1 col */
+  .condomini-grid { grid-template-columns: 1fr; }
+  .utenti-grid { grid-template-columns: 1fr; }
+  .cat-grid { grid-template-columns: 1fr; }
+
+  /* Split table su mobile */
+  .split-table th:nth-child(2),
+  .split-table td:nth-child(2) { display: none; } /* nascondi col % su mobile, rimane solo € */
+  .split-table input[type=number] { width: 75px; }
+
+  /* Icon picker 6 col */
+  .icon-picker { grid-template-columns: repeat(6,1fr); }
+
+  /* Bilancio chart */
+  .bilancio-grid-2 { grid-template-columns: 1fr !important; }
+
+  /* Tabs scroll */
+  .tab-bar { -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tab-bar::-webkit-scrollbar { display: none; }
+
+  /* Buttons touch target */
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 36px; padding: 7px 12px; }
+  .allegato-btn { min-width: 36px; min-height: 36px; font-size: 16px; }
+  .bnav-item { min-width: 44px; min-height: 44px; }
+
+  /* Input touch */
+  input, select, textarea { font-size: 16px !important; /* prevents iOS zoom */ }
+}
+
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .page { padding: .75rem; }
+  .stat-card .stat-value { font-size: 1.15rem; }
+}
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
