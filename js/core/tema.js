@@ -16,7 +16,7 @@ function applicaTema() {
   const scuro = t === 'scuro' || (t === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.setAttribute('data-theme', scuro ? 'dark' : 'light');
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', scuro ? '#0F1623' : '#2563EB');
+  if (meta) meta.setAttribute('content', scuro ? '#0A0A0A' : '#FFFFFF');
 }
 
 function temaScuroAttivo() {

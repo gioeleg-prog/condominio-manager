@@ -1,0 +1,130 @@
+/* Stile grafico ispirato a thecolorsofmotion.com (componenti in stile shadcn/ui):
+   font Geist, bordi sottili, raggi 8/12 px, pulsanti alti 36 px, pillole con
+   ombra leggera, menu con ombra morbida, barre di scorrimento discrete.
+   Caricato per ultimo: rifinisce i componenti di base.css, componenti.css,
+   mobile.css e sezioni.css usando solo le variabili di colore (chiaro e scuro). */
+
+@font-face {
+  font-family: 'Geist';
+  src: url('../fonts/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+body { letter-spacing: -0.006em; }
+button, input, select, textarea { font-family: inherit; letter-spacing: inherit; }
+h1, h2, h3, .page-title, .modal-header h2 { letter-spacing: -0.02em; }
+td, .stat-value, .kpi-value, .amount-pos, .amount-neg, .smc-amount, .emc-amount { font-variant-numeric: tabular-nums; }
+::selection { background: var(--accent-light); color: var(--text); }
+input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(--primary); }
+
+/* Barre di scorrimento sottili e arrotondate in tutta l'app. */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); border: 3px solid transparent; background-clip: content-box; }
+.table-wrap { scrollbar-color: var(--scroll) transparent; }
+.table-wrap::-webkit-scrollbar { height: 10px; }
+.table-wrap::-webkit-scrollbar-track { background: transparent; }
+.table-wrap::-webkit-scrollbar-thumb, .table-wrap::-webkit-scrollbar-thumb:hover { border-radius: 999px; }
+
+/* Fuoco da tastiera: anello sottile del colore del testo. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* --- PULSANTI --- */
+.btn { min-height: 36px; padding: 8px 16px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; line-height: 1.25; white-space: nowrap; transition: background-color .15s cubic-bezier(.4,0,.2,1), border-color .15s cubic-bezier(.4,0,.2,1), color .15s cubic-bezier(.4,0,.2,1), opacity .15s, box-shadow .15s; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: var(--on-primary); border: 1px solid var(--primary); box-shadow: var(--shadow); }
+.btn-primary:hover { background: var(--primary); opacity: .88; }
+.btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.btn-secondary:hover { background: var(--surface2); }
+.btn-danger, .btn-success { box-shadow: var(--shadow); }
+.btn-sm { min-height: 32px; padding: 6px 12px; font-size: 13px; border-radius: var(--radius-sm); }
+.btn:active { transform: translateY(.5px); }
+
+/* --- CAMPI E MENU A TENDINA --- */
+.field label { color: var(--text); font-weight: 500; font-size: 13.5px; }
+.field input, .field select, .field textarea, .search-bar input, .split-table input[type=number] {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s;
+}
+.field input, .field select { min-height: 38px; padding: 8px 12px; }
+.field input::placeholder, .field textarea::placeholder, .search-bar input::placeholder { color: var(--text2); opacity: .8; }
+.field input:focus, .field select:focus, .field textarea:focus, .search-bar input:focus, .split-table input[type=number]:focus {
+  border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft);
+}
+/* Freccia doppia su/giù come i selettori del sito di riferimento. */
+select, .spese-filter-sel, .ruolo-select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='none' viewBox='0 0 24 24' stroke='%23858585' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 15 5 5 5-5'/%3E%3Cpath d='m7 9 5-5 5 5'/%3E%3C/svg%3E"); background-position: right 10px center; cursor: pointer; }
+select option { background: var(--surface); color: var(--text); }
+
+.spese-filter-sel, .spese-filter-search, .ruolo-select { box-shadow: var(--shadow); transition: border-color .15s, box-shadow .15s; }
+.spese-filter-sel { padding-right: 30px; }
+/* Tutti gli altri campi di testo, data e numero dell'app: stesso fuoco. */
+:is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea):focus { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); outline: none; }
+
+/* --- SCHEDE E TABELLE --- */
+.card, .stat-card, .condomino-card, .spesa-mobile-card, .entrata-mobile-card, .edificio-card { border-radius: var(--radius); border-color: var(--border); box-shadow: var(--shadow); }
+.card-header { padding: .9rem 1.25rem; }
+.card-header h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+th { background: transparent; color: var(--text2); font-weight: 500; font-size: 12.5px; text-transform: none; letter-spacing: 0; height: 40px; }
+.split-table th { background: transparent; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 12px; }
+tr:hover td { background: color-mix(in srgb, var(--surface2) 70%, transparent); }
+.th-sort:hover { color: var(--text); background: var(--surface2); }
+.th-sort.active, .th-sort.active .sort-icon { color: var(--text); }
+
+/* --- PILLOLE: badge, filtri, anni --- */
+.badge { border-radius: var(--radius-xs); padding: 2px 8px; font-size: 12px; font-weight: 500; border: 1px solid transparent; }
+.badge-gray { border-color: var(--border); background: var(--surface); }
+.chip, .chip-anno { border-radius: 999px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); color: var(--text); font-weight: 500; transition: background-color .15s, border-color .15s, color .15s; }
+.chip:hover, .chip-anno:hover { background: var(--surface2); border-color: var(--border); }
+.chip.active, .chip-anno.attivo { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+.split-mode-btns { border-radius: var(--radius-sm); padding: 3px; gap: 2px; background: var(--surface2); border-color: var(--border); }
+.split-mode-btn { border-radius: var(--radius-xs); background: transparent; }
+.split-mode-btn.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+.wstep.active .wstep-circle { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+
+/* Linguette: sottolineatura sottile del colore del testo. */
+.tab-bar { border-bottom: 1px solid var(--border); }
+.tab { margin-bottom: -1px; border-bottom-width: 2px; }
+.tab.active { color: var(--text); border-bottom-color: var(--text); }
+
+/* --- FINESTRE --- */
+.modal-overlay { background: rgba(0,0,0,.5); backdrop-filter: blur(3px); }
+.modal { border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow-lg); }
+.modal-header { padding: 1.1rem 1.5rem .9rem; }
+.modal-close { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-xs); }
+.alert { border-radius: var(--radius-sm); }
+.mobile-profile-menu { border-radius: var(--radius); box-shadow: var(--shadow-lg); padding: 4px; }
+.mpm-item { border-radius: var(--radius-xs); padding: 8px 10px; }
+
+/* --- STRUTTURA: barra laterale, intestazione, navigazione mobile --- */
+.sidebar { background: var(--bg); }
+nav a { margin: 1px .5rem; padding: 7px .75rem; border-radius: var(--radius-xs); font-weight: 500; color: var(--text2); }
+nav a:hover { background: var(--surface2); color: var(--text); }
+nav a.active { background: var(--surface2); color: var(--text); font-weight: 600; box-shadow: inset 0 0 0 1px var(--border); }
+nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
+.edificio-switcher { background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: var(--radius-sm); }
+.edificio-switcher:hover { background: var(--surface2); }
+.edificio-switcher .ed-nome { color: var(--text); }
+.edificio-switcher .ed-label { color: var(--text2); }
+.page-title { font-weight: 700; letter-spacing: -0.025em; }
+.bottom-nav { box-shadow: 0 -1px 0 var(--border); }
+.bnav-item { border-radius: var(--radius-sm); }
+.bnav-item.active { color: var(--text); background: var(--surface2); }
+.bnav-item .bnav-dot { background: var(--text); }
+.fab { background: var(--primary); color: var(--on-primary); box-shadow: var(--shadow-lg); }
+
+/* Guida e interruttore del tema: pillole bianche con bordo e ombra leggera,
+   come i pulsanti in alto del sito di riferimento. */
+.btn-guida { color: var(--text); box-shadow: var(--shadow); padding: 3px 11px 3px 4px; }
+.btn-guida:hover, .btn-guida.attivo { background: var(--surface2); border-color: var(--border); }
+.btn-guida-icona { background: var(--primary); color: var(--on-primary); }
+.tema-switch { box-shadow: var(--shadow); background: var(--surface); }
+.tema-switch:hover { border-color: var(--scroll-hover); }
+.tema-switch.scuro { background: var(--surface2); border-color: var(--border); }
+.tema-switch.scuro .ts-luna { color: var(--text); }
+
+/* Accesso */
+.login-card { border-radius: 16px; border: 1px solid var(--border); box-shadow: var(--shadow-lg); }
