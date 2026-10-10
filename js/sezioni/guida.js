@@ -16,7 +16,7 @@ const GUIDA = {
       'Il grafico mese per mese: dati reali fino a oggi, previsioni per i mesi che verranno.',
       'Ultimi versamenti, spese confermate e spese previste.',
       'Avvisi, lavori e delibere più recenti, con il collegamento "Vedi tutti".',
-      ['lettura', '"La tua situazione": quanto ti spetta pagare, quanto hai già versato e la differenza.'],
+      ['lettura', '"La tua situazione": quanto ti spetta pagare nell\'anno, quanto hai già versato e il saldo, compreso ciò che arriva dagli anni precedenti.'],
     ],
     fare: [
       ['Vedere un altro anno', 'Usa il menu dell\'anno in alto a destra.'],
@@ -34,7 +34,8 @@ const GUIDA = {
     trovi: [
       'L\'elenco con titolo, categoria, importi e stato (Previsionale o Definitiva).',
       'La graffetta 📎 accanto al titolo: la spesa ha documenti allegati, tocca per aprirli.',
-      'Ricerca e filtri per anno, tipo, categoria, stato e fornitore; "✕ Reset" li azzera.',
+      'I pulsanti degli anni in alto: accendine uno o più (gli importi si sommano) oppure "Tutti".',
+      'Ricerca e filtri per tipo, categoria, stato e fornitore; "✕ Reset" li azzera.',
       '"📊 Esporta Excel" scarica l\'elenco filtrato.',
     ],
     fare: [
@@ -42,7 +43,8 @@ const GUIDA = {
       ['mod', 'Correggerla', 'Tocca ✏️ sulla riga, cambia e salva.'],
       ['mod', 'Allegare fatture o foto', 'Nella scheda trascina i file nel riquadro Allegati (PDF, immagini, documenti, max 5 MB ciascuno).'],
       ['mod', 'Spesa che si ripete', 'Spunta "🔁 Spesa ricorrente", scegli la frequenza e la data di fine: le spese future vengono create da sole. Se poi cambi frequenza o data di fine, cambiano solo le righe successive non ancora consuntivate.'],
-      ['mod', 'Decidere chi paga quanto', 'Nella ripartizione assegna le percentuali; "↔ Parti uguali" divide in modo uguale, 🔒 blocca una quota. Il totale deve fare 100%.'],
+      ['mod', 'Modificare o fermare una serie', 'Nella scheda di una spesa ricorrente, il riquadro "🔁 Serie" applica le modifiche anche alle occorrenze successive non consuntivate, oppure le elimina con "🗑 Elimina le … successive".'],
+      ['mod', 'Decidere chi paga quanto', 'Nella ripartizione assegna le percentuali; "↔ Parti uguali" divide in modo uguale, 🔒 blocca una quota. Il totale deve fare 100%. Chi nel frattempo è stato archiviato resta con la sua quota ("non più attivo").'],
       ['mod', 'Eliminare', '🗑 sulla riga, oppure seleziona più righe e "🗑 Elimina selezionate".'],
       ['lettura', 'Chiedere una modifica', 'Puoi consultare spese e allegati; per correzioni rivolgiti all\'amministratore.'],
     ],
@@ -50,21 +52,22 @@ const GUIDA = {
       '<b>Preventivo</b> = importo stimato. <b>Consuntivo</b> = importo reale. Quando inserisci il consuntivo la spesa diventa <b>Definitiva</b>.',
       '<b>Ordinaria</b> o <b>straordinaria</b> dipende dalla categoria scelta.',
       ['mod', 'Le spese eliminate restano recuperabili dall\'amministratore del servizio.'],
+      ['mod', 'Se un\'altra persona ha cambiato la stessa voce mentre l\'avevi aperta, il salvataggio si ferma e ti chiede di ricaricare la pagina: nessuna modifica va persa in silenzio.'],
     ],
   },
   entrate: {
     titolo: 'Entrate / Quote',
     breve: 'I versamenti dei condomini: quelli arrivati e quelli attesi (rate).',
     trovi: [
-      'Il riepilogo per condomino: quota dovuta, versato, copertura e saldo.',
-      'L\'elenco di tutti i versamenti; quelli previsti hanno l\'etichetta "🔮 Prev.".',
-      'Ricerca per condomino e scelta dell\'anno.',
-      ['mod', 'Il "📅 Piano rate suggerito": rate proposte per coprire le spese dell\'anno senza andare in rosso.'],
+      'Il riepilogo per condomino: quota dovuta, versato, copertura e saldo, compreso il riporto degli anni precedenti.',
+      'L\'elenco di tutti i versamenti; quelli previsti hanno l\'etichetta "🔮 Prev.". Il totale in verde conta solo quelli arrivati.',
+      'Ricerca per condomino e pulsanti degli anni: con più anni accesi gli importi si sommano.',
+      ['mod', 'Il "📅 Piano rate suggerito": rate proposte per coprire le spese dell\'anno senza andare in rosso. Compare quando è acceso un solo anno.'],
     ],
     fare: [
       ['mod', 'Registrare un pagamento arrivato', '"+ Registra versamento", scheda "💰 Effettivo": condomino, data e importo.'],
       ['mod', 'Programmare rate future', 'Nella stessa scheda scegli "🔮 Previsionale / Rate" e indica le rate.'],
-      ['mod', 'Confermare una rata pagata', 'Tocca "✅ Valida" sulla riga: diventa un versamento effettivo.'],
+      ['mod', 'Confermare una rata pagata', 'Tocca "✅ Valida" sulla riga: diventa un versamento effettivo. Se era prevista per una data futura viene registrata con la data di oggi; per un\'altra data usa ✏️.'],
       ['mod', 'Usare il piano rate', '"➕ Crea versamenti previsionali" crea le rate proposte per tutti; "Rimuovili" le toglie.'],
       ['lettura', 'Controllare la tua posizione', 'Cerca il tuo nome: vedi quanto hai versato e quanto resta.'],
     ],
@@ -80,7 +83,7 @@ const GUIDA = {
       '<b>📊 Panoramica</b>: entrate, uscite e cassa mese per mese.',
       '<b>🔮 Forecast</b>: come andrà la cassa nei prossimi mesi, contando anche spese e rate previste.',
       '<b>⚖️ Prev. vs Cons.</b>: per ogni spesa, quanto si era stimato e quanto si è speso davvero.',
-      '<b>👥 Per condomino</b>: quota di ciascuno, versato e copertura.',
+      '<b>👥 Per condomino</b>: quota di ciascuno, versato, copertura e saldo con il riporto degli anni precedenti; "In regola" tiene conto anche dei debiti vecchi.',
       '<b>🏷️ Per categoria</b>: quanto pesa ogni tipo di spesa.',
     ],
     fare: [
@@ -123,6 +126,7 @@ const GUIDA = {
       'Una scheda per fornitore con contatti, IBAN e persona di riferimento.',
       '"📊 Storico": le spese collegate al fornitore e l\'ultimo intervento.',
       '📋 accanto all\'IBAN lo copia.',
+      'I pulsanti degli anni in alto: spese reali e previste di uno o più anni, sommate (con "Tutti" l\'intero storico).',
       'In fondo i fornitori non più attivi.',
     ],
     fare: [
