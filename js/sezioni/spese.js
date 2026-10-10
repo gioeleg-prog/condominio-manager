@@ -719,3 +719,222 @@ function aggiornaAnteprimaRicorrenza() {
       ${rest>0?`<span style="color:var(--text2);font-size:11px;align-self:center">+${rest} altre…</span>`:''}
     </div>`;
 }
+
+// Pulsanti, filtri, selezione multipla ed esportazione della pagina Spese. Chiamata da bindPageActions() (azioni.js).
+function bindAzioniSpese() {
+  // Checkbox singola spesa
+  document.querySelectorAll('.chk-spesa').forEach(chk => {
+    chk.onchange = () => {
+      const id = parseInt(chk.dataset.spesaId);
+      const sel = new Set(state.speseSelezionate || []);
+      if (chk.checked) sel.add(id); else sel.delete(id);
+      state.speseSelezionate = sel;
+      // Aggiorna stile riga
+      const row = chk.closest('tr');
+      if (row) row.className = chk.checked ? 'spesa-row-sel' : '';
+      // Aggiorna la barra selezione senza un render completo quando possibile (più leggero),
+      // ma un render completo è necessario quando la barra deve COMPARIRE (non esiste ancora
+      // nel DOM) o SPARIRE (il conteggio è tornato a zero) — un aggiornamento del solo testo,
+      // in quei due casi, lasciava la barra a mostrare "0 spese selezionate" invece di sparire.
+      const bar = document.querySelector('.sel-count-bar span');
+      if (sel.size === 0 || !bar) render();
+      else bar.textContent = sel.size + ' spese selezionate';
+    };
+  });
+  // Esporta Excel: le spese SELEZIONATE se ce n'è almeno una, altrimenti tutte quelle attualmente
+  // visibili a schermo (rispettando i filtri correnti — ricerca, anno, tipo, stato, categoria, fornitore).
+  // Gli id vengono letti dal DOM (checkbox .chk-spesa realmente renderizzate), non ricalcolando i
+  // filtri qui: così l'export è sempre coerente al 100% con quello che si vede sullo schermo.
+  const bExportSpese = document.getElementById('btn-export-spese');
+  if (bExportSpese) bExportSpese.onclick = () => {
+    const idsVisibili = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
+    const sel = state.speseSelezionate;
+    const idsDaEsportare = (sel && sel.size > 0) ? idsVisibili.filter(id => sel.has(id)) : idsVisibili;
+    const speseDaEsportare = state.spese.filter(s => idsDaEsportare.includes(s.id));
+    const nomeFile = 'spese-condominio-' + (sel && sel.size > 0 ? 'selezionate-' : '') + ymdLocale(new Date()) + '.csv';
+    esportaSpeseCSV(speseDaEsportare, nomeFile);
+  };
+  // Seleziona tutte — legge gli id direttamente dalle checkbox visibili a schermo (non da una
+  // variabile 'items' che qui non esiste: era un bug pre-esistente, il bottone non selezionava nulla)
+  const bSelAll = document.getElementById('btn-sel-all');
+  if (bSelAll) bSelAll.onclick = () => {
+    const ids = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
+    state.speseSelezionate = new Set(ids);
+    render();
+  };
+  // Deseleziona tutte
+  const bSelNone = document.getElementById('btn-sel-none');
+  if (bSelNone) bSelNone.onclick = () => {
+    state.speseSelezionate = new Set();
+    render();
+  };
+  // Checkbox "seleziona tutte" nell'header — stesso fix di bSelAll qui sopra
+  const chkAll = document.getElementById('chk-all-spese');
+  if (chkAll) chkAll.onchange = () => {
+    if (chkAll.checked) {
+      const ids = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
+      state.speseSelezionate = new Set(ids);
+    } else {
+      state.speseSelezionate = new Set();
+    }
+    render();
+  };
+  // Elimina selezionate
+  const bDelSel = document.getElementById('btn-del-sel');
+  if (bDelSel) bDelSel.onclick = () => {
+    const sel = state.speseSelezionate;
+    if (!sel || sel.size === 0) return;
+    // Mostra dettaglio di cosa si sta eliminando
+    const toDelete = state.spese.filter(s=>sel.has(s.id));
+    const msg = 'Eliminare ' + sel.size + ' spese?\n\n' +
+      toDelete.slice(0,5).map(s=>'- ' + s.titolo + ' (' + s.data + ')').join('\n') +
+      (toDelete.length > 5 ? '\n- ... e altre ' + (toDelete.length-5) : '');
+    if (!confirm(msg)) return;
+    const spese = state.spese.filter(s=>!sel.has(s.id));
+    save('cm_spese', spese);
+    state.speseSelezionate = new Set();
+    setState({spese});
+  };
+  // Ordinamento colonne spese
+  document.querySelectorAll('[data-sort-col]').forEach(th => {
+    th.onclick = () => {
+      const colId = th.dataset.sortCol;
+      const newDir = state.sortCol===colId && state.sortDir==='desc' ? 'asc' : 'desc';
+      setState({sortCol: colId, sortDir: newDir});
+    };
+  });
+  // Spese filters
+  const ss = document.getElementById('search-spese');
+  if (ss) ss.oninput = e => setState({searchQ: e.target.value});
+  const fas = document.getElementById('filter-anno-spese');
+  if (fas) fas.onchange = e => setState({filterAnno: parseInt(e.target.value)||0});
+  const fts = document.getElementById('filter-tipo-spese');
+  if (fts) fts.onchange = e => setState({filterTipo: e.target.value});
+  const fcs = document.getElementById('filter-cat-spese');
+  if (fcs) fcs.onchange = e => setState({filterCat: e.target.value});
+  if (fcs) fcs.onchange = e => setState({filterCat: e.target.value});
+  const fss = document.getElementById('filter-stato-spese');
+  if (fss) fss.onchange = e => setState({filterStato: e.target.value});
+  const ffs = document.getElementById('filter-fornitore-spese');
+  if (ffs) ffs.onchange = e => setState({filterFornitore: e.target.value});
+  const bRF = document.getElementById('btn-reset-filtri');
+  if (bRF) bRF.onclick = () => setState({filterTipo:'all',filterCat:'all',filterStato:'all',filterFornitore:'all',searchQ:''});
+  // Add buttons
+  const bAddSpesa = document.getElementById('btn-add-spesa');
+  if (bAddSpesa) bAddSpesa.onclick = () => setState({modal:{type:'spesa',data:null}, pendingFiles:[]});
+  // Edit/delete spese
+  document.querySelectorAll('[data-edit-spesa]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editSpesa);
+      const item = state.spese.find(s=>s.id===id);
+      if (item) setState({modal:{type:'spesa',data:{...item}}, pendingFiles:[]});
+    };
+  });
+  document.querySelectorAll('[data-del-spesa]').forEach(btn => {
+    btn.onclick = () => {
+      if (!confirm('Eliminare questa spesa?')) return;
+      const spese = state.spese.filter(s=>s.id!==parseInt(btn.dataset.delSpesa));
+      save('cm_spese', spese);
+      setState({spese});
+    };
+  });
+}
+
+// Scheda spesa: ricorrenza, ripartizione, tipo in base alla categoria. Chiamata da bindModal() (schede.js).
+function bindSchedaSpese() {
+  // Toggle ricorrenza + aggiorna anteprima
+  const mRic = document.getElementById('m-ricorrente');
+  const mFreq = document.getElementById('m-freq');
+  const mFreqFine = document.getElementById('m-freq-fine');
+  const mData = document.getElementById('m-data');
+  if (mRic) mRic.onchange = () => {
+    const box = document.getElementById('ricorrenza-box');
+    if (!box) return;
+    const checked = mRic.checked;
+    box.style.display = checked ? 'block' : 'none';
+    if (checked) {
+      // Default data fine = 31 dicembre anno corrente
+      const mFreqFineEl = document.getElementById('m-freq-fine');
+      if (mFreqFineEl && !mFreqFineEl.value) {
+        mFreqFineEl.value = new Date().getFullYear() + '-12-31';
+      }
+      aggiornaAnteprimaRicorrenza();
+    }
+  };
+  if (mFreq)     mFreq.onchange     = aggiornaAnteprimaRicorrenza;
+  if (mFreqFine) mFreqFine.onchange = aggiornaAnteprimaRicorrenza;
+  if (mData)     mData.onchange     = aggiornaAnteprimaRicorrenza;
+  // Split spesa
+  bindSplit();
+  // Auto-fill tipo from categoria
+  const mcat = document.getElementById('m-cat');
+  if (mcat && state.modal?.type==='spesa') {
+    mcat.onchange = e => {
+      const selId = mcat.value;
+      const catObj = getCategorie().find(c=>c.id===selId);
+      const tipo = catObj?.tipo;
+      const mTipo = document.getElementById('m-tipo');
+      if (tipo && mTipo && tipo !== 'entrata') mTipo.value = tipo;
+    };
+  }
+}
+
+// Salvataggio della scheda spesa (nuova o modificata, con eventuali occorrenze ricorrenti). Chiamata da saveModal() (schede.js).
+function salvaSchedaSpesa(m) {
+    const titolo = document.getElementById('m-titolo')?.value?.trim();
+    const desc = document.getElementById('m-desc')?.value?.trim();
+    const cat = document.getElementById('m-cat')?.value;
+    const tipo = document.getElementById('m-tipo')?.value;
+    const prev = document.getElementById('m-prev')?.value;
+    const cons = document.getElementById('m-cons')?.value;
+    const data = document.getElementById('m-data')?.value;
+    if (!titolo || !cat || !data) { alert('Compila i campi obbligatori (Titolo, Categoria, Data)'); return; }
+    if (!prev && !cons) { alert('Inserisci almeno un importo (preventivo o consuntivo)'); return; }
+    const existingAllegati = m.data?.allegati||[];
+    const allegati = [...existingAllegati, ...state.pendingFiles];
+    const split = readSplitFromDOM();
+    const fornitoreId = parseInt(document.getElementById('m-fornitore')?.value)||null;
+    const ricorrente = document.getElementById('m-ricorrente')?.checked || false;
+    const frequenza  = document.getElementById('m-freq')?.value || 'mensile';
+    const ricorrenzaFine = document.getElementById('m-freq-fine')?.value || '';
+    // Validazione: data fine obbligatoria per spese ricorrenti
+    if (ricorrente && !ricorrenzaFine) {
+      const errEl = document.getElementById('m-err');
+      if (errEl) { errEl.textContent = 'Inserisci la data di fine per la spesa ricorrente'; errEl.style.display='block'; }
+      else alert('Inserisci la data di fine per la spesa ricorrente');
+      return;
+    }
+    const ricGruppoId = m.data?.ricGruppoId || (ricorrente ? newId() : null);
+    const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId };
+    let spese;
+    if (m.data?.id) {
+      // Modifica spesa esistente
+      spese = state.spese.map(s=>s.id===item.id ? item : s);
+      // Se la ricorrenza è stata AGGIUNTA o MODIFICATA rispetto all'originale:
+      // genera le nuove occorrenze future partendo dal giorno dopo la data della spesa
+      const eraRicorrente = !!m.data?.ricorrente;
+      const cambiataFreq  = m.data?.frequenza !== frequenza;
+      const cambiatiFine  = m.data?.ricorrenzaFine !== ricorrenzaFine;
+      if (ricorrente && (!eraRicorrente || cambiataFreq || cambiatiFine)) {
+        // Rimuovi occorrenze precedenti dello stesso gruppo (se erano già state create)
+        if (item.ricGruppoId) {
+          spese = spese.filter(s => !(s.ricGruppoId === item.ricGruppoId && s.id !== item.id));
+        }
+        // Genera nuove occorrenze future (dalla data della spesa in poi)
+        const occorrenze = generaOccorrenze(item, ricorrenzaFine);
+        spese = [...spese, ...occorrenze];
+        if (occorrenze.length > 0) {
+          alert('✅ Ricorrenza aggiornata: create ' + occorrenze.length + ' occorrenze future.');
+        }
+      }
+    } else {
+      spese = [...state.spese, item];
+      // Genera occorrenze future se ricorrente (nuova spesa)
+      if (ricorrente) {
+        const occorrenze = generaOccorrenze(item, ricorrenzaFine);
+        spese = [...spese, ...occorrenze];
+      }
+    }
+    save('cm_spese', spese);
+    setState({spese, modal:null, pendingFiles:[]});
+}

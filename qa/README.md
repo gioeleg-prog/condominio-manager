@@ -78,6 +78,11 @@ Gli script di `js/` sono "classici" e condividono le variabili globali: l'ordine
 (`js/core/avvio.js` per ultimo). La configurazione Firebase è in `js/config.js` (produzione) e
 `js/config.staging.js` (staging).
 
+Ogni file di `js/sezioni/` contiene, oltre al disegno della pagina, i suoi collegamenti:
+`bindAzioni…()` per i pulsanti della pagina, `bindScheda…()` per le schede di modifica e,
+dove serve, `salvaScheda…(m)` per il salvataggio. `azioni.js` (`bindPageActions`) e
+`schede.js` (`bindModal`, `saveModal`) fanno solo da regia e richiamano le sezioni.
+
 Dopo ogni modifica a `css/` o `js/`:
 
 ```bash

@@ -527,3 +527,269 @@ function renderModalDelibera(d) {
     </div>
   </div>`;
 }
+
+// Schede e pulsanti di bacheca, verbali, lavori e delibere. Chiamata da bindPageActions() (azioni.js).
+function bindAzioniVita() {
+  // Tab della pagina "Vita condominiale" (Bacheca/Verbali/Lavori/Delibere)
+  document.querySelectorAll('[data-vita-tab]').forEach(t => {
+    t.onclick = () => setState({vitaTab: t.dataset.vitaTab});
+  });
+  // Nuovo avviso bacheca
+  const bNuovoAvviso = document.getElementById('btn-nuovo-avviso');
+  if (bNuovoAvviso) bNuovoAvviso.onclick = () => setState({modal:{type:'avviso', data:null}});
+  // Modifica avviso bacheca
+  document.querySelectorAll('[data-edit-avviso]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editAvviso);
+      const a = state.bacheca.find(x=>x.id===id);
+      if (a) setState({modal:{type:'avviso', data:{...a}}});
+    };
+  });
+  // Elimina avviso bacheca
+  document.querySelectorAll('[data-del-avviso]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.delAvviso);
+      const a = state.bacheca.find(x=>x.id===id);
+      if (!a) return;
+      if (!confirm(`Eliminare l'avviso "${a.titolo}"?`)) return;
+      const bacheca = state.bacheca.filter(x=>x.id!==id);
+      save('cm_bacheca', bacheca);
+      setState({bacheca});
+    };
+  });
+  // Ricerca verbali (riusa lo stesso state.searchQ di Spese/Entrate)
+  const svb = document.getElementById('search-verbali');
+  if (svb) svb.oninput = e => setState({searchQ: e.target.value});
+  // Nuovo verbale
+  const bNuovoVerbale = document.getElementById('btn-nuovo-verbale');
+  if (bNuovoVerbale) bNuovoVerbale.onclick = () => setState({modal:{type:'verbale', data:null}, pendingFiles:[]});
+  // Modifica verbale
+  document.querySelectorAll('[data-edit-verbale]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editVerbale);
+      const v = state.verbali.find(x=>x.id===id);
+      if (v) setState({modal:{type:'verbale', data:{...v}}, pendingFiles:[]});
+    };
+  });
+  // Elimina verbale (e i suoi allegati su Storage)
+  document.querySelectorAll('[data-del-verbale]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = parseInt(btn.dataset.delVerbale);
+      const v = state.verbali.find(x=>x.id===id);
+      if (!v) return;
+      if (!confirm(`Eliminare il verbale "${v.titolo}"? Verranno eliminati anche gli eventuali allegati.`)) return;
+      for (const a of (v.allegati||[])) {
+        if (a.storagePath) {
+          try {
+            const { storage, ref, deleteObject } = window._fb;
+            await deleteObject(ref(storage, a.storagePath));
+          } catch (err) { console.warn('deleteObject (verbale):', err.message); }
+        }
+      }
+      const verbali = state.verbali.filter(x=>x.id!==id);
+      save('cm_verbali', verbali);
+      setState({verbali});
+    };
+  });
+  // Nuovo lavoro
+  const bNuovoLavoro = document.getElementById('btn-nuovo-lavoro');
+  if (bNuovoLavoro) bNuovoLavoro.onclick = () => setState({modal:{type:'lavoro', data:null}});
+  // Modifica lavoro
+  document.querySelectorAll('[data-edit-lavoro]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editLavoro);
+      const l = state.lavori.find(x=>x.id===id);
+      if (l) setState({modal:{type:'lavoro', data:{...l}}});
+    };
+  });
+  // Elimina lavoro
+  document.querySelectorAll('[data-del-lavoro]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.delLavoro);
+      const l = state.lavori.find(x=>x.id===id);
+      if (!l) return;
+      if (!confirm(`Eliminare il lavoro "${l.titolo}"?`)) return;
+      const lavori = state.lavori.filter(x=>x.id!==id);
+      save('cm_lavori', lavori);
+      setState({lavori});
+    };
+  });
+  // Nuova delibera
+  const bNuovaDelibera = document.getElementById('btn-nuova-delibera');
+  if (bNuovaDelibera) bNuovaDelibera.onclick = () => setState({modal:{type:'delibera', data:null}});
+  // Modifica delibera
+  document.querySelectorAll('[data-edit-delibera]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editDelibera);
+      const d = state.delibere.find(x=>x.id===id);
+      if (d) setState({modal:{type:'delibera', data:{...d}}});
+    };
+  });
+  // Elimina delibera
+  document.querySelectorAll('[data-del-delibera]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.delDelibera);
+      const d = state.delibere.find(x=>x.id===id);
+      if (!d) return;
+      if (!confirm(`Eliminare la delibera "${d.descrizioneSintetica}"?`)) return;
+      const delibere = state.delibere.filter(x=>x.id!==id);
+      save('cm_delibere', delibere);
+      setState({delibere});
+    };
+  });
+}
+
+// Schede di avviso, verbale, lavoro e delibera. Chiamata da bindModal() (schede.js).
+function bindSchedaVita() {
+  // Salva avviso bacheca (crea/modifica)
+  const bSaveAv = document.getElementById('btn-save-avviso');
+  if (bSaveAv) bSaveAv.onclick = () => {
+    const titolo   = document.getElementById('av-titolo')?.value?.trim();
+    const testo    = document.getElementById('av-testo')?.value?.trim();
+    const scadenza = document.getElementById('av-scadenza')?.value || '';
+    const prioritaria = document.getElementById('av-prioritaria')?.checked || false;
+    const origId   = bSaveAv.dataset.id;
+    const errEl    = document.getElementById('av-err');
+    errEl.style.display = 'none';
+
+    if (!titolo) { errEl.textContent='Il titolo è obbligatorio'; errEl.style.display='block'; return; }
+    if (!testo)  { errEl.textContent='Il testo è obbligatorio'; errEl.style.display='block'; return; }
+
+    const edificioIdAvviso = origId
+      ? (state.bacheca.find(a=>a.id===parseInt(origId))?.edificioId || getUserEdificio(state.user))
+      : getUserEdificio(state.user);
+
+    let bacheca;
+    if (origId) {
+      bacheca = state.bacheca.map(a => a.id===parseInt(origId)
+        ? {...a, titolo, testo, scadenza, prioritaria, edificioId: edificioIdAvviso}
+        : a);
+    } else {
+      const avviso = {
+        id: newId(), titolo, testo, scadenza, prioritaria,
+        edificioId: edificioIdAvviso,
+        createdAt: new Date().toISOString(),
+        createdBy: state.user?.nome || '',
+      };
+      bacheca = [...state.bacheca, avviso];
+    }
+    save('cm_bacheca', bacheca);
+    setState({bacheca, modal:null});
+  };
+  // Salva verbale (crea/modifica)
+  const bSaveVb = document.getElementById('btn-save-verbale');
+  if (bSaveVb) bSaveVb.onclick = () => {
+    const titolo = document.getElementById('vb-titolo')?.value?.trim();
+    const data = document.getElementById('vb-data')?.value;
+    const tipo = document.getElementById('vb-tipo')?.value || 'ordinaria';
+    const argomenti = (document.getElementById('vb-argomenti')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const decisioni = (document.getElementById('vb-decisioni')?.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+    const origId = bSaveVb.dataset.id;
+    const errEl = document.getElementById('vb-err');
+    errEl.style.display = 'none';
+
+    if (!titolo) { errEl.textContent='Il titolo è obbligatorio'; errEl.style.display='block'; return; }
+    if (!data)   { errEl.textContent='La data è obbligatoria'; errEl.style.display='block'; return; }
+
+    const existing = origId ? state.verbali.find(v=>v.id===parseInt(origId)) : null;
+    const allegati = [...(existing?.allegati||[]), ...state.pendingFiles];
+    const edificioIdVerbale = existing?.edificioId || getUserEdificio(state.user);
+
+    let verbali;
+    if (origId) {
+      verbali = state.verbali.map(v => v.id===parseInt(origId)
+        ? {...v, titolo, data, tipo, argomenti, decisioni, allegati, edificioId: edificioIdVerbale}
+        : v);
+    } else {
+      const verbale = {
+        id: newId(), titolo, data, tipo, argomenti, decisioni, allegati,
+        edificioId: edificioIdVerbale,
+        createdAt: new Date().toISOString(),
+        createdBy: state.user?.nome || '',
+      };
+      verbali = [...state.verbali, verbale];
+    }
+    save('cm_verbali', verbali);
+    setState({verbali, modal:null, pendingFiles:[]});
+  };
+  // Salva lavoro (crea/modifica) — lo storico è append-only: la nota nuova
+  // si aggiunge, non sostituisce mai quelle già salvate (vedi criticità
+  // "race condition su storico lavori" nel blueprint).
+  const bSaveLv = document.getElementById('btn-save-lavoro');
+  if (bSaveLv) bSaveLv.onclick = () => {
+    const titolo = document.getElementById('lv-titolo')?.value?.trim();
+    const stato = document.getElementById('lv-stato')?.value || 'da_avviare';
+    const percentuale = Math.max(0, Math.min(100, parseInt(document.getElementById('lv-percentuale')?.value) || 0));
+    const dataPrevistaCompletamento = document.getElementById('lv-data-prevista')?.value || '';
+    const delibereRifIdRaw = document.getElementById('lv-delibera-rif')?.value;
+    const delibereRifId = delibereRifIdRaw ? parseInt(delibereRifIdRaw) : null;
+    const nota = document.getElementById('lv-nota')?.value?.trim();
+    const origId = bSaveLv.dataset.id;
+    const errEl = document.getElementById('lv-err');
+    errEl.style.display = 'none';
+
+    if (!titolo) { errEl.textContent='Il titolo è obbligatorio'; errEl.style.display='block'; return; }
+
+    const existing = origId ? state.lavori.find(l=>l.id===parseInt(origId)) : null;
+    const storicoAggiornamenti = [...(existing?.storicoAggiornamenti||[])];
+    if (nota) {
+      storicoAggiornamenti.push({ data: ymdLocale(new Date()), autore: state.user?.nome||'', nota });
+    }
+    const edificioIdLavoro = existing?.edificioId || getUserEdificio(state.user);
+
+    let lavori;
+    if (origId) {
+      lavori = state.lavori.map(l => l.id===parseInt(origId)
+        ? {...l, titolo, stato, percentuale, dataPrevistaCompletamento, delibereRifId, storicoAggiornamenti, edificioId: edificioIdLavoro}
+        : l);
+    } else {
+      const lavoro = {
+        id: newId(), titolo, stato, percentuale, dataPrevistaCompletamento, delibereRifId, storicoAggiornamenti,
+        edificioId: edificioIdLavoro,
+        createdAt: new Date().toISOString(),
+        createdBy: state.user?.nome || '',
+      };
+      lavori = [...state.lavori, lavoro];
+    }
+    save('cm_lavori', lavori);
+    setState({lavori, modal:null});
+  };
+  // Salva delibera (crea/modifica)
+  const bSaveDl = document.getElementById('btn-save-delibera');
+  if (bSaveDl) bSaveDl.onclick = () => {
+    const descrizioneSintetica = document.getElementById('dl-descrizione')?.value?.trim();
+    const dataApprovazione = document.getElementById('dl-data')?.value;
+    const stato = document.getElementById('dl-stato')?.value || 'approvata';
+    const responsabile = document.getElementById('dl-responsabile')?.value?.trim();
+    const budgetPrevisto = document.getElementById('dl-budget')?.value;
+    const verbaleRifIdRaw = document.getElementById('dl-verbale-rif')?.value;
+    const verbaleRifId = verbaleRifIdRaw ? parseInt(verbaleRifIdRaw) : null;
+    const note = document.getElementById('dl-note')?.value?.trim();
+    const origId = bSaveDl.dataset.id;
+    const errEl = document.getElementById('dl-err');
+    errEl.style.display = 'none';
+
+    if (!descrizioneSintetica) { errEl.textContent='La descrizione è obbligatoria'; errEl.style.display='block'; return; }
+    if (!dataApprovazione)     { errEl.textContent='La data di approvazione è obbligatoria'; errEl.style.display='block'; return; }
+
+    const existing = origId ? state.delibere.find(d=>d.id===parseInt(origId)) : null;
+    const edificioIdDelibera = existing?.edificioId || getUserEdificio(state.user);
+
+    let delibere;
+    if (origId) {
+      delibere = state.delibere.map(d => d.id===parseInt(origId)
+        ? {...d, descrizioneSintetica, dataApprovazione, stato, responsabile, budgetPrevisto, verbaleRifId, note, edificioId: edificioIdDelibera}
+        : d);
+    } else {
+      const delibera = {
+        id: newId(), descrizioneSintetica, dataApprovazione, stato, responsabile, budgetPrevisto, verbaleRifId, note,
+        edificioId: edificioIdDelibera,
+        createdAt: new Date().toISOString(),
+        createdBy: state.user?.nome || '',
+      };
+      delibere = [...state.delibere, delibera];
+    }
+    save('cm_delibere', delibere);
+    setState({delibere, modal:null});
+  };
+}

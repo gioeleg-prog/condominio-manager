@@ -674,3 +674,19 @@ function renderBilancio() {
     ${bodyHtml}
   </div>`;
 }
+
+// Anno, schede e dettaglio per condomino della pagina Bilancio. Chiamata da bindPageActions() (azioni.js).
+function bindAzioniBilancio() {
+  const ab = document.getElementById('anno-bilancio');
+  if (ab) ab.onchange = e => setState({filterAnno: parseInt(e.target.value)||new Date().getFullYear()});
+  document.querySelectorAll('.bil-tab:not(.vita-tab)').forEach(t => {
+    t.onclick = () => setState({bilancioTab: t.dataset.tab});
+  });
+  // Bilancio individuale condomino
+  document.querySelectorAll('[data-bilancio-cond]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.bilancioCond);
+      setState({page:'bilancio', bilancioTab:'condomini', bilancioCondId:id});
+    };
+  });
+}

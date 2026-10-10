@@ -751,3 +751,297 @@ function renderModalCategoria(d) {
     </div>
   </div>`;
 }
+
+// Condomìni gestiti, categorie, account dell'amministratore, stato del servizio, marchio, svuotamento dati. Chiamata da bindPageActions() (azioni.js).
+function bindAzioniImpostazioni() {
+  // Gestione edifici
+  const bNuovoEd = document.getElementById('btn-nuovo-edificio');
+  if (bNuovoEd) bNuovoEd.onclick = () => setState({modal:{type:'edificio', data:null}});
+  document.querySelectorAll('[data-edit-edificio]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editEdificio);
+      const ed = state.edifici.find(e=>e.id===id);
+      if (ed) setState({modal:{type:'edificio', data:{...ed}}});
+    };
+  });
+  document.querySelectorAll('[data-attiva-edificio]').forEach(btn => {
+    btn.onclick = async () => {
+      const id = parseInt(btn.dataset.attivaEdificio);
+      btn.disabled = true;
+      btn.textContent = '⏳ Attivazione…';
+      await cambiaEdificio(id, false);
+      // Dopo cambiaEdificio setState porta a dashboard — ok
+    };
+  });
+  document.querySelectorAll('[data-sel-edificio]').forEach(btn => {
+    btn.onclick = () => cambiaEdificio(parseInt(btn.dataset.selEdificio), true);
+  });
+  document.querySelectorAll('[data-del-edificio]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.delEdificio);
+      const ed = state.edifici.find(e=>e.id===id);
+      if (!ed) return;
+      // Blocca se ha dati associati
+      const condAssoc   = state.condomini.filter(c=>c.edificioId===id && !c.superAdmin).length;
+      const speseAssoc  = state.spese.filter(s=>s.edificioId===id).length;
+      const entAssoc    = state.entrate.filter(e=>e.edificioId===id).length;
+      if (condAssoc>0 || speseAssoc>0 || entAssoc>0) {
+        alert(`⚠️ Impossibile eliminare "${ed.nome}".
+
+Ha ancora:
+• ${condAssoc} condomini
+• ${speseAssoc} spese
+• ${entAssoc} versamenti
+
+Sposta o elimina prima tutti i dati associati.`);
+        return;
+      }
+      if (!confirm(`Eliminare "${ed.nome}"? Non ha dati associati, è sicuro.`)) return;
+      const edifici = state.edifici.filter(e=>e.id!==id);
+      save('cm_edifici', edifici);
+      const nuovoAttivo = edifici[0]?.id || 1;
+      save('cm_edificio_attivo', nuovoAttivo);
+      setState({edifici, edificioAttivo:nuovoAttivo});
+    };
+  });
+  // Btn gestisci edifici dal modal switcher
+  const bGestEdifici = document.getElementById('btn-gestisci-edifici');
+  if (bGestEdifici) bGestEdifici.onclick = () => setState({modal:null, page:'impostazioni'});
+  // Nuova categoria
+  const bNuovaCat = document.getElementById('btn-nuova-cat');
+  if (bNuovaCat) bNuovaCat.onclick = () => setState({modal:{type:'categoria', data:null}});
+  // Edit categoria
+  document.querySelectorAll('[data-edit-cat]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.editCat;
+      const cat = getCategorie().find(c=>c.id===id);
+      if (cat) setState({modal:{type:'categoria', data:{...cat}}});
+    };
+  });
+  // Delete categoria
+  document.querySelectorAll('[data-del-cat]').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.delCat;
+      const cat = getCategorie().find(c=>c.id===id);
+      if (!cat) return;
+      const usata = state.spese.filter(s=>s.categoria===id).length;
+      const msg = usata > 0
+        ? `La categoria "${cat.label}" è usata in ${usata} spese.\nEliminandola le spese manterranno l'ID ma non mostreranno il nome.\nProcedere?`
+        : `Eliminare la categoria "${cat.label}"? L'operazione è irreversibile.`;
+      if (!confirm(msg)) return;
+      const cats = getCategorie().filter(c=>c.id!==id);
+      saveCategorie(cats);
+      setState({}); // re-render
+    };
+  });
+  // Admin change own password
+  const bAdminOwnPw = document.getElementById('btn-admin-change-own-pw');
+  if (bAdminOwnPw) bAdminOwnPw.onclick = () => setState({modal:{type:'change-pw'}});
+  // Collega l'account Google a quello attuale (stesso uid, niente doppioni).
+  // Dopo il collegamento l'accesso con Google eredita la 2FA di Google.
+  const bLinkG = document.getElementById('btn-link-google');
+  const gState = document.getElementById('google-link-state');
+  const googleLinked = (window._fb?.auth?.currentUser?.providerData || []).some(p => p.providerId === 'google.com');
+  if (googleLinked && gState) {
+    gState.innerHTML = '✅ Account Google collegato. Puoi accedere con il pulsante “Accedi con Google”.';
+    if (bLinkG) bLinkG.style.display = 'none';
+  }
+  if (bLinkG) bLinkG.onclick = async () => {
+    if (!window._fb) return;
+    bLinkG.disabled = true;
+    try {
+      const { auth, GoogleAuthProvider, linkWithPopup } = window._fb;
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const res = await linkWithPopup(auth.currentUser, provider);
+      // L'email Google deve combaciare con quella dell'account: altrimenti il
+      // login con Google porterebbe a un profilo diverso da quello atteso.
+      const gEmail = res.user.providerData.find(p => p.providerId === 'google.com')?.email || '';
+      if (gEmail.toLowerCase() !== (auth.currentUser.email || '').toLowerCase()) {
+        alert('⚠️ Attenzione: hai collegato ' + gEmail + ', diverso dalla tua email ' + auth.currentUser.email + '. L\'accesso con Google potrebbe non riconoscerti. Scollega da Firebase Console se non voluto.');
+      }
+      alert('✅ Account Google collegato. Da ora puoi accedere con “Accedi con Google”.');
+      setState({});
+    } catch (e) {
+      bLinkG.disabled = false;
+      const code = e.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
+      alert(code === 'auth/credential-already-in-use'
+        ? 'Questo account Google è già collegato a un altro profilo.'
+        : (code === 'auth/provider-already-linked' ? 'Hai già collegato un account Google.' : ('Collegamento non riuscito: ' + (e.message || e))));
+    }
+  };
+  // Reset
+  bindOpsSection();
+  const bBrand = document.getElementById('btn-save-branding');
+  if (bBrand) bBrand.onclick = () => {
+    if (!isSuperAdmin(state.user)) return;
+    const nomeProdotto = (document.getElementById('br-nome')?.value || '').trim() || BRANDING_DEFAULT.nomeProdotto;
+    const fornitore = (document.getElementById('br-fornitore')?.value || '').trim() || BRANDING_DEFAULT.fornitore;
+    save('cm_branding', { nomeProdotto, fornitore });
+    setState({});
+  };
+  const bResetCats = document.getElementById('btn-reset-cats');
+  if (bResetCats) bResetCats.onclick = () => {
+    if (!confirm('Ripristinare le categorie predefinite? Le categorie personalizzate verranno eliminate.')) return;
+    saveCategorie(CATEGORIE_DEFAULT);
+    setState({});
+  };
+  const bReset = document.getElementById('btn-reset');
+  if (bReset) bReset.onclick = () => {
+    if (!isSuperAdmin(state.user)) return;
+    // QA: prima il reset azzerava i dati di TUTTI i condomini e sostituiva i
+    // condomini registrati con 6 profili di esempio. Ora svuota solo i dati
+    // operativi dell'edificio attivo; condomini e account restano.
+    const edId = state.edificioAttivo;
+    const edNome = (state.edifici.find(e => e.id === edId) || {nome: 'questo condominio'}).nome;
+    if (!confirm(
+      '⚠️ Svuotare i dati di "' + edNome + '"?\n\n' +
+      'Verranno CANCELLATI per questo condominio:\n' +
+      '• spese, versamenti e fornitori\n' +
+      '• bacheca, verbali, lavori e delibere\n\n' +
+      'Restano invariati: gli altri condomini, i condomini registrati e i loro account, le categorie.\n\n' +
+      'Operazione NON reversibile (scarica prima il backup).\n\nProcedi?'
+    )) return;
+
+    // Seconda conferma — digita RESET
+    const conferma = prompt('SECONDA CONFERMA\n\nDigita la parola RESET per svuotare i dati di "' + edNome + '".');
+    if ((conferma||'').trim().toUpperCase() !== 'RESET') {
+      alert('Operazione annullata: parola di conferma errata.');
+      return;
+    }
+
+    const patch = {};
+    [['cm_spese','spese'], ['cm_entrate','entrate'], ['cm_fornitori','fornitori'], ['cm_bacheca','bacheca'],
+     ['cm_verbali','verbali'], ['cm_lavori','lavori'], ['cm_delibere','delibere']].forEach(([key, prop]) => {
+      patch[prop] = state[prop].filter(r => r.edificioId !== edId);
+      save(key, patch[prop]);
+    });
+    setState(patch);
+    alert('✅ Dati di "' + edNome + '" svuotati.');
+  };
+}
+
+// Schede di condominio gestito e categoria; migrazione storica. Chiamata da bindModal() (schede.js).
+function bindSchedaImpostazioni() {
+  // ── Migrazione edificioId (pagina Impostazioni) ──────────────────────────
+  const bMigra = document.getElementById('btn-migra-edificio-id');
+  if (bMigra) bMigra.onclick = async () => {
+    const stats = getMigrationStats();
+    const firstEd = state.edifici.find(e=>e.id===stats.firstEdId) || state.edifici[0];
+    if (!firstEd) { alert('Nessun edificio trovato.'); return; }
+    if (stats.totale === 0) { alert('Nessun record da migrare — tutto e gia associato a un condominio.'); return; }
+    const msg1 = 'Stai per associare ' + stats.totale + ' record a "' + firstEd.nome + '".' +
+      (stats.condSenza  > 0 ? '\n- ' + stats.condSenza  + ' condomini'  : '') +
+      (stats.speseSenza > 0 ? '\n- ' + stats.speseSenza + ' spese'      : '') +
+      (stats.entSenza   > 0 ? '\n- ' + stats.entSenza   + ' versamenti' : '') +
+      (stats.fornSenza  > 0 ? '\n- ' + stats.fornSenza  + ' fornitori'  : '') +
+      '\n\nQuesta operazione salva su Firebase. Procedi?';
+    if (!confirm(msg1)) return;
+    bMigra.disabled = true;
+    bMigra.textContent = 'Migrazione in corso...';
+    bMigra.style.opacity = '0.7';
+    try {
+      const res = await eseguiMigrazioneEdificioId(firstEd.id);
+      const okEl = document.getElementById('migra-ok');
+      if (okEl) { okEl.textContent = 'Migrati ' + res.migrati + ' record a "' + firstEd.nome + '"'; okEl.style.display='block'; }
+      bMigra.textContent = 'Migrazione completata';
+      setTimeout(() => setState({page:'impostazioni'}), 2000);
+    } catch(err) {
+      alert('Errore: ' + err.message);
+      bMigra.disabled = false;
+      bMigra.textContent = 'Riprova migrazione';
+      bMigra.style.opacity = '1';
+    }
+  };
+  const bSaveEd = document.getElementById('btn-save-edificio');
+  if (bSaveEd) {
+    // emoji picker
+    document.querySelectorAll('.ed-emoji-opt').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.ed-emoji-opt').forEach(b=>b.classList.remove('selected'));
+        btn.classList.add('selected');
+        document.getElementById('ed-emoji').value = btn.dataset.edEmoji;
+      };
+    });
+    // color picker
+    document.querySelectorAll('.ed-color-opt').forEach(btn => {
+      btn.onclick = () => {
+        const c = btn.dataset.edColor;
+        document.getElementById('ed-colore').value = c;
+        document.querySelectorAll('.ed-color-opt').forEach(b => {
+          b.style.border = `3px solid ${b.dataset.edColor===c?'white':'transparent'}`;
+          b.style.boxShadow = b.dataset.edColor===c ? `0 0 0 2px ${c}` : 'none';
+        });
+      };
+    });
+
+    bSaveEd.onclick = () => {
+      const nome     = document.getElementById('ed-nome')?.value?.trim();
+      const indirizzo= document.getElementById('ed-indirizzo')?.value?.trim();
+      const emoji    = document.getElementById('ed-emoji')?.value || '🏢';
+      const colore   = document.getElementById('ed-colore')?.value || '#2563EB';
+      const note     = document.getElementById('ed-note')?.value?.trim();
+      const origId   = bSaveEd.dataset.id;
+      const errEl    = document.getElementById('ed-err');
+      errEl.style.display = 'none';
+      if (!nome) { errEl.textContent='Il nome è obbligatorio'; errEl.style.display='block'; return; }
+
+      let edifici;
+      if (origId) {
+        edifici = state.edifici.map(e => e.id===parseInt(origId) ? {...e,nome,indirizzo,emoji,colore,note} : e);
+      } else {
+        const newEd = {id: newId(), nome, indirizzo, emoji, colore, note};
+        edifici = [...state.edifici, newEd];
+      }
+      save('cm_edifici', edifici);
+      setState({edifici, modal:null});
+    };
+  }
+  // Salva categoria (crea/modifica)
+  const bSaveCat = document.getElementById('btn-save-cat');
+  if (bSaveCat) {
+    // Icon picker
+    document.querySelectorAll('.icon-opt').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.icon-opt').forEach(b=>b.classList.remove('selected'));
+        btn.classList.add('selected');
+        const ic = btn.dataset.icon;
+        document.getElementById('cat-icon').value = ic;
+        const prev = document.getElementById('cat-icon-preview');
+        if (prev) prev.textContent = ic;
+      };
+    });
+
+    bSaveCat.onclick = () => {
+      const label = document.getElementById('cat-label')?.value?.trim();
+      const tipo  = document.getElementById('cat-tipo')?.value;
+      const icon  = document.getElementById('cat-icon')?.value || '📦';
+      const origId= bSaveCat.dataset.id;
+      const isBuiltin = bSaveCat.dataset.builtin === 'true';
+      const errEl = document.getElementById('cat-err');
+      errEl.style.display = 'none';
+
+      if (!label) { errEl.textContent='Il nome è obbligatorio'; errEl.style.display='block'; return; }
+
+      let cats = getCategorie();
+
+      if (origId) {
+        // Modifica
+        cats = cats.map(c => c.id === origId
+          ? {...c, label, icon, ...(isBuiltin ? {} : {tipo}) }  // builtin: non cambiare tipo
+          : c);
+      } else {
+        // Crea — genera id slug dal label
+        const baseId = label.toLowerCase().replace(/[^a-z0-9]/g,'_').slice(0,30) + '_' + Date.now().toString(36);
+        if (cats.find(c=>c.label.toLowerCase()===label.toLowerCase())) {
+          errEl.textContent='Esiste già una categoria con questo nome'; errEl.style.display='block'; return;
+        }
+        cats = [...cats, {id: baseId, label, tipo, icon, builtin:false}];
+      }
+
+      saveCategorie(cats);
+      setState({modal:null});
+    };
+  }
+}

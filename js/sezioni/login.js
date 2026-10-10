@@ -352,3 +352,69 @@ function renderModalAdminResetPw(cond) {
     </div>
   </div>`;
 }
+
+// Schede di cambio e reset della password. Chiamata da bindModal() (schede.js).
+function bindSchedaPassword() {
+  // Reset password admin
+  const bResetAdmin = document.getElementById('btn-save-reset-admin');
+  if (bResetAdmin) bResetAdmin.onclick = async () => {
+    const id    = parseInt(bResetAdmin.dataset.id);
+    const okEl  = document.getElementById('reset-admin-ok');
+    const errEl = document.getElementById('reset-admin-err');
+    if (errEl) errEl.style.display = 'none';
+    const cond = state.condomini.find(c => c.id === id);
+    if (!cond?.email) { if(errEl){errEl.textContent='Nessuna email configurata per questo condomino.';errEl.style.display='block';} return; }
+    if (!window._fb) { if(errEl){errEl.textContent='Connessione a Firebase richiesta.';errEl.style.display='block';} return; }
+    try {
+      const { auth, sendPasswordResetEmail } = window._fb;
+      await sendPasswordResetEmail(auth, cond.email);
+      okEl.textContent = '✅ Email di reset inviata a ' + cond.email;
+      okEl.style.display = 'block';
+      setTimeout(()=>setState({modal:null}), 2500);
+    } catch(e) {
+      if (errEl) {
+        errEl.textContent = e.code === 'auth/user-not-found'
+          ? 'Nessun account Firebase con questa email. Crealo prima in Firebase Console → Authentication.'
+          : 'Errore: ' + e.message;
+        errEl.style.display = 'block';
+      }
+    }
+  };
+  // Change password (own)
+  const cp1 = document.getElementById('cp-new1');
+  if (cp1) {
+    cp1.oninput = () => {
+      const errs = validatePassword(cp1.value);
+      const el = document.getElementById('cp-rules');
+      if (!cp1.value) { el.innerHTML=''; return; }
+      el.innerHTML = errs.length===0
+        ? '<span style="color:var(--green)">✅ Password valida</span>'
+        : errs.map(e=>`<span style="color:var(--red)">✗ ${e}</span>`).join(' &nbsp;');
+    };
+  }
+  const bcps = document.getElementById('btn-cp-save');
+  if (bcps) bcps.onclick = async () => {
+    const cur = document.getElementById('cp-current').value;
+    const n1  = document.getElementById('cp-new1').value;
+    const n2  = document.getElementById('cp-new2').value;
+    const errEl = document.getElementById('cp-err');
+    const okEl  = document.getElementById('cp-ok');
+    errEl.style.display='none'; okEl.style.display='none';
+    if (!cur) { errEl.textContent='Inserisci la password attuale'; errEl.style.display='block'; return; }
+    const errs = validatePassword(n1);
+    if (errs.length>0) { errEl.textContent='Password non valida: '+errs.join(', '); errEl.style.display='block'; return; }
+    if (n1 !== n2) { errEl.textContent='Le password non coincidono'; errEl.style.display='block'; return; }
+    try {
+      if (!window._fb) throw new Error('Connessione a Firebase richiesta per cambiare la password.');
+      await fbChangePassword(cur, n1);
+      okEl.textContent='✅ Password aggiornata con successo!';
+      okEl.style.display='block';
+      setTimeout(()=>setState({modal:null}), 1500);
+    } catch(e) {
+      errEl.textContent = e.code==='auth/wrong-password'||e.code==='auth/invalid-credential'
+        ? 'Password attuale non corretta'
+        : (e.message||'Errore aggiornamento password');
+      errEl.style.display='block';
+    }
+  };
+}
