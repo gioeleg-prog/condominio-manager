@@ -5,7 +5,7 @@ function renderEntrateMobileCards(items, canEdit) {
   if (!items.length) return `<div class="empty">${svgEmpty()}<p>Nessun versamento registrato</p></div>`;
   return `<div class="mobile-card-list">
     ${items.map(e => {
-      const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'Sconosciuto',color:'#888'};
+      const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'Sconosciuto',color:'var(--text2)'};
       const cat  = getCategorie().find(c=>c.id===e.categoria)||{label:'—'};
       return `<div class="entrata-mobile-card ${e.previsionale?'previsionale-entrata':''}">
         <div class="avatar" style="${avatarStyle(cond.color)};width:38px;height:38px;font-size:13px;flex-shrink:0">${initials(cond.nome)}</div>
@@ -98,9 +98,9 @@ function renderEntrate() {
         <!-- Legenda -->
         <div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:1rem;font-size:12px">
           <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:2px;background:var(--green)"></div><span style="color:var(--text2)">Versato (reale)</span></div>
-          <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:2px;background:var(--accent)"></div><span style="color:var(--text2)">Quota ord. (actual)</span></div>
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:2px;background:var(--accent-fill)"></div><span style="color:var(--text2)">Quota ord. (actual)</span></div>
           <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:2px;background:var(--purple)"></div><span style="color:var(--text2)">Quota straord. (actual)</span></div>
-          <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:2px;background:#a78bfa;opacity:.6"></div><span style="color:var(--text2)">Da consuntivare (prev.)</span></div>
+          <div style="display:flex;align-items:center;gap:5px"><div style="width:10px;height:10px;border-radius:2px;background:var(--purple-border);opacity:.6"></div><span style="color:var(--text2)">Da consuntivare (prev.)</span></div>
         </div>
 
         <div class="condomini-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
@@ -140,7 +140,7 @@ function renderEntrate() {
                 <div style="font-size:10px;font-weight:700;color:var(--green);letter-spacing:.06em;margin-bottom:5px">💰 INCASSI (ACTUAL)</div>
                 <div class="row"><span>${annoSel ? 'Versato ' + annoSel : 'Versato ' + etichettaAnni(anniSel)}</span><span style="font-weight:600;color:var(--green)">${fmt(versato)}</span></div>
                 ${riporto!==0?`<div class="row"><span style="color:var(--text2);font-size:12px">Riporto anni prec.</span><span style="font-size:12px;color:${riporto>=0?'var(--green)':'var(--red)'}">${riporto>=0?'+':''}${fmt(riporto)}</span></div>`:''}
-                ${versatoPrev>0?`<div class="row"><span style="color:#7c3aed;font-size:12px">🔮 Previsionali attesi</span><span style="font-size:12px;color:#7c3aed">${fmt(versatoPrev)}</span></div>`:''}
+                ${versatoPrev>0?`<div class="row"><span style="color:var(--purple);font-size:12px">🔮 Previsionali attesi</span><span style="font-size:12px;color:var(--purple)">${fmt(versatoPrev)}</span></div>`:''}
               </div>
 
               <!-- SEZIONE 2: SPESE ACTUAL -->
@@ -171,11 +171,11 @@ function renderEntrate() {
 
               <!-- SEZIONE 4: FORECAST aggregato (solo totali, dettaglio in fondo pagina) -->
               ${q.ordPrev>0||q.straordPrev>0?`
-              <div style="padding:.5rem 0;border-top:1px solid #e9d5ff;margin-top:.25rem">
-                <div style="font-size:10px;font-weight:700;color:#7c3aed;letter-spacing:.06em;margin-bottom:5px">🔮 FORECAST</div>
-                ${q.ordPrev>0?`<div class="row" style="font-size:12px;color:#7c3aed"><span>Ordinarie</span><span>${fmt(q.ordPrev)}</span></div>`:''}
-                ${q.straordPrev>0?`<div class="row" style="font-size:12px;color:#7c3aed"><span>Straordinarie</span><span>${fmt(q.straordPrev)}</span></div>`:''}
-                <div class="row" style="font-weight:700;color:#0E7490;border-top:1px dashed #e9d5ff;margin-top:3px;padding-top:3px">
+              <div style="padding:.5rem 0;border-top:1px solid var(--purple-border);margin-top:.25rem">
+                <div style="font-size:10px;font-weight:700;color:var(--purple);letter-spacing:.06em;margin-bottom:5px">🔮 FORECAST</div>
+                ${q.ordPrev>0?`<div class="row" style="font-size:12px;color:var(--purple)"><span>Ordinarie</span><span>${fmt(q.ordPrev)}</span></div>`:''}
+                ${q.straordPrev>0?`<div class="row" style="font-size:12px;color:var(--purple)"><span>Straordinarie</span><span>${fmt(q.straordPrev)}</span></div>`:''}
+                <div class="row" style="font-weight:700;color:var(--teal);border-top:1px dashed var(--purple-border);margin-top:3px;padding-top:3px">
                   <span>Quota proiettata</span><span>${fmt(q.totFull)}</span>
                 </div>
                 <div class="row" style="font-size:12px">
@@ -184,11 +184,11 @@ function renderEntrate() {
                 </div>
                 <div style="margin-top:5px">
                   <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:3px">
-                    <span>Copertura proiettata</span><span style="font-weight:600;color:#7c3aed">${percFull}%</span>
+                    <span>Copertura proiettata</span><span style="font-weight:600;color:var(--purple)">${percFull}%</span>
                   </div>
                   <div class="progress-wrap">
                     <div class="progress-fill" style="width:${percActual}%;background:${coloreBar}"></div>
-                    <div style="width:${Math.max(0,percFull-percActual)}%;background:#7c3aed;opacity:.35;height:100%"></div>
+                    <div style="width:${Math.max(0,percFull-percActual)}%;background:var(--purple);opacity:.35;height:100%"></div>
                   </div>
                 </div>
               </div>`:''}
@@ -214,7 +214,7 @@ function renderEntrate() {
           const ref = parseFloat(s.preventivo||0);
           const quoteCond = perCondomino.map(c=>{
             const q = quotaSuSpesa(s, c.id, ref, nAttiviEnt);
-            return '<td style="text-align:right;font-size:12px;color:#7c3aed">' + fmt(q) + '</td>';
+            return '<td style="text-align:right;font-size:12px;color:var(--purple)">' + fmt(q) + '</td>';
           }).join('');
           return '<tr>' +
             '<td style="font-weight:500;font-size:13px">' + esc(s.titolo) + '</td>' +
@@ -231,7 +231,7 @@ function renderEntrate() {
             const ref=parseFloat(s.preventivo||0);
             return a + quotaSuSpesa(s, c.id, ref, nAttiviEnt);
           },0);
-          return '<td style="text-align:right;color:#7c3aed">' + fmt(tot) + '</td>';
+          return '<td style="text-align:right;color:var(--purple)">' + fmt(tot) + '</td>';
         }).join('') +
         '</tr></tbody></table></div></div>';
     })()}
@@ -239,7 +239,7 @@ function renderEntrate() {
     ${anniSel.length === 1 ? renderPianoRateBox(anniSel[0], canEdit) : (canEdit && anniSel.length > 1 ? '<div class="alert alert-info" style="font-size:13px;margin-bottom:1rem">📅 Il piano rate si calcola su un anno alla volta: lascia acceso un solo anno per vederlo.</div>' : '') /* con più anni o "Tutti" il piano non compare */}
 
     <div class="card">
-      <div class="card-header"><h3>Tutti i versamenti</h3><div style="text-align:right"><strong style="color:var(--green)">${fmt(totale)}</strong>${totalePrevisto > 0 ? `<div style="font-size:11px;color:#7c3aed">+ ${fmt(totalePrevisto)} previsti</div>` : ''}</div></div>
+      <div class="card-header"><h3>Tutti i versamenti</h3><div style="text-align:right"><strong style="color:var(--green)">${fmt(totale)}</strong>${totalePrevisto > 0 ? `<div style="font-size:11px;color:var(--purple)">+ ${fmt(totalePrevisto)} previsti</div>` : ''}</div></div>
       ${renderEntrateMobileCards(items, canEdit)}
       <div class="table-wrap">
         ${items.length===0?`<div class="empty">${svgEmpty()}<p>Nessun versamento registrato</p></div>`:
@@ -250,9 +250,9 @@ function renderEntrate() {
           </tr></thead>
           <tbody>
           ${items.map(e=>{
-            const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'Sconosciuto',color:'#888'};
+            const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'Sconosciuto',color:'var(--text2)'};
             const cat  = getCategorie().find(c=>c.id===e.categoria)||{label:e.categoria||'—'};
-            return `<tr style="${e.previsionale?'background:#fffbeb;':''}">
+            return `<tr style="${e.previsionale?'background:var(--amber-light);':''}">
               ${canEdit?`<td><div class="inline-actions">
                 <button class="btn btn-secondary btn-sm" data-edit-entrata="${e.id}" title="Modifica versamento">✏️</button>
                 <button class="btn btn-danger btn-sm" data-del-entrata="${e.id}" title="Elimina versamento">🗑</button>
@@ -267,7 +267,7 @@ function renderEntrate() {
               </div></td>
               <td style="font-size:13px">${esc(e.descrizione||'—')}</td>
               <td><span class="badge badge-green" style="font-size:10px">${esc(cat.label)}</span></td>
-              <td class="${e.previsionale?'':'amount-pos'}" style="font-weight:700;color:${e.previsionale?'#92400e':'var(--green)'}">
+              <td class="${e.previsionale?'':'amount-pos'}" style="font-weight:700;color:${e.previsionale?'var(--amber)':'var(--green)'}">
                 ${fmt(e.importo)}
                 ${e.importoPrevisto!=null && Math.abs(parseFloat(e.importoPrevisto)-parseFloat(e.importo))>=0.01 ? `<div style="font-size:10px;font-weight:400;color:var(--text2)">previsto ${fmt(e.importoPrevisto)}</div>` : ''}
               </td>
@@ -604,8 +604,8 @@ function renderPianoRateBox(annoSel, canEdit) {
     const inConferma0 = state.pianoRateConferma === annoSel;
     const pulizia = proposteEsistenti0.length
       ? (inConferma0
-        ? '<div style="margin-top:.625rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:var(--radius-sm);padding:.75rem 1rem">' +
-          '<div style="font-size:12px;color:#5b21b6;margin-bottom:.625rem">Le ' + proposteEsistenti0.length + ' proposte create in precedenza per il ' + annoSel + ' non sono più necessarie: verranno rimosse (i versamenti già validati come reali non vengono toccati). Nessuna nuova rata verrà creata.</div>' +
+        ? '<div style="margin-top:.625rem;background:var(--purple-light);border:1px solid var(--purple-border);border-radius:var(--radius-sm);padding:.75rem 1rem">' +
+          '<div style="font-size:12px;color:var(--purple-strong);margin-bottom:.625rem">Le ' + proposteEsistenti0.length + ' proposte create in precedenza per il ' + annoSel + ' non sono più necessarie: verranno rimosse (i versamenti già validati come reali non vengono toccati). Nessuna nuova rata verrà creata.</div>' +
           '<div style="display:flex;gap:.5rem;flex-wrap:wrap">' +
             '<button class="btn btn-primary btn-sm" id="btn-conferma-rate-piano">🗑️ Rimuovi le ' + proposteEsistenti0.length + ' proposte</button>' +
             '<button class="btn btn-secondary btn-sm" id="btn-annulla-rate-piano">✖️ Annulla</button>' +
@@ -627,10 +627,10 @@ function renderPianoRateBox(annoSel, canEdit) {
     const dettaglioRighe = r.perCondomino.map(c =>
       '<tr><td style="padding:2px 8px 2px 0">' + esc(c.nome) + '</td><td style="padding:2px 0;text-align:right;font-weight:600">' + fmt(c.importo) + '</td></tr>'
     ).join('');
-    return '<div style="flex:1;min-width:170px;background:#f5f3ff;border-radius:var(--radius-sm);padding:.875rem;border-left:3px solid #7c3aed">' +
-      '<div style="font-weight:700;color:#7c3aed;margin-bottom:2px;text-align:center">Rata ' + r.n + ' — ' + r.mese + '</div>' +
+    return '<div style="flex:1;min-width:170px;background:var(--purple-light);border-radius:var(--radius-sm);padding:.875rem;border-left:3px solid var(--purple)">' +
+      '<div style="font-weight:700;color:var(--purple);margin-bottom:2px;text-align:center">Rata ' + r.n + ' — ' + r.mese + '</div>' +
       '<div style="font-size:11px;color:var(--text2);margin-bottom:.5rem;text-align:center">' + r.data + '</div>' +
-      '<div style="font-size:1.3rem;font-weight:800;color:#5b21b6;text-align:center">' + fmt(r.importoTotale) + '</div>' +
+      '<div style="font-size:1.3rem;font-weight:800;color:var(--purple-strong);text-align:center">' + fmt(r.importoTotale) + '</div>' +
       '<div style="font-size:11px;color:var(--text2);text-align:center">totale &middot; media ' + fmt(r.importoPerCondo) + '/cond.</div>' +
       '<details style="margin-top:.5rem"><summary style="cursor:pointer;font-size:11px;color:var(--accent)">Dettaglio per condomino</summary>' +
       '<table style="width:100%;font-size:11px;margin-top:4px">' + dettaglioRighe + '</table></details>' +
@@ -648,9 +648,9 @@ function renderPianoRateBox(annoSel, canEdit) {
   // Pannello di conferma: sostituisce il vecchio window.confirm(). Resta visibile finché non si
   // clicca esplicitamente Conferma o Annulla, così c'è tutto il tempo di rivedere le rate sopra.
   const pannelloConferma = inConferma
-    ? '<div style="margin-top:.875rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:var(--radius-sm);padding:.875rem 1rem">' +
-      '<div style="font-weight:700;color:#5b21b6;margin-bottom:4px">' + (proposteEsistenti.length ? '🔁 Confermi l\'aggiornamento?' : '➕ Confermi la creazione?') + '</div>' +
-      '<div style="font-size:12px;color:#5b21b6;margin-bottom:.75rem">' +
+    ? '<div style="margin-top:.875rem;background:var(--purple-light);border:1px solid var(--purple-border);border-radius:var(--radius-sm);padding:.875rem 1rem">' +
+      '<div style="font-weight:700;color:var(--purple-strong);margin-bottom:4px">' + (proposteEsistenti.length ? '🔁 Confermi l\'aggiornamento?' : '➕ Confermi la creazione?') + '</div>' +
+      '<div style="font-size:12px;color:var(--purple-strong);margin-bottom:.75rem">' +
         (proposteEsistenti.length
           ? 'Le <strong>' + proposteEsistenti.length + ' proposte</strong> già create (non ancora validate) per il ' + annoSel + ' verranno aggiornate agli importi/date mostrati sopra (senza cancellarle e ricrearle). Se qualche rata non serve più, verrà rimossa.'
           : 'Verranno creati <strong>' + nNuovi + ' versamenti</strong> previsionali per il ' + annoSel + ', come mostrato sopra.') +
@@ -663,17 +663,17 @@ function renderPianoRateBox(annoSel, canEdit) {
     '</div>'
     : '';
 
-  return '<div class="card" style="margin-bottom:1rem;border-top:3px solid #7c3aed">' +
+  return '<div class="card" style="margin-bottom:1rem;border-top:3px solid var(--purple)">' +
     '<div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">' +
     '<h3>📅 Piano rate suggerito ' + annoSel + '</h3>' +
     (inConferma
-      ? '<span style="font-size:12px;color:#7c3aed;font-weight:600">⏳ In attesa di conferma qui sotto…</span>'
+      ? '<span style="font-size:12px;color:var(--purple);font-weight:600">⏳ In attesa di conferma qui sotto…</span>'
       : '<button class="btn btn-secondary btn-sm" id="btn-crea-rate-piano">' + btnLabel + '</button>') +
     '</div>' +
     '<div style="padding:.75rem 1.25rem 1rem">' +
     '<div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:.75rem;font-size:13px;background:var(--surface2);padding:.625rem .875rem;border-radius:var(--radius-sm)">' +
     '<div>Saldo di partenza' + (annoSel > new Date().getFullYear() ? ' (stimato a inizio ' + annoSel + ')' : '') + ': <strong style="color:' + (piano.saldoPartenza>=0?'var(--green)':'var(--red)') + '">' + fmt(piano.saldoPartenza) + '</strong></div>' +
-    '<div>Da raccogliere: <strong style="color:#7c3aed">' + fmt(piano.totDaRaccogliere) + '</strong></div>' +
+    '<div>Da raccogliere: <strong style="color:var(--purple)">' + fmt(piano.totDaRaccogliere) + '</strong></div>' +
     '<div>Margine di sicurezza: <strong>' + piano.margineGiorni + ' giorni</strong></div>' +
     '<div>Condomini: <strong>' + piano.nAttivi + '</strong></div>' +
     '<div>Saldo minimo previsto: <strong style="color:' + (piano.saldoMinimoPrevisto>=0?'var(--green)':'var(--red)') + '">' + fmt(piano.saldoMinimoPrevisto) + '</strong></div>' +
@@ -720,7 +720,7 @@ function renderMiniCashflowRateChart(piano, anno) {
 
   const markers = piano.rate.map(r => {
     const x = xFor(r.dataObj.getMonth());
-    return '<g><circle cx="'+x.toFixed(1)+'" cy="'+(padT-10).toFixed(1)+'" r="7" fill="#7c3aed"/>' +
+    return '<g><circle cx="'+x.toFixed(1)+'" cy="'+(padT-10).toFixed(1)+'" r="7" fill="var(--purple)"/>' +
       '<text x="'+x.toFixed(1)+'" y="'+(padT-6).toFixed(1)+'" font-size="9" fill="#fff" text-anchor="middle" font-weight="700">R'+r.n+'</text></g>';
   }).join('');
 

@@ -176,7 +176,7 @@ describe('UNIT — guida rapida delle pagine', () => {
   const guida = (page, ruolo) => { app.__set('state', { ...app.__get('state'), page, user: user(ruolo) }); return app.renderGuida(); };
 
   it('ogni pagina del menu ha la sua guida', () => {
-    for (const p of ['dashboard', 'spese', 'entrate', 'bilancio', 'confronto', 'fornitori', 'vita', 'condomini', 'impostazioni']) {
+    for (const p of ['dashboard', 'spese', 'entrate', 'bilancio', 'confronto', 'ricerca', 'fornitori', 'vita', 'condomini', 'impostazioni']) {
       assert.ok(GUIDA[p] && GUIDA[p].titolo && GUIDA[p].breve, 'manca la guida di ' + p);
     }
   });
@@ -602,5 +602,59 @@ describe('UNIT — estratto conto del condomino', () => {
   it('il saldo coincide con quello del riparto nel rendiconto dello stesso anno', () => {
     const r = app.datiRendiconto(Y - 1).riparto.find((x) => x.nome === 'Anna');
     assert.ok(Math.abs(r.saldo - d.saldo) < 0.001);
+  });
+});
+
+describe('UNIT — ricerca nel sito e tema', () => {
+  const Y = new Date().getFullYear();
+  const base = (user) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], user,
+      condomini: [{ id: 101, nome: 'Anna Rossi', appartamento: 'Int. 1', email: 'anna@x.it', edificioId: 1 }, { id: 201, nome: 'Altro Edificio', edificioId: 2 }],
+      fornitori: [{ id: 5, nome: 'Ascensore Rapido Srl', categoria: 'altro', note: 'chiamare la mattina', edificioId: 1 }],
+      spese: [
+        { id: 1, data: `${Y}-03-01`, titolo: 'Manutenzione ascensore', descrizione: 'Revisione semestrale', consuntivo: '1200', fornitoreId: 5, categoria: 'ascensore', edificioId: 1, allegati: [{ id: 9, nome: 'fattura-ascensore.pdf' }] },
+        { id: 2, data: `${Y}-04-01`, titolo: 'Pulizie', consuntivo: '300', categoria: 'pulizie', edificioId: 1 },
+        { id: 3, data: `${Y}-04-01`, titolo: 'Ascensore altro edificio', consuntivo: '50', edificioId: 2 },
+      ],
+      entrate: [{ id: 10, data: `${Y}-02-01`, importo: '450', condominoId: 101, descrizione: 'Rata perché in ritardo', edificioId: 1 }],
+      bacheca: [{ id: 20, titolo: 'Fermo ascensore', testo: 'Lunedì mattina', data: `${Y}-05-01`, edificioId: 1 }],
+      verbali: [{ id: 30, titolo: 'Assemblea', argomenti: ['ascensore', 'facciata'], decisioni: ['approvato'], data: `${Y}-03-20`, edificioId: 1 }],
+      lavori: [], delibere: [] });
+    return app;
+  };
+  const admin = { id: 101, nome: 'Anna', isAdmin: true, canEdit: true, edificioId: 1 };
+  const membro = { id: 102, nome: 'Bruno', edificioId: 1 };
+  it('trova in più sezioni, senza maiuscole e accenti, solo nel condominio attivo', () => {
+    const r = base(admin).cercaNelSito('ASCENSORE');
+    const k = Object.fromEntries(r.gruppi.map((g) => [g.chiave, g.voci.length]));
+    assert.strictEqual(k.spese, 1, 'la spesa dell\'altro edificio non deve comparire');
+    assert.strictEqual(k.fornitori, 1);
+    assert.strictEqual(k.avvisi, 1);
+    assert.strictEqual(k.verbali, 1);
+    assert.strictEqual(base(admin).cercaNelSito('perche').gruppi[0].chiave, 'entrate');
+  });
+  it('più parole = tutte presenti; importi, date e nomi degli allegati', () => {
+    const app = base(admin);
+    assert.strictEqual(app.cercaNelSito('ascensore revisione').gruppi.length, 1);
+    assert.strictEqual(app.cercaNelSito('1.200,00').gruppi[0].voci[0].id, 1);
+    assert.strictEqual(app.cercaNelSito('fattura-ascensore').gruppi[0].voci[0].id, 1);
+    assert.strictEqual(app.cercaNelSito('01/02/' + Y).gruppi[0].chiave, 'entrate');
+    assert.strictEqual(app.cercaNelSito('a').gruppi.length, 0, 'una lettera sola non cerca');
+  });
+  it('i condomini compaiono solo a chi amministra', () => {
+    assert.ok(base(admin).cercaNelSito('anna').gruppi.some((g) => g.chiave === 'condomini'));
+    assert.ok(!base(membro).cercaNelSito('anna').gruppi.some((g) => g.chiave === 'condomini'));
+    assert.ok(!base(admin).cercaNelSito('altro edificio').gruppi.some((g) => g.chiave === 'condomini'));
+  });
+  it('l\'evidenziazione è sicura: il testo passa dall\'escape', () => {
+    const app = loadApp();
+    assert.strictEqual(app.evidenzia('<b>Ascensore</b>', ['ascensore']), '&lt;b&gt;<mark>Ascensore</mark>&lt;/b&gt;');
+    assert.strictEqual(app.evidenzia('Perché', ['perche']), '<mark>Perché</mark>');
+  });
+  it('tema: scelta non valida o assente = automatico; senza scuro del dispositivo resta chiaro', () => {
+    const app = loadApp();
+    assert.strictEqual(app.temaScelto(), 'auto');
+    assert.strictEqual(typeof app.cambiaTema, 'function');
   });
 });

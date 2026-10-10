@@ -21,6 +21,8 @@ const GUIDA = {
     fare: [
       ['Vedere un altro anno', 'Usa il menu dell\'anno in alto a destra.'],
       ['Andare a una sezione', 'Tocca una voce del menu, oppure "Vedi tutti" sotto ogni riquadro.'],
+      ['Cercare qualcosa', 'Campo "🔍 Cerca nel sito" nella barra laterale (dal telefono 🔍 in alto): trova spese, versamenti, fornitori, avvisi e verbali.'],
+      ['Modalità scura', 'Pulsante 🌓 accanto a 🔑 in basso nella barra laterale (dal telefono, nel menu del profilo): automatico, chiaro o scuro.'],
     ],
     sapere: [
       '<b>Previsionale</b>: importo stimato, non ancora pagato. <b>Definitiva</b>: spesa con l\'importo reale.',
@@ -118,6 +120,23 @@ const GUIDA = {
       'Le frecce: <b>▲ verde</b> = va meglio (più entrate o meno spese), <b>▼ rossa</b> = va peggio.',
       '"—" indica dati reali di un anno non ancora iniziato: per quell\'anno conta il preventivo.',
       'Il saldo per condomino è quello del singolo anno; la situazione cumulativa (con il riporto) è in Entrate.',
+    ],
+  },
+  ricerca: {
+    titolo: 'Ricerca',
+    breve: 'Trova in un colpo spese, versamenti, fornitori, avvisi, verbali, lavori e delibere che contengono le parole cercate.',
+    trovi: [
+      'I risultati raggruppati per sezione, con il numero di voci trovate e le parole evidenziate.',
+      ['admin', 'Anche i condomini (nome, appartamento, email): solo per chi amministra.'],
+    ],
+    fare: [
+      ['Cercare', 'Scrivi nel campo "🔍 Cerca nel sito" nella barra laterale e premi Invio; dal telefono tocca 🔍 in alto. Il tasto "/" porta subito al campo.'],
+      ['Restringere', 'Aggiungi una parola: vengono mostrate solo le voci che le contengono tutte.'],
+      ['Aprire una voce', 'Tocca il risultato: si apre la scheda (o la pagina giusta, già filtrata).'],
+    ],
+    sapere: [
+      'Maiuscole e accenti non contano. Puoi cercare anche importi (es. 1200) e date (es. 31/03/2026).',
+      'La ricerca mostra solo ciò che puoi già vedere nelle pagine del tuo condominio.',
     ],
   },
   fornitori: {

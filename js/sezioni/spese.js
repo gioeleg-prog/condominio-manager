@@ -234,7 +234,7 @@ function renderSpese() {
       <!-- 1. ACTUAL -->
       <div class="stat-card stat-red">
         <div class="stat-label" style="display:flex;align-items:center;gap:5px">
-          <span style="font-size:9px;background:#fee2e2;color:var(--red);border-radius:3px;padding:1px 5px;font-weight:700">ACTUAL</span>
+          <span style="font-size:9px;background:var(--red-light);color:var(--red);border-radius:3px;padding:1px 5px;font-weight:700">ACTUAL</span>
           Uscite consuntivate
         </div>
         <div class="stat-value">${fmt(totCons)}</div>
@@ -242,19 +242,19 @@ function renderSpese() {
       </div>
 
       <!-- 2. FORECAST -->
-      <div class="stat-card" style="border-top:3px solid #7c3aed">
+      <div class="stat-card" style="border-top:3px solid var(--purple)">
         <div class="stat-label" style="display:flex;align-items:center;gap:5px">
-          <span style="font-size:9px;background:#ede9fe;color:#7c3aed;border-radius:3px;padding:1px 5px;font-weight:700">FORECAST</span>
+          <span style="font-size:9px;background:var(--purple-light);color:var(--purple);border-radius:3px;padding:1px 5px;font-weight:700">FORECAST</span>
           Da consuntivare
         </div>
-        <div class="stat-value" style="color:#7c3aed">${nSpeseAperte>0?fmt(totPrev-totPrevChiuse):'—'}</div>
+        <div class="stat-value" style="color:var(--purple)">${nSpeseAperte>0?fmt(totPrev-totPrevChiuse):'—'}</div>
         <div class="stat-sub">${nSpeseAperte>0?nSpeseAperte+' spese aperte':'Nessuna spesa aperta'}</div>
       </div>
 
       <!-- 3. QUOTA ACTUAL -->
       <div class="stat-card stat-blue">
         <div class="stat-label" style="display:flex;align-items:center;gap:5px">
-          <span style="font-size:9px;background:#dbeafe;color:var(--accent);border-radius:3px;padding:1px 5px;font-weight:700">ACTUAL</span>
+          <span style="font-size:9px;background:var(--accent-light);color:var(--accent);border-radius:3px;padding:1px 5px;font-weight:700">ACTUAL</span>
           Quota / cond.
         </div>
         <div class="stat-value">${fmt(totCons/nAttiviSpese)}</div>
@@ -262,12 +262,12 @@ function renderSpese() {
       </div>
 
       <!-- 4. QUOTA PROIETTATA -->
-      <div class="stat-card" style="border-top:3px solid #0E7490">
+      <div class="stat-card" style="border-top:3px solid var(--teal)">
         <div class="stat-label" style="display:flex;align-items:center;gap:5px">
-          <span style="font-size:9px;background:#cffafe;color:#0E7490;border-radius:3px;padding:1px 5px;font-weight:700">PROIEZIONE</span>
+          <span style="font-size:9px;background:var(--teal-light);color:var(--teal);border-radius:3px;padding:1px 5px;font-weight:700">PROIEZIONE</span>
           Quota / cond. full
         </div>
-        <div class="stat-value" style="color:#0E7490">${fmt((totCons + (totPrev - totPrevChiuse)) / nAttiviSpese)}</div>
+        <div class="stat-value" style="color:var(--teal)">${fmt((totCons + (totPrev - totPrevChiuse)) / nAttiviSpese)}</div>
         <div class="stat-sub">Actual + ${nSpeseAperte} spese aperte</div>
       </div>
 
@@ -275,7 +275,7 @@ function renderSpese() {
 
     <!-- Scarto: visibile solo se ci sono spese chiuse con entrambi i valori -->
     ${speseChiuse.length>0?`
-    <div style="display:flex;align-items:center;gap:.75rem;padding:.5rem .875rem;background:${scarto<=0?'#f0fdf4':'#fef2f2'};border-radius:var(--radius-sm);margin-bottom:1rem;font-size:13px">
+    <div style="display:flex;align-items:center;gap:.75rem;padding:.5rem .875rem;background:${scarto<=0?'var(--green-light)':'var(--red-light)'};border-radius:var(--radius-sm);margin-bottom:1rem;font-size:13px">
       <span style="font-weight:600;color:${scarto<=0?'var(--green)':'var(--red)'}">
         ${scarto<=0?'✅':'⚠️'} Scarto prev/cons (spese chiuse): ${scarto>0?'+':''}${fmt(scarto)}
       </span>
@@ -541,7 +541,7 @@ function renderModalSpesa(d) {
           </div>
 
           <!-- Anteprima occorrenze -->
-          <div id="ricorrenza-preview" style="background:white;border:1px solid var(--border);border-radius:var(--radius-sm);padding:.75rem;margin-top:.5rem;font-size:12px">
+          <div id="ricorrenza-preview" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.75rem;margin-top:.5rem;font-size:12px">
             <div style="font-weight:600;margin-bottom:.4rem;color:var(--text2)">📅 Anteprima occorrenze</div>
             <div id="ricorrenza-preview-list" style="color:var(--text2)">Seleziona frequenza e data fine per vedere l'anteprima</div>
           </div>
@@ -562,7 +562,7 @@ function renderModalSpesa(d) {
             </div>
           </div>
           <div style="padding:.5rem .75rem .75rem">
-            <div id="split-warn" style="display:none;font-size:12px;padding:4px 8px;background:var(--amber-light);color:#92400e;border-radius:4px;margin-bottom:.5rem"></div>
+            <div id="split-warn" style="display:none;font-size:12px;padding:4px 8px;background:var(--amber-light);color:var(--amber);border-radius:4px;margin-bottom:.5rem"></div>
             <table class="split-table">
               <thead><tr>
                 <th>Condomino</th>

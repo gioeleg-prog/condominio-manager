@@ -7,6 +7,7 @@ function bindPageActions() {
   bindAzioniSpese();
   bindAzioniBilancio();
   bindAzioniConfronto();
+  bindAzioniRicerca();
   bindAzioniVita();
   bindAzioniEntrate();
   bindAzioniCondomini();

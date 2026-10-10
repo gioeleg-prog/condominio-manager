@@ -206,7 +206,7 @@ function renderDashboard() {
               <span style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.titolo)}</span>
               <span style="font-size:11px;color:var(--text2);flex-shrink:0">${pct}%</span>
             </div>
-            <div class="progress-wrap" style="margin-top:4px"><div class="progress-fill" style="width:${pct}%;background:var(--accent)"></div></div>
+            <div class="progress-wrap" style="margin-top:4px"><div class="progress-fill" style="width:${pct}%;background:var(--accent-fill)"></div></div>
           </div>`; }).join('')}
           ${dashVitaAltri(lavoriInCorso.length, 'lavori')}
         </div>
@@ -263,7 +263,7 @@ function renderDashboard() {
         <div class="kpi-sub">
           Ord.+Str. = ${fmt(speseOrd+speseStr)}
           ${speseOrdFull+speseStrFull > speseOrd+speseStr
-            ? `<span style="color:#7c3aed;font-size:10px"> · con prev.: ${fmt(speseOrdFull+speseStrFull)}</span>`
+            ? `<span style="color:var(--purple);font-size:10px"> · con prev.: ${fmt(speseOrdFull+speseStrFull)}</span>`
             : ''}
         </div>
       </div>
@@ -280,7 +280,7 @@ function renderDashboard() {
 
     <!-- ALERT CASHFLOW -->
     ${saldoRiporto !== 0 ? `
-    <div style="display:flex;align-items:center;gap:10px;background:${saldoRiporto>=0?'#f0fdf4':'#fef2f2'};border:1px solid ${saldoRiporto>=0?'#bbf7d0':'#fecaca'};border-radius:var(--radius-sm);padding:.625rem .875rem;margin-bottom:.75rem;font-size:13px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px;background:${saldoRiporto>=0?'var(--green-light)':'var(--red-light)'};border:1px solid ${saldoRiporto>=0?'var(--green-border)':'var(--red-border)'};border-radius:var(--radius-sm);padding:.625rem .875rem;margin-bottom:.75rem;font-size:13px;flex-wrap:wrap">
       <span style="font-size:18px">${saldoRiporto>=0?'📥':'📤'}</span>
       <div style="flex:1">
         <span style="font-weight:600">Riporto da anni precedenti:</span>
@@ -309,11 +309,11 @@ function renderDashboard() {
             <div class="cf-col-saldo" style="color:${saldoColor}">${saldoM>=0?'+':''}${fmtN(saldoM/1000).replace(',','.')}k</div>
             <div class="cf-col-bars">
               <div style="display:flex;flex-direction:column;align-items:center">
-                <div class="cf-bar" style="height:${hIP}px;background:#7c3aed;opacity:.7;width:14px" title="Entrate previsionali ${fmt(cf.incPrevis)}"></div>
+                <div class="cf-bar" style="height:${hIP}px;background:var(--purple);opacity:.7;width:14px" title="Entrate previsionali ${fmt(cf.incPrevis)}"></div>
                 <div class="cf-bar" style="height:${hIA}px;background:var(--green);opacity:.85;width:14px" title="Entrate reali ${fmt(cf.incassi)}"></div>
               </div>
               <div style="display:flex;flex-direction:column;align-items:center">
-                <div class="cf-bar" style="height:${hCP}px;background:#a78bfa;opacity:.7;width:14px" title="Uscite ancora da consuntivare ${fmt(cf.prevForecast)}"></div>
+                <div class="cf-bar" style="height:${hCP}px;background:var(--purple-border);opacity:.7;width:14px" title="Uscite ancora da consuntivare ${fmt(cf.prevForecast)}"></div>
                 <div class="cf-bar" style="height:${hCA}px;background:var(--red);opacity:.85;width:14px" title="Uscite reali ${fmt(cf.cons)}"></div>
               </div>
             </div>
@@ -323,9 +323,9 @@ function renderDashboard() {
       </div>
       <div class="cf-legend">
         <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--green)"></div>Entrate reali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#7c3aed"></div>Entrate previsionali</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--purple)"></div>Entrate previsionali</div>
         <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--red)"></div>Uscite reali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#a78bfa"></div>Uscite da consuntivare</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--purple-border)"></div>Uscite da consuntivare</div>
       </div>
     </div>
 
@@ -391,7 +391,7 @@ function renderDashboard() {
           ${ultimeSpese.map(s=>`<tr style="border-top:1px solid var(--border)">
             <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${esc(s.data)}</td>
             <td style="padding:6px 8px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0;width:100%">${esc(s.titolo)}</td>
-            <td style="padding:6px 4px;text-align:center"><span style="font-size:9px;padding:2px 5px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'#ede9fe':'#dbeafe'};color:${s.tipoSpesa==='straordinaria'?'#7c3aed':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'Str.':'Ord.'}</span></td>
+            <td style="padding:6px 4px;text-align:center"><span style="font-size:9px;padding:2px 5px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'var(--purple-light)':'var(--accent-light)'};color:${s.tipoSpesa==='straordinaria'?'var(--purple)':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'Str.':'Ord.'}</span></td>
             <td style="padding:6px 8px;font-size:12px;font-weight:700;color:var(--red);text-align:right;white-space:nowrap">${fmt(s.consuntivo)}</td>
           </tr>`).join('')}
           </tbody>
@@ -399,25 +399,25 @@ function renderDashboard() {
       </div>
 
       <!-- Spese forecast -->
-      <div class="card" style="overflow:hidden;border-top:3px solid #7c3aed">
+      <div class="card" style="overflow:hidden;border-top:3px solid var(--purple)">
         <div class="card-header" style="padding:.625rem 1rem">
           <h3 style="font-size:13px">🔮 Spese forecast</h3>
-          <a style="font-size:12px;color:#7c3aed;cursor:pointer" data-page="spese">Vedi tutte →</a>
+          <a style="font-size:12px;color:var(--purple);cursor:pointer" data-page="spese">Vedi tutte →</a>
         </div>
         ${ultimeForecast.length===0?'<div class="empty" style="padding:1rem"><p>Nessuna spesa aperta</p></div>':
         `<table style="width:100%;border-collapse:collapse">
-          <thead><tr style="background:#f5f3ff">
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed;width:82px">DATA</th>
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed">TITOLO</th>
-            <th style="padding:5px 6px;font-size:10px;font-weight:600;color:#7c3aed;width:40px;text-align:center">TIPO</th>
-            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:#7c3aed;width:82px;text-align:right">€</th>
+          <thead><tr style="background:var(--purple-light)">
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--purple);width:82px">DATA</th>
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--purple)">TITOLO</th>
+            <th style="padding:5px 6px;font-size:10px;font-weight:600;color:var(--purple);width:40px;text-align:center">TIPO</th>
+            <th style="padding:5px 8px;font-size:10px;font-weight:600;color:var(--purple);width:82px;text-align:right">€</th>
           </tr></thead>
           <tbody>
-          ${ultimeForecast.map(s=>`<tr style="border-top:1px solid #e9d5ff;background:#faf5ff">
+          ${ultimeForecast.map(s=>`<tr style="border-top:1px solid var(--purple-border);background:var(--purple-light)">
             <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap;width:82px">${esc(s.data)}</td>
             <td style="padding:6px 8px;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:0;width:100%">${esc(s.titolo)}</td>
-            <td style="padding:6px 6px;text-align:center;width:40px"><span style="font-size:9px;padding:2px 4px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'#ede9fe':'#dbeafe'};color:${s.tipoSpesa==='straordinaria'?'#7c3aed':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'S':'O'}</span></td>
-            <td style="padding:6px 8px;font-size:12px;font-weight:700;color:#7c3aed;text-align:right;white-space:nowrap;width:82px">${fmt(s.preventivo)}</td>
+            <td style="padding:6px 6px;text-align:center;width:40px"><span style="font-size:9px;padding:2px 4px;border-radius:3px;background:${s.tipoSpesa==='straordinaria'?'var(--purple-light)':'var(--accent-light)'};color:${s.tipoSpesa==='straordinaria'?'var(--purple)':'var(--accent)'};font-weight:600">${s.tipoSpesa==='straordinaria'?'S':'O'}</span></td>
+            <td style="padding:6px 8px;font-size:12px;font-weight:700;color:var(--purple);text-align:right;white-space:nowrap;width:82px">${fmt(s.preventivo)}</td>
           </tr>`).join('')}
           </tbody>
         </table>`}
@@ -440,8 +440,8 @@ function renderDashboard() {
         </tr></thead>
         <tbody>
         ${ultimeEntrate.map(e=>{
-          const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'?',color:'#888'};
-          return `<tr style="border-top:1px solid var(--border)${e.previsionale?';background:#fffbeb':''}">
+          const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'?',color:'var(--text2)'};
+          return `<tr style="border-top:1px solid var(--border)${e.previsionale?';background:var(--amber-light)':''}">
             <td style="padding:6px 8px;font-size:11px;color:var(--text2);white-space:nowrap">${esc(e.data)}</td>
             <td style="padding:6px 8px">
               <div style="display:flex;align-items:center;gap:6px">
@@ -449,11 +449,11 @@ function renderDashboard() {
                 <span style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px">${esc(cond.nome)}</span>
               </div>
             </td>
-            <td style="padding:6px 8px;font-size:12px;font-weight:700;color:${e.previsionale?'#92400e':'var(--green)'};text-align:right;white-space:nowrap">${fmt(e.importo)}</td>
+            <td style="padding:6px 8px;font-size:12px;font-weight:700;color:${e.previsionale?'var(--amber)':'var(--green)'};text-align:right;white-space:nowrap">${fmt(e.importo)}</td>
             <td style="padding:6px 8px;text-align:center">
               ${e.previsionale
-                ? '<span style="font-size:9px;padding:2px 5px;border-radius:3px;background:#fef3c7;color:#92400e;font-weight:600">🔮 Prev.</span>'
-                : '<span style="font-size:9px;padding:2px 5px;border-radius:3px;background:#d1fae5;color:var(--green);font-weight:600">✓ OK</span>'}
+                ? '<span style="font-size:9px;padding:2px 5px;border-radius:3px;background:var(--amber-light);color:var(--amber);font-weight:600">🔮 Prev.</span>'
+                : '<span style="font-size:9px;padding:2px 5px;border-radius:3px;background:var(--green-light);color:var(--green);font-weight:600">✓ OK</span>'}
             </td>
           </tr>`;
         }).join('')}

@@ -219,9 +219,9 @@ function renderBilancio() {
       <span class="bil-forecast-label">▌ ACTUALS + FORECAST — Include tutti i previsionali</span>
     </div>
     <div class="kpi-strip" style="margin-bottom:1rem">
-      <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Entrate (incl. prev.)</div><div class="kpi-value" style="color:#7c3aed">${fmt(totEntrateFull)}</div><div class="kpi-sub">+${fmt(totEntratePrevis)} previsionali</div></div>
-      <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Uscite (incl. prev.)</div><div class="kpi-value" style="color:#7c3aed">${fmt(totUsciteFull)}</div><div class="kpi-sub">+${fmt(totPrevForecast)} da consuntivare</div></div>
-      <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Risultato previsto dell'anno</div><div class="kpi-value" style="color:${saldoFull>=0?'#7c3aed':'var(--red)'}">${fmt(saldoFull)}</div><div class="kpi-sub">Entrate − uscite dell'anno, previsionali inclusi (senza riporto)</div></div>
+      <div class="kpi-card" style="border-top:3px solid var(--purple)"><div class="kpi-label">Entrate (incl. prev.)</div><div class="kpi-value" style="color:var(--purple)">${fmt(totEntrateFull)}</div><div class="kpi-sub">+${fmt(totEntratePrevis)} previsionali</div></div>
+      <div class="kpi-card" style="border-top:3px solid var(--purple)"><div class="kpi-label">Uscite (incl. prev.)</div><div class="kpi-value" style="color:var(--purple)">${fmt(totUsciteFull)}</div><div class="kpi-sub">+${fmt(totPrevForecast)} da consuntivare</div></div>
+      <div class="kpi-card" style="border-top:3px solid var(--purple)"><div class="kpi-label">Risultato previsto dell'anno</div><div class="kpi-value" style="color:${saldoFull>=0?'var(--purple)':'var(--red)'}">${fmt(saldoFull)}</div><div class="kpi-sub">Entrate − uscite dell'anno, previsionali inclusi (senza riporto)</div></div>
       <div class="kpi-card kpi-amber"><div class="kpi-label">Runway stimato</div><div class="kpi-value" style="color:${runwayMesi===0?'var(--red)':'var(--amber)'};">${runwayMesi>11?'>12':runwayMesi} mesi</div><div class="kpi-sub">${meseZero!==null?'cassa a zero a '+nomiMesi[meseZero]:'coperto fino a fine '+anno+' · min. '+fmt(minBalAnno)}</div></div>
     </div>
 
@@ -233,7 +233,7 @@ function renderBilancio() {
 
     <!-- RIPORTO ANNI PRECEDENTI -->
     ${saldoRiporto !== 0 ? `
-    <div style="display:flex;align-items:center;gap:12px;background:${saldoRiporto>=0?'#f0fdf4':'#fef2f2'};border:1px solid ${saldoRiporto>=0?'#bbf7d0':'#fecaca'};border-radius:var(--radius-sm);padding:.75rem 1rem;margin-bottom:1rem;font-size:13px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:12px;background:${saldoRiporto>=0?'var(--green-light)':'var(--red-light)'};border:1px solid ${saldoRiporto>=0?'var(--green-border)':'var(--red-border)'};border-radius:var(--radius-sm);padding:.75rem 1rem;margin-bottom:1rem;font-size:13px;flex-wrap:wrap">
       <div style="font-size:20px">${saldoRiporto>=0?'📥':'📤'}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600">Riporto anni precedenti (fino al ${anno-1})</div>
@@ -261,14 +261,14 @@ function renderBilancio() {
           const hCP = Math.round(cf.prevForecast/maxCF*100);
           const sm  = cf.totIncassi - cf.totUscite;
           return `<div class="cf-col">
-            <div class="cf-col-saldo" style="color:${sm>=0?'#7c3aed':'var(--red)'}">${sm>=0?'+':''}${Math.round(sm/1000)}k</div>
+            <div class="cf-col-saldo" style="color:${sm>=0?'var(--purple)':'var(--red)'}">${sm>=0?'+':''}${Math.round(sm/1000)}k</div>
             <div class="cf-col-bars">
               <div style="display:flex;flex-direction:column;align-items:center">
-                <div class="cf-bar" style="height:${hIP}px;background:#7c3aed;opacity:.7;width:14px" title="Entrate prev. ${fmt(cf.incPrevis)}"></div>
+                <div class="cf-bar" style="height:${hIP}px;background:var(--purple);opacity:.7;width:14px" title="Entrate prev. ${fmt(cf.incPrevis)}"></div>
                 <div class="cf-bar" style="height:${hIA}px;background:var(--green);opacity:.85;width:14px" title="Entrate reali ${fmt(cf.incassi)}"></div>
               </div>
               <div style="display:flex;flex-direction:column;align-items:center">
-                <div class="cf-bar" style="height:${hCP}px;background:#a78bfa;opacity:.7;width:14px" title="Uscite prev. ${fmt(cf.prevForecast)}"></div>
+                <div class="cf-bar" style="height:${hCP}px;background:var(--purple-border);opacity:.7;width:14px" title="Uscite prev. ${fmt(cf.prevForecast)}"></div>
                 <div class="cf-bar" style="height:${hCA}px;background:var(--red);opacity:.85;width:14px" title="Uscite reali ${fmt(cf.cons)}"></div>
               </div>
             </div>
@@ -278,9 +278,9 @@ function renderBilancio() {
       </div>
       <div class="cf-legend">
         <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--green)"></div>Entrate reali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#7c3aed"></div>Entrate previsionali</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--purple)"></div>Entrate previsionali</div>
         <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--red)"></div>Uscite reali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:#a78bfa"></div>Uscite da consuntivare</div>
+        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--purple-border)"></div>Uscite da consuntivare</div>
       </div>
     </div>`;
   }
@@ -293,7 +293,7 @@ function renderBilancio() {
     const totForecastEntrate = totEntratePrevis;
     const saldoConForecast   = saldo + totForecastEntrate - totForecastUscite;
     return `
-    <div class="alert" style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:var(--radius-sm);padding:.75rem 1rem;margin-bottom:1rem;font-size:13px;color:#5b21b6">
+    <div class="alert" style="background:var(--purple-light);border:1px solid var(--purple-border);border-radius:var(--radius-sm);padding:.75rem 1rem;margin-bottom:1rem;font-size:13px;color:var(--purple-strong)">
       🔮 Il forecast include: <strong>${speseToForecast.length} spese</strong> con solo preventivo (non consuntivate) e <strong>${entratePrevis.length} versamenti</strong> previsionali.
       ${saldoRiporto!==0?`<br>📥 Riporto anni precedenti incluso: <strong>${saldoRiporto>=0?'+':''}${fmt(saldoRiporto)}</strong>`:''}
     </div>
@@ -306,8 +306,8 @@ function renderBilancio() {
           ${saldoRiporto!==0?`<br>Riporto: ${saldoRiporto>=0?'+':''}${fmt(saldoRiporto)}`:''}
         </div>
       </div>
-      <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Uscite da consuntivare</div><div class="kpi-value" style="color:#7c3aed">${fmt(totForecastUscite)}</div><div class="kpi-sub">${speseToForecast.length} spese aperte</div></div>
-      <div class="kpi-card" style="border-top:3px solid #7c3aed"><div class="kpi-label">Entrate previsionali</div><div class="kpi-value" style="color:#7c3aed">${fmt(totForecastEntrate)}</div><div class="kpi-sub">${entratePrevis.length} versamenti attesi</div></div>
+      <div class="kpi-card" style="border-top:3px solid var(--purple)"><div class="kpi-label">Uscite da consuntivare</div><div class="kpi-value" style="color:var(--purple)">${fmt(totForecastUscite)}</div><div class="kpi-sub">${speseToForecast.length} spese aperte</div></div>
+      <div class="kpi-card" style="border-top:3px solid var(--purple)"><div class="kpi-label">Entrate previsionali</div><div class="kpi-value" style="color:var(--purple)">${fmt(totForecastEntrate)}</div><div class="kpi-sub">${entratePrevis.length} versamenti attesi</div></div>
       <div class="kpi-card ${saldoConForecast>=0?'kpi-green':'kpi-red'}"><div class="kpi-label">Saldo proiettato</div><div class="kpi-value" style="color:${saldoConForecast>=0?'var(--green)':'var(--red)'}">${fmt(saldoConForecast)}</div><div class="kpi-sub">Cassa con riporto, dopo tutti i previsionali</div></div>
     </div>
 
@@ -318,13 +318,13 @@ function renderBilancio() {
           <thead><tr>
             <th>Mese</th>
             <th style="color:var(--green)">Entrate reali</th>
-            <th style="color:#7c3aed">Ent. previsionali</th>
+            <th style="color:var(--purple)">Ent. previsionali</th>
             <th style="color:var(--red)">Uscite reali</th>
-            <th style="color:#7c3aed">Uscite da cons.</th>
+            <th style="color:var(--purple)">Uscite da cons.</th>
             <th>Saldo mese</th><th>Cassa cumulativa</th>
           </tr></thead>
           <tbody>
-          <tr style="background:#f0fdf4;font-weight:600">
+          <tr style="background:var(--green-light);font-weight:600">
             <td colspan="2" style="color:var(--green)">
               ${isAnnoFuturoBil
                 ? `Saldo stimato a inizio ${anno}`
@@ -347,9 +347,9 @@ function renderBilancio() {
                 ${cf.mese}${cf.isCurrent?'<span class="badge badge-blue" style="font-size:9px;margin-left:4px">oggi</span>':''}
               </td>
               <td class="amount-pos">${cf.incassi>0?fmt(cf.incassi):'—'}</td>
-              <td style="color:#7c3aed;font-weight:500">${cf.incPrevis>0?fmt(cf.incPrevis):'—'}</td>
+              <td style="color:var(--purple);font-weight:500">${cf.incPrevis>0?fmt(cf.incPrevis):'—'}</td>
               <td class="amount-neg">${cf.cons>0?fmt(cf.cons):'—'}</td>
-              <td style="color:#7c3aed;font-weight:500">${cf.prevForecast>0?fmt(cf.prevForecast):'—'}</td>
+              <td style="color:var(--purple);font-weight:500">${cf.prevForecast>0?fmt(cf.prevForecast):'—'}</td>
               <td style="font-weight:600;color:${sm>=0?'var(--green)':'var(--red)'}">${hasData?(sm>=0?'+':'')+fmt(sm):'—'}</td>
               <td style="font-weight:700;color:${cf.cumulFull>=0?'var(--text)':'var(--red)'}">${fmt(cf.cumulFull)}</td>
             </tr>`;
@@ -359,9 +359,9 @@ function renderBilancio() {
             <tr style="border-top:2px solid var(--border);font-weight:700">
               <td>Totale anno</td>
               <td class="amount-pos">${fmt(totEntrateActual)}</td>
-              <td style="color:#7c3aed">${fmt(totEntratePrevis)}</td>
+              <td style="color:var(--purple)">${fmt(totEntratePrevis)}</td>
               <td class="amount-neg">${fmt(totCons)}</td>
-              <td style="color:#7c3aed">${fmt(totPrevForecast)}</td>
+              <td style="color:var(--purple)">${fmt(totPrevForecast)}</td>
               <td style="color:${saldoFull>=0?'var(--green)':'var(--red)'};font-weight:700">${saldoFull>=0?'+':''}${fmt(saldoFull)}</td>
               <td></td>
             </tr>
@@ -490,7 +490,7 @@ function renderBilancio() {
           </div>
 
           <!-- SEZIONE ACTUAL -->
-          <div style="background:#f0fdf4;border-radius:6px;padding:.5rem .75rem;margin-bottom:.5rem">
+          <div style="background:var(--green-light);border-radius:6px;padding:.5rem .75rem;margin-bottom:.5rem">
             <div style="font-size:9px;font-weight:700;color:var(--green);letter-spacing:.06em;margin-bottom:5px">✅ ACTUAL</div>
             ${Math.abs(c.riporto) > 0.005 ? `<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
               <span style="color:var(--text2)">Riporto anni prec.</span>
@@ -504,7 +504,7 @@ function renderBilancio() {
               <span style="color:var(--text2)">Quota spese</span>
               <span style="font-weight:600;color:var(--red)">−${fmt(c.quota)}</span>
             </div>
-            <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px solid #bbf7d0;margin-top:4px;padding-top:4px">
+            <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px solid var(--green-border);margin-top:4px;padding-top:4px">
               <span>Saldo reale${Math.abs(c.riporto) > 0.005 ? ' (con riporto)' : ''}</span>
               <span style="color:${coloreActual}">${c.diff>=0?'+':''}${fmt(c.diff)}</span>
             </div>
@@ -520,32 +520,32 @@ function renderBilancio() {
           </div>
 
           <!-- SEZIONE PROIEZIONE (sempre visibile) -->
-          <div style="background:#f5f3ff;border-radius:6px;padding:.5rem .75rem">
-            <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:.06em;margin-bottom:5px">🔮 PROIEZIONE A FINE ANNO</div>
+          <div style="background:var(--purple-light);border-radius:6px;padding:.5rem .75rem">
+            <div style="font-size:9px;font-weight:700;color:var(--purple);letter-spacing:.06em;margin-bottom:5px">🔮 PROIEZIONE A FINE ANNO</div>
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
               <span style="color:var(--text2)">Entrate previsionali</span>
-              <span style="font-weight:600;color:#7c3aed">${c.versatoPrevis>0?'+'+fmt(c.versatoPrevis):'—'}</span>
+              <span style="font-weight:600;color:var(--purple)">${c.versatoPrevis>0?'+'+fmt(c.versatoPrevis):'—'}</span>
             </div>
             <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
               <span style="color:var(--text2)">Quota spese full</span>
               <span style="font-weight:600;color:var(--red)">−${fmt(c.quotaFull)}</span>
             </div>
-            <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px solid #ddd6fe;margin-top:4px;padding-top:4px">
+            <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;border-top:1px solid var(--purple-border);margin-top:4px;padding-top:4px">
               <span>Saldo proiettato</span>
-              <span style="color:${saldoProiett>=0?'#7c3aed':'var(--red)'}">${saldoProiett>=0?'+':''}${fmt(saldoProiett)}</span>
+              <span style="color:${saldoProiett>=0?'var(--purple)':'var(--red)'}">${saldoProiett>=0?'+':''}${fmt(saldoProiett)}</span>
             </div>
             <!-- Barra proiezione -->
             ${c.quotaFull>0?`<div style="margin-top:6px">
               <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text2);margin-bottom:2px">
-                <span>Copertura proiettata</span><span style="font-weight:600;color:#7c3aed">${percPrev}%</span>
+                <span>Copertura proiettata</span><span style="font-weight:600;color:var(--purple)">${percPrev}%</span>
               </div>
               <div class="condo-kpi-bar">
                 <div class="condo-kpi-fill" style="width:${percActual}%;background:${coloreBar};border-radius:10px 0 0 10px"></div>
-                <div style="width:${Math.max(0,percPrev-percActual)}%;background:#7c3aed;opacity:.5;height:100%"></div>
+                <div style="width:${Math.max(0,percPrev-percActual)}%;background:var(--purple);opacity:.5;height:100%"></div>
               </div>
               <div style="display:flex;gap:.75rem;font-size:10px;color:var(--text2);margin-top:3px">
                 <span style="color:${coloreBar}">■ Actual ${percActual}%</span>
-                ${c.versatoPrevis>0?`<span style="color:#7c3aed">■ Prev. ${percPrev-percActual}%</span>`:''}
+                ${c.versatoPrevis>0?`<span style="color:var(--purple)">■ Prev. ${percPrev-percActual}%</span>`:''}
               </div>
             </div>`:''}
           </div>
@@ -570,7 +570,7 @@ function renderBilancio() {
               </div></td>
               <td style="font-size:13px">
                 <div>${fmt(c.quota)}</div>
-                ${c.quotaFull > c.quota ? `<div style="font-size:11px;color:#7c3aed">+prev: ${fmt(c.quotaFull)}</div>` : ''}
+                ${c.quotaFull > c.quota ? `<div style="font-size:11px;color:var(--purple)">+prev: ${fmt(c.quotaFull)}</div>` : ''}
               </td>
               <td style="color:var(--green);font-weight:500">${fmt(c.versato)}</td>
               <td>
@@ -610,13 +610,13 @@ function renderBilancio() {
           <div style="font-size:11px;color:var(--text2)">${catBreak.filter(c=>c.nCons>0).length} categorie · ${catBreak.reduce((a,c)=>a+c.nCons,0)} spese</div>
         </div>
         <div style="text-align:center;border-left:1px solid var(--border);border-right:1px solid var(--border)">
-          <div style="font-size:10px;font-weight:700;color:#7c3aed;letter-spacing:.06em;margin-bottom:3px">FORECAST</div>
-          <div style="font-size:1.3rem;font-weight:800;color:#7c3aed">${totForecast>0?fmt(totForecast):'—'}</div>
+          <div style="font-size:10px;font-weight:700;color:var(--purple);letter-spacing:.06em;margin-bottom:3px">FORECAST</div>
+          <div style="font-size:1.3rem;font-weight:800;color:var(--purple)">${totForecast>0?fmt(totForecast):'—'}</div>
           <div style="font-size:11px;color:var(--text2)">${catBreak.filter(c=>c.nFcst>0).length} categorie · ${catBreak.reduce((a,c)=>a+c.nFcst,0)} spese</div>
         </div>
         <div style="text-align:center">
-          <div style="font-size:10px;font-weight:700;color:#0E7490;letter-spacing:.06em;margin-bottom:3px">PROIEZIONE</div>
-          <div style="font-size:1.3rem;font-weight:800;color:#0E7490">${fmt(totFull)}</div>
+          <div style="font-size:10px;font-weight:700;color:var(--teal);letter-spacing:.06em;margin-bottom:3px">PROIEZIONE</div>
+          <div style="font-size:1.3rem;font-weight:800;color:var(--teal)">${fmt(totFull)}</div>
           <div style="font-size:11px;color:var(--text2)">Actual + forecast</div>
         </div>
       </div>
@@ -643,20 +643,20 @@ function renderBilancio() {
               <!-- Due mini-box actual + forecast -->
               <div style="display:flex;gap:.5rem;align-items:center">
                 ${c.totCons>0?`
-                <div style="text-align:center;background:#fef2f2;border-radius:6px;padding:4px 10px;min-width:80px">
+                <div style="text-align:center;background:var(--red-light);border-radius:6px;padding:4px 10px;min-width:80px">
                   <div style="font-size:9px;font-weight:700;color:var(--red);letter-spacing:.05em">ACTUAL</div>
                   <div style="font-size:14px;font-weight:800;color:var(--red)">${fmt(c.totCons)}</div>
                   <div style="font-size:10px;color:var(--text2)">${c.nCons} spese</div>
                 </div>`:''}
                 ${c.totFcst>0?`
-                <div style="text-align:center;background:#f5f3ff;border-radius:6px;padding:4px 10px;min-width:80px">
-                  <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:.05em">FORECAST</div>
-                  <div style="font-size:14px;font-weight:800;color:#7c3aed">${fmt(c.totFcst)}</div>
+                <div style="text-align:center;background:var(--purple-light);border-radius:6px;padding:4px 10px;min-width:80px">
+                  <div style="font-size:9px;font-weight:700;color:var(--purple);letter-spacing:.05em">FORECAST</div>
+                  <div style="font-size:14px;font-weight:800;color:var(--purple)">${fmt(c.totFcst)}</div>
                   <div style="font-size:10px;color:var(--text2)">${c.nFcst} spese</div>
                 </div>`:''}
                 <div style="text-align:center;background:var(--surface2);border-radius:6px;padding:4px 10px;min-width:80px;border:1px solid var(--border)">
-                  <div style="font-size:9px;font-weight:700;color:#0E7490;letter-spacing:.05em">TOTALE</div>
-                  <div style="font-size:14px;font-weight:800;color:#0E7490">${fmt(c.tot)}</div>
+                  <div style="font-size:9px;font-weight:700;color:var(--teal);letter-spacing:.05em">TOTALE</div>
+                  <div style="font-size:14px;font-weight:800;color:var(--teal)">${fmt(c.tot)}</div>
                   <div style="font-size:10px;color:var(--text2)">${Math.round((c.tot/totFull)*100)}% del tot.</div>
                 </div>
               </div>
@@ -665,11 +665,11 @@ function renderBilancio() {
             <!-- Barra doppia actual + forecast -->
             <div style="height:10px;background:var(--surface2);border-radius:5px;overflow:hidden;display:flex;margin-bottom:5px">
               ${percCons>0?`<div style="width:${percCons}%;background:${color};border-radius:5px 0 0 5px;transition:width .3s"></div>`:''}
-              ${percFcst>0?`<div style="width:${percFcst}%;background:#7c3aed;opacity:.5;transition:width .3s"></div>`:''}
+              ${percFcst>0?`<div style="width:${percFcst}%;background:var(--purple);opacity:.5;transition:width .3s"></div>`:''}
             </div>
             <div style="display:flex;gap:1rem;font-size:11px;color:var(--text2)">
               ${percCons>0?`<span style="color:${color}">■ Actual ${percCons.toFixed(1)}%</span>`:''}
-              ${percFcst>0?`<span style="color:#7c3aed">■ Forecast ${percFcst.toFixed(1)}%</span>`:''}
+              ${percFcst>0?`<span style="color:var(--purple)">■ Forecast ${percFcst.toFixed(1)}%</span>`:''}
               ${scarto!==null?`<span style="margin-left:auto;font-weight:600;color:${scarto>0?'var(--red)':'var(--green)'}">Scarto: ${scarto>0?'+':''}${fmt(scarto)}</span>`:''}
             </div>
           </div>`;

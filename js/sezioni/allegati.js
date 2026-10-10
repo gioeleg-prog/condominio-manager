@@ -62,11 +62,11 @@ function renderViewer() {
     <div class="viewer-content">
       ${isImg ? `<img src="${esc(src)}" alt="${esc(v.nome)}">` :
         isPdf ? `<iframe src="${esc(src)}" title="${esc(v.nome)}"></iframe>` :
-        `<div style="background:white;padding:2rem;border-radius:8px;text-align:center;color:#333">
+        `<div style="background:white;padding:2rem;border-radius:8px;text-align:center;color:var(--text)">
           <div style="font-size:48px;margin-bottom:1rem">${fileEmoji(v.mime)}</div>
           <div style="font-weight:600;margin-bottom:.5rem">${esc(v.nome)}</div>
-          <div style="font-size:13px;color:#666;margin-bottom:1.5rem">Anteprima non disponibile per questo tipo di file.</div>
-          <button class="viewer-btn" id="viewer-download2" style="background:var(--accent);border:none;padding:10px 24px;border-radius:6px;cursor:pointer;color:white;font-size:14px">⬇ Scarica file</button>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:1.5rem">Anteprima non disponibile per questo tipo di file.</div>
+          <button class="viewer-btn" id="viewer-download2" style="background:var(--accent-fill);border:none;padding:10px 24px;border-radius:6px;cursor:pointer;color:white;font-size:14px">⬇ Scarica file</button>
         </div>`}
     </div>
   </div>`;
