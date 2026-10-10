@@ -16,7 +16,8 @@ function renderCondomini() {
     .filter(c => c.edificioId === state.edificioAttivo);
   const attivi      = tuttiCondomini.filter(c=>!c.disabled);
   const disabilitati= tuttiCondomini.filter(c=>c.disabled);
-  const anno = new Date().getFullYear();
+  // Anno del filtro (come il "📊 Bilancio" a cui porta la scheda); "Tutti" = anno corrente.
+  const anno = state.filterAnno || new Date().getFullYear();
 
   return `
   <div>
@@ -27,9 +28,7 @@ function renderCondomini() {
 
     <div class="condomini-grid">
       ${attivi.map(c=>{
-        const _mySpese = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
-        const totVersato = state.entrate.filter(e=>e.condominoId===c.id && !e.previsionale && new Date(e.data).getFullYear()===anno).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-        const nSpese     = _mySpese.filter(s=>new Date(s.data).getFullYear()===anno).length;
+        const totVersato = state.entrate.filter(e=>e.condominoId===c.id && !e.previsionale && annoDi(e.data)===anno).reduce((a,e)=>a+parseFloat(e.importo||0),0);
         const edName     = (state.edifici.find(e=>e.id===(c.edificioId||state.edificioAttivo))||{nome:'—'}).nome;
         return `<div class="utente-card">
           <div class="uc-head">

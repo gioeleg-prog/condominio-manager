@@ -41,7 +41,7 @@ const GUIDA = {
       ['mod', 'Aggiungere una spesa', '"+ Aggiungi spesa", poi Titolo, Categoria, Data e almeno un importo. Infine "Salva".'],
       ['mod', 'Correggerla', 'Tocca ✏️ sulla riga, cambia e salva.'],
       ['mod', 'Allegare fatture o foto', 'Nella scheda trascina i file nel riquadro Allegati (PDF, immagini, documenti, max 5 MB ciascuno).'],
-      ['mod', 'Spesa che si ripete', 'Spunta "🔁 Spesa ricorrente", scegli la frequenza e la data di fine: le spese future vengono create da sole.'],
+      ['mod', 'Spesa che si ripete', 'Spunta "🔁 Spesa ricorrente", scegli la frequenza e la data di fine: le spese future vengono create da sole. Se poi cambi frequenza o data di fine, cambiano solo le righe successive non ancora consuntivate.'],
       ['mod', 'Decidere chi paga quanto', 'Nella ripartizione assegna le percentuali; "↔ Parti uguali" divide in modo uguale, 🔒 blocca una quota. Il totale deve fare 100%.'],
       ['mod', 'Eliminare', '🗑 sulla riga, oppure seleziona più righe e "🗑 Elimina selezionate".'],
       ['lettura', 'Chiedere una modifica', 'Puoi consultare spese e allegati; per correzioni rivolgiti all\'amministratore.'],
@@ -90,6 +90,8 @@ const GUIDA = {
     sapere: [
       '<b>ACTUALS</b> = solo dati reali confermati. <b>ACTUALS + FORECAST</b> = reali più previsioni.',
       'Colori della cassa: verde positiva, giallo riserva bassa, rosso in negativo.',
+      'Per l\'<b>anno prossimo</b> (preventivo) i conti partono dal <b>saldo stimato a inizio anno</b>: cassa di oggi, meno le spese ancora da pagare, più i versamenti previsti prima di allora.',
+      '"Tutti gli anni", scelto in Spese o Entrate, qui mostra l\'anno corrente: il bilancio si legge un anno alla volta.',
     ],
   },
   fornitori: {

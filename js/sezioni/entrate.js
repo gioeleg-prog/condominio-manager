@@ -116,8 +116,10 @@ function renderEntrate() {
             const versato       = items.filter(e=>e.condominoId===c.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
             const versatoPrev   = items.filter(e=>e.condominoId===c.id &&  e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
             const q             = getQuotaCondomino(c.id);
-            // Riporto anni precedenti per questo condomino
-            const annoSel       = state.filterAnno || new Date().getFullYear();
+            // Riporto anni precedenti per questo condomino. Con "Tutti gli anni"
+            // versato e quote sono già cumulativi: il riporto è zero (prima gli anni
+            // precedenti all'anno corrente venivano contati due volte).
+            const annoSel       = state.filterAnno || 0;
             const myEdId2l      = getUserEdificio(state.user);
             const versatiPrec   = (state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo))
               .filter(e=>e.condominoId===c.id && !e.previsionale && new Date(e.data).getFullYear()<annoSel)
@@ -152,7 +154,7 @@ function renderEntrate() {
               <!-- SEZIONE 1: CASSA REALE -->
               <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:.625rem .75rem;margin-bottom:.5rem">
                 <div style="font-size:10px;font-weight:700;color:var(--green);letter-spacing:.06em;margin-bottom:5px">💰 INCASSI (ACTUAL)</div>
-                <div class="row"><span>Versato ${annoSel}</span><span style="font-weight:600;color:var(--green)">${fmt(versato)}</span></div>
+                <div class="row"><span>${annoSel ? 'Versato ' + annoSel : 'Versato totale'}</span><span style="font-weight:600;color:var(--green)">${fmt(versato)}</span></div>
                 ${riporto!==0?`<div class="row"><span style="color:var(--text2);font-size:12px">Riporto anni prec.</span><span style="font-size:12px;color:${riporto>=0?'var(--green)':'var(--red)'}">${riporto>=0?'+':''}${fmt(riporto)}</span></div>`:''}
                 ${versatoPrev>0?`<div class="row"><span style="color:#7c3aed;font-size:12px">🔮 Previsionali attesi</span><span style="font-size:12px;color:#7c3aed">${fmt(versatoPrev)}</span></div>`:''}
               </div>
@@ -255,7 +257,7 @@ function renderEntrate() {
         '</tr></tbody></table></div></div>';
     })()}
 
-    ${renderPianoRateBox(state.filterAnno || new Date().getFullYear(), canEdit)}
+    ${renderPianoRateBox(state.filterAnno, canEdit) /* con "Tutti gli anni" il piano (che è per un anno) non compare */}
 
     <div class="card">
       <div class="card-header"><h3>Tutti i versamenti</h3><strong style="color:var(--green)">${fmt(totale)}</strong></div>
@@ -428,7 +430,10 @@ function calcolaPianoRate(anno, nRate = 3) {
   const allEntrate = state.entrate.filter(e => !e.edificioId || e.edificioId === edId);
 
   // ── 1. Saldo di partenza: riporto anni precedenti + movimenti reali già avvenuti nell'anno ──
-  let saldoPartenza = getSaldoRiporto(anno);
+  // Per un anno futuro: saldo stimato a inizio anno, cioè la cassa di oggi meno
+  // le spese ancora da consuntivare e più i versamenti previsti prima di quell'anno
+  // (prima si usava la sola cassa di oggi e le rate risultavano troppo basse).
+  let saldoPartenza = getSaldoStimatoInizioAnno(anno).stimato;
   const speseRealizzateAnno   = allSpese.filter(s => new Date(s.data).getFullYear()===anno && parseFloat(s.consuntivo||0)>0);
   const entrateRealizzateAnno = allEntrate.filter(e => !e.previsionale && new Date(e.data).getFullYear()===anno);
   saldoPartenza += entrateRealizzateAnno.reduce((a,e)=>a+parseFloat(e.importo||0),0)
@@ -615,7 +620,7 @@ function renderPianoRateBox(annoSel, canEdit) {
 
   if (piano.coperto) {
     const msg = piano.motivoCoperto === 'saldo_sufficiente'
-      ? '✅ <strong>Anno ' + annoSel + ' coperto</strong> — il saldo di cassa attuale (' + fmt(piano.saldoPartenza) + ') copre già da solo le spese previsionali dell\'anno (' + fmt(piano.totDaRaccogliere) + '), restando sempre sopra zero (minimo previsto ' + fmt(piano.saldoMinimoPrevisto) + '). Nessuna nuova rata necessaria per ora.'
+      ? '✅ <strong>Anno ' + annoSel + ' coperto</strong> — ' + (annoSel > new Date().getFullYear() ? 'il saldo stimato a inizio anno' : 'il saldo di cassa attuale') + ' (' + fmt(piano.saldoPartenza) + ') copre già da solo le spese previsionali dell\'anno (' + fmt(piano.totDaRaccogliere) + '), restando sempre sopra zero (minimo previsto ' + fmt(piano.saldoMinimoPrevisto) + '). Nessuna nuova rata necessaria per ora.'
       : '✅ <strong>Anno ' + annoSel + ' coperto</strong> — nessuna spesa previsionale ancora da finanziare con nuove rate.';
     const inConferma0 = state.pianoRateConferma === annoSel;
     const pulizia = proposteEsistenti0.length
@@ -688,7 +693,7 @@ function renderPianoRateBox(annoSel, canEdit) {
     '</div>' +
     '<div style="padding:.75rem 1.25rem 1rem">' +
     '<div style="display:flex;gap:1.25rem;flex-wrap:wrap;margin-bottom:.75rem;font-size:13px;background:var(--surface2);padding:.625rem .875rem;border-radius:var(--radius-sm)">' +
-    '<div>Saldo di partenza: <strong style="color:' + (piano.saldoPartenza>=0?'var(--green)':'var(--red)') + '">' + fmt(piano.saldoPartenza) + '</strong></div>' +
+    '<div>Saldo di partenza' + (annoSel > new Date().getFullYear() ? ' (stimato a inizio ' + annoSel + ')' : '') + ': <strong style="color:' + (piano.saldoPartenza>=0?'var(--green)':'var(--red)') + '">' + fmt(piano.saldoPartenza) + '</strong></div>' +
     '<div>Da raccogliere: <strong style="color:#7c3aed">' + fmt(piano.totDaRaccogliere) + '</strong></div>' +
     '<div>Margine di sicurezza: <strong>' + piano.margineGiorni + ' giorni</strong></div>' +
     '<div>Condomini: <strong>' + piano.nAttivi + '</strong></div>' +

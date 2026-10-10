@@ -24,13 +24,15 @@ function renderFornitori() {
   const canEdit = canUserEdit(state.user);
   // Mostra fornitori dell'edificio attivo + quelli senza edificioId (da migrare)
   const fornitori = (state.fornitori || []).filter(f => !f.edificioId || f.edificioId === state.edificioAttivo);
-  const anno = state.filterAnno || new Date().getFullYear();
+  // 0 = "Tutti gli anni" (prima ripiegava sull'anno corrente: "Tutti" non si poteva scegliere).
+  const anno = state.filterAnno || 0;
+  const annoLbl = anno || 'tutti gli anni';
 
   // Stats — coerenti con le altre pagine (stessa base di getSpeseVisibili,
   // include anche eventuali spese storiche non ancora migrate su questo edificio)
   const totFornitoriAttivi = fornitori.filter(f=>!f.disabled).length;
   const _speseEd     = getSpeseVisibili();
-  const _speseEdAnno = _speseEd.filter(s=>new Date(s.data).getFullYear()===anno);
+  const _speseEdAnno = _speseEd.filter(s=>!anno || annoDi(s.data)===anno);
 
   // Con fornitore
   const _conFornAnno = _speseEdAnno.filter(s=>s.fornitoreId);
@@ -82,7 +84,7 @@ function renderFornitori() {
 
       <!-- Actual anno -->
       <div class="stat-card stat-red" style="flex:2;min-width:160px">
-        <div style="font-size:9px;font-weight:700;color:var(--red);letter-spacing:.06em;margin-bottom:4px">✅ ACTUAL ${anno}</div>
+        <div style="font-size:9px;font-weight:700;color:var(--red);letter-spacing:.06em;margin-bottom:4px">✅ ACTUAL ${annoLbl}</div>
         <div style="font-size:1.8rem;font-weight:800;color:var(--red);line-height:1.1">${fmt(speseAnnoActual)}</div>
         <div style="font-size:11px;color:var(--text2);margin-top:4px">con fornitore</div>
         <div style="font-size:11px;color:var(--text2);margin-top:2px">+ ${fmt(senzaAnnoActual)} senza fornitore</div>
@@ -91,7 +93,7 @@ function renderFornitori() {
 
       <!-- Forecast anno -->
       <div class="stat-card" style="flex:2;min-width:160px;border-top:3px solid #7c3aed">
-        <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:.06em;margin-bottom:4px">🔮 FORECAST ${anno}</div>
+        <div style="font-size:9px;font-weight:700;color:#7c3aed;letter-spacing:.06em;margin-bottom:4px">🔮 FORECAST ${annoLbl}</div>
         <div style="font-size:1.8rem;font-weight:800;color:${speseAnnoForecast>0?'#7c3aed':'var(--text2)'};line-height:1.1">${speseAnnoForecast>0?fmt(speseAnnoForecast):'—'}</div>
         <div style="font-size:11px;color:var(--text2);margin-top:4px">con fornitore</div>
         <div style="font-size:11px;color:var(--text2);margin-top:2px">+ ${fmt(senzaAnnoForecast)} senza fornitore</div>
@@ -130,10 +132,11 @@ function renderFornitoreCard(f, canEdit, archived=false) {
   const _edForn = f.edificioId || getUserEdificio(state.user);
   const _allSpeseF = state.spese.filter(s=>!s.edificioId||s.edificioId===_edForn);
   const speseF = _allSpeseF.filter(s=>s.fornitoreId===f.id).sort((a,b)=>new Date(b.data)-new Date(a.data));
-  const anno = state.filterAnno || new Date().getFullYear();
+  const anno = state.filterAnno || 0; // 0 = tutti gli anni
+  const annoLbl = anno || 'tutti gli anni';
 
   // Separa actual da forecast — filtrato per anno selezionato
-  const speseFAnno   = speseF.filter(s=>new Date(s.data).getFullYear()===anno);
+  const speseFAnno   = speseF.filter(s=>!anno || annoDi(s.data)===anno);
   const actualAnno   = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)>0);
   const forecastAnno = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
   const totActual    = actualAnno.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
@@ -162,7 +165,7 @@ function renderFornitoreCard(f, canEdit, archived=false) {
 
     <!-- Spese anno corrente: actual + forecast -->
     <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:.625rem .75rem;margin-bottom:.5rem">
-      <div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:6px">SPESE ${anno}</div>
+      <div style="font-size:10px;font-weight:700;color:var(--text2);letter-spacing:.06em;margin-bottom:6px">SPESE ${annoLbl}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
         <div style="text-align:center;background:${totActual>0?'#fef2f2':'var(--surface)'};border-radius:5px;padding:5px 4px">
           <div style="font-size:9px;color:var(--red);font-weight:700;letter-spacing:.04em">ACTUAL</div>
@@ -176,7 +179,7 @@ function renderFornitoreCard(f, canEdit, archived=false) {
         </div>
       </div>
       ${totActual>0||totForecast>0?`<div style="display:flex;justify-content:space-between;font-size:11px;font-weight:600;margin-top:6px;padding-top:5px;border-top:1px solid var(--border)">
-        <span style="color:var(--text2)">Totale ${anno}</span>
+        <span style="color:var(--text2)">Totale ${annoLbl}</span>
         <span style="color:#0E7490">${fmt(totActual+totForecast)}</span>
       </div>`:''}
     </div>
@@ -290,8 +293,9 @@ function renderModalStoricoFornitore(f) {
   const speseF = state.spese.filter(s=>s.fornitoreId===f.id && (!s.edificioId||s.edificioId===_edFornSt))
     .sort((a,b)=>new Date(b.data)-new Date(a.data));
   const totale = speseF.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
-  const anno = new Date().getFullYear();
-  const totAnno = speseF.filter(s=>new Date(s.data).getFullYear()===anno)
+  // Anno scelto nel filtro (prima sempre l'anno di oggi, anche con la pagina su un altro anno).
+  const anno = state.filterAnno || new Date().getFullYear();
+  const totAnno = speseF.filter(s=>annoDi(s.data)===anno)
     .reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
 
   // Raggruppa per anno
