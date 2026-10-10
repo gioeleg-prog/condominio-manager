@@ -659,3 +659,93 @@ describe('UNIT — ricerca nel sito e tema', () => {
     assert.ok(app.renderInterruttoreTema().includes('role="switch"') && app.renderInterruttoreTema().includes('aria-checked="false"'));
   });
 });
+
+describe('UNIT — subentri (date di ingresso e uscita)', () => {
+  const Y = new Date().getFullYear();
+  const P = Y - 1; // anno del subentro
+  const base = () => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [],
+      user: { id: 102, nome: 'Bruno', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [
+        { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, disabled: true, dataUscita: `${P}-07-01` },
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+        { id: 103, nome: 'Carlo', appartamento: 'Int. 1', edificioId: 1, dataIngresso: `${P}-07-01` },
+      ],
+      spese: [
+        { id: 1, data: `${P}-03-01`, titolo: 'Pulizie', categoria: 'pulizie', tipoSpesa: 'ordinaria', consuntivo: '600', split: [], edificioId: 1 },
+        { id: 2, data: `${P}-07-01`, titolo: 'Luce', categoria: 'luce', tipoSpesa: 'ordinaria', consuntivo: '400', split: [], edificioId: 1 },
+        { id: 3, data: `${Y}-02-01`, titolo: 'Tetto', categoria: 'tetto', tipoSpesa: 'straordinaria', preventivo: '1000', consuntivo: '', split: [], edificioId: 1 },
+      ],
+      entrate: [{ id: 10, data: `${P}-02-01`, importo: '300', condominoId: 101, edificioId: 1 }] });
+    return app;
+  };
+  it('attivo alla data: il giorno di uscita appartiene già a chi entra', () => {
+    const app = base();
+    const [anna, , carlo] = app.__get('state').condomini;
+    assert.ok(app.attivoAllaData(anna, `${P}-06-30`) && !app.attivoAllaData(anna, `${P}-07-01`));
+    assert.ok(!app.attivoAllaData(carlo, `${P}-06-30`) && app.attivoAllaData(carlo, `${P}-07-01`));
+    assert.ok(app.attivoNellAnno(anna, P) && !app.attivoNellAnno(anna, Y));
+    assert.ok(app.attivoNellAnno(carlo, P) && !app.attivoNellAnno(carlo, P - 1));
+  });
+  it('archiviato senza data di uscita: escluso da oggi in poi, presente nel passato', () => {
+    const app = base();
+    const c = { id: 9, disabled: true, disabledOn: `${Y}-01-15T10:00:00.000Z` };
+    assert.ok(app.attivoAllaData(c, `${Y}-01-14`) && !app.attivoAllaData(c, `${Y}-01-15`));
+  });
+  it('spese senza ripartizione divise tra chi abitava alla data della spesa', () => {
+    const app = base();
+    const [s1, s2] = app.__get('state').spese;
+    assert.strictEqual(app.quotaSuSpesa(s1, 101, 600, 2), 300);
+    assert.strictEqual(app.quotaSuSpesa(s1, 103, 600, 2), 0);
+    assert.strictEqual(app.quotaSuSpesa(s2, 101, 400, 2), 0);
+    assert.strictEqual(app.quotaSuSpesa(s2, 103, 400, 2), 200);
+  });
+  it('rendiconto dell\'anno del subentro: riparto con chi esce e chi entra, quote corrette', () => {
+    const d = base().datiRendiconto(P);
+    const q = Object.fromEntries(d.riparto.map((r) => [r.nome, r.dovuto]));
+    assert.deepStrictEqual(q, { Anna: 300, Bruno: 500, Carlo: 200 });
+    const dn = base().datiRendiconto(Y);
+    assert.deepStrictEqual(dn.riparto.map((r) => r.nome).sort(), ['Bruno', 'Carlo']);
+  });
+  it('estratto conto di chi è uscito e di chi è entrato coerente con il riparto', () => {
+    const app = base();
+    for (const [id, nome] of [[101, 'Anna'], [103, 'Carlo']]) {
+      const e = app.datiEstratto(id, P);
+      const r = app.datiRendiconto(P).riparto.find((x) => x.nome === nome);
+      assert.ok(Math.abs(e.saldo - r.saldo) < 0.001, `${nome}: ${e.saldo} vs ${r.saldo}`);
+    }
+  });
+  it('subentro: archivia chi esce, crea chi entra e passa solo le quote future non consuntivate', () => {
+    const app = base();
+    const st = app.__get('state');
+    app.__set('state', { ...st,
+      condomini: [{ id: 201, nome: 'Dario', appartamento: 'Int. 3', edificioId: 1, color: '#000' }, { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }],
+      spese: [
+        { id: 1, data: `${Y}-01-10`, consuntivo: '100', split: [{ id: 201, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 },
+        { id: 2, data: `${Y}-03-10`, consuntivo: '', preventivo: '200', split: [{ id: 201, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 },
+        { id: 3, data: `${Y - 1}-12-10`, consuntivo: '', preventivo: '200', split: [{ id: 201, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 },
+      ] });
+    const salvati = {};
+    app.save = (k, v) => { salvati[k] = v; };
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    app.__set('state', { ...app.__get('state'), modal: { type: 'subentro', data: { id: 201 } } });
+    const campi = { 'btn-sub-conferma': { dataset: { cond: '201' } }, 'sub-data': { value: `${Y}-01-01` }, 'sub-nome': { value: 'Elena' },
+      'sub-email': { value: 'elena@esempio.it' }, 'sub-ruolo': { value: 'lettura' }, 'sub-passa': { checked: true }, 'sub-err': { style: {} } };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.bindSchedaSubentro();
+    campi['btn-sub-conferma'].onclick();
+    const s = app.__get('state');
+    const dario = s.condomini.find((c) => c.id === 201), elena = s.condomini.find((c) => c.nome === 'Elena');
+    assert.ok(dario.disabled && dario.dataUscita === `${Y}-01-01` && /Subentro: Elena/.test(dario.disabledNote));
+    assert.strictEqual(elena.appartamento, 'Int. 3'); assert.strictEqual(elena.dataIngresso, `${Y}-01-01`);
+    assert.strictEqual(elena.canEdit, false); assert.strictEqual(elena.edificioId, 1);
+    const split = (id) => s.spese.find((x) => x.id === id).split;
+    assert.strictEqual(split(1).find((x) => x.id === 201).perc, 50);   // consuntivata: resta a chi esce
+    assert.strictEqual(split(3).find((x) => x.id === 201).perc, 50);   // precedente al subentro
+    assert.strictEqual(split(2).find((x) => x.id === 201).perc, 0);
+    assert.strictEqual(split(2).find((x) => x.id === elena.id).perc, 50);
+    assert.ok(salvati.cm_condomini && salvati.cm_spese);
+    assert.strictEqual(s.modal, null);
+  });
+});

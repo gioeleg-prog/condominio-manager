@@ -9,7 +9,8 @@ function renderQuotaCell(spesa) {
   // Condomini realmente coinvolti: quelli dell'edificio DI QUESTA SPESA (non l'edificio attivo a schermo),
   // attivi e non-superAdmin. Non usare mai state.condomini.length: include TUTTI gli edifici.
   const edId = spesa.edificioId || state.edificioAttivo;
-  const condEd = state.condomini.filter(c => c.edificioId === edId && !c.disabled && !c.superAdmin);
+  // Chi faceva parte del condominio alla data della spesa (subentri).
+  const condEd = condominiAllaData(spesa.data, edId);
   const nCond = condEd.length || 1;
   // Split valido = solo righe di condomini di questo edificio con quota > 0 (0% = escluso da questa spesa)
   const validSplit = (spesa.split||[]).filter(s => condEd.some(c=>c.id===s.id) && (s.perc||0) > 0);
@@ -107,7 +108,8 @@ function renderQuotaCellText(spesa) {
   const importoRef = parseFloat(spesa.consuntivo||spesa.preventivo||0);
   if (!importoRef) return '';
   const edId = spesa.edificioId || state.edificioAttivo;
-  const condEd = state.condomini.filter(c => c.edificioId === edId && !c.disabled && !c.superAdmin);
+  // Chi faceva parte del condominio alla data della spesa (subentri).
+  const condEd = condominiAllaData(spesa.data, edId);
   const nCond = condEd.length || 1;
   const validSplit = (spesa.split||[]).filter(s => condEd.some(c=>c.id===s.id) && (s.perc||0) > 0);
   if (validSplit.length === 0) return fmt(importoRef/nCond);
@@ -627,11 +629,7 @@ function esportaSpeseCSV(spese, nomeFile) {
   function quotaCondomino(spesa, condId, condEd) {
     const importoRef = parseFloat(spesa.consuntivo || spesa.preventivo || 0);
     if (!importoRef) return 0;
-    const nCond = condEd.length || 1;
-    const validSplit = (spesa.split||[]).filter(s => condEd.some(c=>c.id===s.id) && (s.perc||0) > 0);
-    if (validSplit.length === 0) return importoRef / nCond;
-    const mySplit = validSplit.find(s => s.id === condId);
-    return mySplit ? percEffettiva(spesa.split, mySplit.perc)/100*importoRef : 0;
+    return quotaSuSpesa(spesa, condId, importoRef, condEd.length); // regola comune (subentri compresi)
   }
   const csvField = csvCampo; // js/core/utils.js (escape CSV e protezione dalle formule di Excel)
   function numCSV(n) {

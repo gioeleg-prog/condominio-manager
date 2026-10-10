@@ -341,6 +341,7 @@ function renderModal() {
   if (m.type === 'admin-reset-pw') return renderModalAdminResetPw(m.data);
   if (m.type === 'rendiconto') return renderModalRendiconto(m.data);
   if (m.type === 'estratto') return renderModalEstratto(m.data);
+  if (m.type === 'subentro') return renderModalSubentro(m.data);
   return '';
 }
 

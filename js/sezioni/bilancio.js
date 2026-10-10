@@ -147,7 +147,7 @@ function renderBilancio() {
   // dagli anni in cui c'era). Il saldo comprende il riporto degli anni precedenti.
   const condominiKPI = state.condomini
     .filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin
-      && (!c.disabled || entrate.some(e => e.condominoId === c.id) || spese.some(s => s.split?.some(x => x.id === c.id && (x.perc||0) > 0))))
+      && (attivoNellAnno(c, anno) || entrate.some(e => e.condominoId === c.id) || spese.some(s => s.split?.some(x => x.id === c.id && (x.perc||0) > 0))))
     .map(c=>{
     const versato       = entrate.filter(e=>e.condominoId===c.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
     const versatoPrevis = entrate.filter(e=>e.condominoId===c.id &&  e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);

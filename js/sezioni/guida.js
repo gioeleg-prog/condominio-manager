@@ -46,7 +46,7 @@ const GUIDA = {
       ['mod', 'Allegare fatture o foto', 'Nella scheda trascina i file nel riquadro Allegati (PDF, immagini, documenti, max 5 MB ciascuno).'],
       ['mod', 'Spesa che si ripete', 'Spunta "🔁 Spesa ricorrente", scegli la frequenza e la data di fine: le spese future vengono create da sole. Se poi cambi frequenza o data di fine, cambiano solo le righe successive non ancora consuntivate.'],
       ['mod', 'Modificare o fermare una serie', 'Nella scheda di una spesa ricorrente, il riquadro "🔁 Serie" applica le modifiche anche alle occorrenze successive non consuntivate, oppure le elimina con "🗑 Elimina le … successive".'],
-      ['mod', 'Decidere chi paga quanto', 'Nella ripartizione assegna le percentuali; "↔ Parti uguali" divide in modo uguale, 🔒 blocca una quota. Il totale deve fare 100%. Chi nel frattempo è stato archiviato resta con la sua quota ("non più attivo").'],
+      ['mod', 'Decidere chi paga quanto', 'Nella ripartizione assegna le percentuali; "↔ Parti uguali" divide in modo uguale, 🔒 blocca una quota. Il totale deve fare 100%. Chi nel frattempo è stato archiviato resta con la sua quota ("non più attivo"); con un "🔁 Subentro" le quote future passano al nuovo condomino.'],
       ['mod', 'Eliminare', '🗑 sulla riga, oppure seleziona più righe e "🗑 Elimina selezionate".'],
       ['lettura', 'Chiedere una modifica', 'Puoi consultare spese e allegati; per correzioni rivolgiti all\'amministratore.'],
     ],
@@ -187,13 +187,16 @@ const GUIDA = {
     fare: [
       ['admin', 'Aggiungere una persona', '"+ Aggiungi condomino": nome, appartamento, email e ruolo. Con quell\'email potrà entrare (anche con Google).'],
       ['admin', 'Cambiare dati o ruolo', '"✏️ Modifica".'],
-      ['admin', 'Chi ha cambiato casa', '"⏸ Archivia": non entra più, ma pagamenti e storico restano. "▶ Riattiva" lo riporta.'],
+      ['admin', 'Vendita o nuovo inquilino', '"🔁 Subentro": indichi la data e il nuovo condomino. Chi esce viene archiviato con quella data di uscita, chi entra prende lo stesso appartamento e, se lasci la spunta, le quote delle spese future non ancora consuntivate.'],
+      ['admin', 'Chi ha lasciato il condominio', '"⏸ Archivia" con la data di uscita: non entra più, ma pagamenti e storico restano. "▶ Riattiva" lo riporta.'],
+      ['admin', 'Date di ingresso e uscita', 'In "✏️ Modifica", "Nel condominio dal" (e "Uscito il" per gli archiviati). Lascia vuoto se c\'è da sempre.'],
       ['admin', 'Password dimenticata', '"🔑 Reset PW" imposta una password temporanea da comunicare alla persona.'],
       ['admin', 'Situazione di una persona', '"📊 Bilancio" apre il suo dettaglio; "📄 Estratto conto" scarica in PDF movimenti e saldo, da inviarle.'],
     ],
     sapere: [
       '<b>Lettura</b>: solo consultazione. <b>Modifica</b>: inserisce spese, entrate e fornitori. <b>Amm. Edificio</b>: gestisce anche persone e comunicazioni.',
       'Eliminare definitivamente si può solo dall\'archivio: preferisci archiviare.',
+      'Le spese senza ripartizione si dividono tra chi abitava nel condominio alla data della spesa: chi è uscito non paga quelle successive, chi è entrato non paga quelle precedenti. Rendiconto, bilancio ed estratto conto di un anno includono anche chi c\'era solo per una parte dell\'anno.',
     ],
   },
   impostazioni: {
