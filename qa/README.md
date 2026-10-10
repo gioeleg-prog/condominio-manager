@@ -70,7 +70,22 @@ await qaXss.crawl(['dashboard','spese','entrate','bilancio','fornitori','vita','
 
 `hits` deve restare vuoto per ogni ruolo (member1, editor1, admin1, superadmin), anche a larghezza mobile.
 
-Dopo ogni modifica a `index.html`: `node scripts/sync-staging.js` (il harness si genera da `index.staging.html`).
+### Struttura della pagina e file da aggiornare
+
+`index.html` contiene solo intestazione e l'elenco dei file: lo stile è in `css/`, il codice in `js/`
+(`js/core/` per stato, dati, permessi, utilità e avvio; `js/sezioni/` per le singole sezioni).
+Gli script di `js/` sono "classici" e condividono le variabili globali: l'ordine in `index.html` conta
+(`js/core/avvio.js` per ultimo). La configurazione Firebase è in `js/config.js` (produzione) e
+`js/config.staging.js` (staging).
+
+Dopo ogni modifica a `css/` o `js/`:
+
+```bash
+node scripts/stamp-assets.js   # aggiorna le impronte ?v= (evita file vecchi in cache nei browser)
+```
+
+Dopo ogni modifica a `index.html`: `node scripts/sync-staging.js` (rigenera `index.staging.html`).
+Il test `qa/assets.spec.js` fallisce se impronte o pagina di staging non sono aggiornate.
 
 Il progetto emulato è `demo-qa`: il prefisso `demo-` impedisce qualunque
 accesso ai progetti Firebase reali (staging e produzione non vengono toccati).

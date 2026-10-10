@@ -1,0 +1,81 @@
+/* Variabili (colori, raggi, ombre), base, login, struttura dell'app. */
+:root {
+  --bg: #F4F7FB;
+  --surface: #FFFFFF;
+  --surface2: #EEF2F7;
+  --border: #D8E2EE;
+  --text: #1B2A4A;
+  --text2: #5A6E8A;
+  --accent: #1D4ED8;
+  --accent-light: #EFF4FF;
+  --green: #166534;
+  --green-light: #F0FDF4;
+  --red: #B91C1C;
+  --red-light: #FEF2F2;
+  --amber: #92400E;
+  --amber-light: #FFFBEB;
+  --purple: #7C3AED;
+  --purple-light: #F5F3FF;
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); color: var(--text); font-size: 15px; min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+* { -webkit-tap-highlight-color: transparent; }
+
+/* --- LOGIN --- */
+.login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
+.login-card { background: var(--surface); border-radius: 16px; box-shadow: var(--shadow-md); padding: 2rem 1.5rem; width: 100%; max-width: 400px; }
+.login-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 2rem; }
+.login-logo-icon { width: 44px; height: 44px; background: var(--accent); border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.login-logo-icon svg { width: 24px; height: 24px; fill: white; }
+.login-logo h1 { font-size: 1.25rem; font-weight: 700; color: var(--text); }
+.login-logo p { font-size: 12px; color: var(--text2); }
+.login-card h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.4rem; }
+.login-card p.sub { color: var(--text2); font-size: 14px; margin-bottom: 1.5rem; }
+.field { margin-bottom: 1rem; }
+.field label { display: block; font-size: 13px; font-weight: 500; color: var(--text2); margin-bottom: 6px; }
+.field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: var(--surface); color: var(--text); outline: none; transition: border-color .15s; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: var(--radius-sm); border: none; cursor: pointer; font-size: 14px; font-weight: 500; transition: all .15s; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.btn-primary { background: var(--accent); color: white; width: 100%; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--border); }
+.btn-danger { background: var(--red-light); color: var(--red); border: 1px solid #fecaca; }
+.btn-danger:hover { background: #fecaca; }
+.btn-success { background: var(--green-light); color: var(--green); border: 1px solid #bbf7d0; }
+.btn-sm { padding: 6px 12px; font-size: 13px; }
+
+/* --- APP SHELL --- */
+.app { display: flex; min-height: 100vh; }
+.sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; height: 100vh; z-index: 100; transition: transform .25s; }
+.sidebar-logo { padding: 1.25rem 1rem; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+.sidebar-logo .icon { width: 36px; height: 36px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.sidebar-logo .icon svg { width: 20px; height: 20px; fill: white; }
+.sidebar-logo .label { font-weight: 700; font-size: 15px; }
+.sidebar-logo .sub { font-size: 11px; color: var(--text2); }
+nav { flex: 1; padding: 0.75rem 0; overflow-y: auto; }
+nav .section-label { padding: 0.5rem 1rem 0.25rem; font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .05em; }
+nav a { display: flex; align-items: center; gap: 10px; padding: 8px 1rem; font-size: 14px; color: var(--text2); cursor: pointer; border-radius: 0; transition: all .12s; margin: 1px 0; text-decoration: none; }
+nav a:hover { background: var(--surface2); color: var(--text); }
+nav a.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }
+nav a svg { width: 18px; height: 18px; flex-shrink: 0; }
+.sidebar-user { padding: 1rem; border-top: 1px solid var(--border); }
+.user-chip { display: flex; align-items: center; gap: 10px; }
+.avatar { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+.user-info { flex: 1; min-width: 0; }
+.user-info .name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-info .role { font-size: 11px; color: var(--text2); }
+.logout-btn { background: none; border: none; cursor: pointer; color: var(--text2); padding: 4px; border-radius: 4px; }
+.logout-btn:hover { color: var(--red); }
+.main { flex: 1; margin-left: 240px; min-height: 100vh; overflow-x: auto; }
+.topbar { display: none; }
+.page { padding: 1.5rem 2rem; max-width: 1400px; }
+.page.page-full-width { max-width: none; }
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; flex-wrap: wrap; gap: .75rem; }
+.page-title { font-size: 1.4rem; font-weight: 700; }
+.page-sub { font-size: 14px; color: var(--text2); margin-top: 2px; }
+
