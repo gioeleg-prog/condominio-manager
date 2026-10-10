@@ -70,6 +70,19 @@ await qaXss.crawl(['dashboard','spese','entrate','bilancio','fornitori','vita','
 
 `hits` deve restare vuoto per ogni ruolo (member1, editor1, admin1, superadmin), anche a larghezza mobile.
 
+### Prove su più anni
+
+```bash
+node qa/seed-multianno.js   # al posto di qa/seed.js: anno scorso, anno corrente, anno prossimo (preventivo)
+```
+
+Dati con importi tondi: consuntivi chiusi, un preventivo mai consuntivato, un versamento previsionale
+mai validato, una spesa ricorrente mensile da novembre a giugno dell'anno dopo, record il 31/12 e
+l'1/1. Lo script stampa i totali attesi (riporti e uscite/entrate reali per anno) da confrontare
+con Dashboard, Bilancio ed Entrate. Da rieseguire dopo ogni modifica ai calcoli per anno, al
+riporto, al piano rate o alle spese ricorrenti; i test unitari "più anni" in `qa/unit.spec.js`
+coprono le stesse regole senza browser.
+
 ### Struttura della pagina e file da aggiornare
 
 `index.html` contiene solo intestazione e l'elenco dei file: lo stile è in `css/`, il codice in `js/`

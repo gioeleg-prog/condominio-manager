@@ -243,15 +243,15 @@ function applyLoadedDataFromCache() {
     if (saved) state[cfg.stateProp] = cfg.writeRole ? normalizeRecords(saved) : saved;
   });
 
-  // Dopo il caricamento: imposta filterAnno all'anno con più dati se quello corrente è vuoto
+  // Dopo il caricamento: se l'anno corrente non ha dati nel condominio attivo,
+  // si apre sull'anno più recente con dati che NON sia nel futuro (con il solo
+  // preventivo dell'anno prossimo caricato si resta sull'anno corrente).
+  // Prima si guardavano tutti i condomìni e si poteva saltare a un anno futuro.
   const currYear = new Date().getFullYear();
-  const hasDataCurrYear = state.spese.some(s=>new Date(s.data).getFullYear()===currYear)
-                       || state.entrate.some(e=>new Date(e.data).getFullYear()===currYear);
-  if (!hasDataCurrYear && state.spese.length > 0) {
-    const anniConDati = [...new Set([
-      ...state.spese.map(s=>new Date(s.data).getFullYear()),
-      ...state.entrate.map(e=>new Date(e.data).getFullYear())
-    ])].sort((a,b)=>b-a);
-    if (anniConDati.length > 0) state.filterAnno = anniConDati[0];
+  const edOk = r => !r.edificioId || r.edificioId === state.edificioAttivo;
+  const anniConDati = new Set([...state.spese.filter(edOk), ...state.entrate.filter(edOk)].map(r => annoDi(r.data)).filter(a => a > 0));
+  if (!anniConDati.has(currYear)) {
+    const passati = [...anniConDati].filter(a => a < currYear).sort((a,b)=>b-a);
+    if (passati.length > 0) state.filterAnno = passati[0];
   }
 }

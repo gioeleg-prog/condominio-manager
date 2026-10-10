@@ -63,21 +63,54 @@ function esc(s) {
   return String(s == null || s === false ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Anno di una data 'AAAA-MM-GG' letto dal testo: new Date('2027-01-01') è
+// mezzanotte UTC e in un fuso orario negativo getFullYear() darebbe 2026.
+// Restituisce NaN se la data non è valida.
+function annoDi(d) {
+  const a = parseInt(String(d || '').slice(0, 4), 10);
+  return a > 1900 && a < 3000 ? a : NaN;
+}
+
 function getAnni() {
   const anni = new Set();
-  const myEdId = getUserEdificio(state.user);
   const filtSpese   = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
   const filtEntrate = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo);
-  filtSpese.forEach(s => anni.add(new Date(s.data).getFullYear()));
-  filtEntrate.forEach(e => anni.add(new Date(e.data).getFullYear()));
+  filtSpese.forEach(s => anni.add(annoDi(s.data)));
+  filtEntrate.forEach(e => anni.add(annoDi(e.data)));
+  anni.delete(NaN); // date non valide: niente opzione "NaN"
   const currYear = new Date().getFullYear();
   anni.add(currYear);
-  // Riempi gli anni mancanti tra il primo dato e oggi
-  if (anni.size > 0) {
-    const min = Math.min(...anni);
-    for (let y = min; y <= currYear; y++) anni.add(y);
-  }
+  // L'anno prossimo c'è sempre, per poter impostare il preventivo prima di
+  // inserire dati; l'anno scelto c'è sempre, così il menu mostra davvero
+  // l'anno dei dati visualizzati (anche dopo un cambio di condominio).
+  anni.add(currYear + 1);
+  if (state.filterAnno) anni.add(state.filterAnno);
+  // Riempi gli anni mancanti tra il primo e l'ultimo
+  const min = Math.min(...anni), max = Math.max(...anni);
+  for (let y = min; y <= max; y++) anni.add(y);
   return [...anni].sort((a,b)=>b-a);
+}
+
+// Saldo con cui si stima di iniziare un anno. Per l'anno corrente o passato
+// coincide con il riporto reale. Per un anno futuro parte dalla cassa reale di
+// oggi e aggiunge quello che deve ancora succedere negli anni in mezzo (dall'anno
+// corrente all'anno prima di quello scelto): meno le spese con solo preventivo,
+// più i versamenti previsionali. Le voci rimaste aperte negli anni già chiusi
+// non contano (non sono più attese).
+function getSaldoStimatoInizioAnno(anno) {
+  const reale = getSaldoRiporto(anno);
+  const annoOggi = new Date().getFullYear();
+  if (!(anno > annoOggi)) return { reale, speseAperte: 0, entratePreviste: 0, stimato: reale };
+  const inMezzo = (d) => { const a = annoDi(d); return a >= annoOggi && a < anno; };
+  const edOk = (r) => !r.edificioId || r.edificioId === state.edificioAttivo;
+  const speseAperte = state.spese
+    .filter(s => edOk(s) && inMezzo(s.data) && !(parseFloat(s.consuntivo) > 0))
+    .reduce((a, s) => a + (parseFloat(s.preventivo) || 0), 0);
+  const entratePreviste = state.entrate
+    .filter(e => edOk(e) && e.previsionale && inMezzo(e.data))
+    .reduce((a, e) => a + (parseFloat(e.importo) || 0), 0);
+  const stimato = Math.round((reale - speseAperte + entratePreviste) * 100) / 100;
+  return { reale, speseAperte, entratePreviste, stimato };
 }
 
 // getAnni per spese/entrate: include opzione "Tutti"
@@ -87,9 +120,8 @@ function getAnniConTutti() {
 
 // Calcola il saldo cumulativo fino alla fine dell'anno precedente (riporto)
 function getSaldoRiporto(annoTarget) {
-  const all = [ADMIN, ...state.condomini];
-  const spesePrec  =     state.spese.filter(s=>!s.edificioId||s.edificioId===state.edificioAttivo).filter(s=>new Date(s.data).getFullYear() < annoTarget)
-  const entratePrec =     state.entrate.filter(e=>(!e.edificioId||e.edificioId===state.edificioAttivo)&&!e.previsionale&&new Date(e.data).getFullYear()<annoTarget)
+  const spesePrec  =     state.spese.filter(s=>!s.edificioId||s.edificioId===state.edificioAttivo).filter(s=>annoDi(s.data) < annoTarget)
+  const entratePrec =     state.entrate.filter(e=>(!e.edificioId||e.edificioId===state.edificioAttivo)&&!e.previsionale&&annoDi(e.data)<annoTarget)
   const totSpesePrec   = spesePrec.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
   const totEntratePrec = entratePrec.reduce((a,e)=>a+parseFloat(e.importo||0),0);
   return totEntratePrec - totSpesePrec; // saldo riportato dagli anni precedenti

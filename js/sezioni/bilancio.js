@@ -5,8 +5,10 @@
 // BILANCIO
 // ===========================
 function renderBilancio() {
-  const anno    = state.filterAnno;
   const oggi    = new Date();
+  // "Tutti gli anni" (0, scelto in Spese/Entrate) non ha senso per un bilancio
+  // mensile con riporto: si mostra l'anno corrente (prima: tutto a zero, "· 0").
+  const anno    = state.filterAnno || oggi.getFullYear();
   const meseCurr = oggi.getMonth();
   const anni    = getAnni();
   const tab     = state.bilancioTab || 'overview';
@@ -17,8 +19,8 @@ function renderBilancio() {
 
   const _bilSpese   = state.spese.filter(s=>s.edificioId===state.edificioAttivo);
   const _bilEntrate = state.entrate.filter(e=>e.edificioId===state.edificioAttivo);
-  const spese   = _bilSpese.filter(s=>new Date(s.data).getFullYear()===anno);
-  const entrate = _bilEntrate.filter(e=>new Date(e.data).getFullYear()===anno);
+  const spese   = _bilSpese.filter(s=>annoDi(s.data)===anno);
+  const entrate = _bilEntrate.filter(e=>annoDi(e.data)===anno);
   const nomiMesi = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
 
   // ── Separazione ACTUALS vs FORECAST ──────────────────────────────────────
@@ -48,12 +50,16 @@ function renderBilancio() {
 
   // Cashflow mensile: reale mese per mese, forecast per mesi futuri O spese solo-preventivo
   const isCurrYear = anno === oggi.getFullYear();
-  const mesiPassati = isCurrYear ? meseCurr + 1 : 12;
+  const isAnnoPassatoBil = anno < oggi.getFullYear();
+  const isAnnoFuturoBil  = anno > oggi.getFullYear();
+  // Mesi già trascorsi nell'anno scelto: tutti per un anno passato, nessuno per un anno futuro.
+  const mesiPassati = isCurrYear ? meseCurr + 1 : isAnnoPassatoBil ? 12 : 0;
   const mediaUsciteActual = mesiPassati > 0 ? totCons / mesiPassati : 0;
 
-  const isAnnoPassatoBil = anno < oggi.getFullYear();
   const cfMensile = Array.from({length:12}, (_,m) => {
-    const isPast    = isAnnoPassatoBil || m <= meseCurr;
+    // Prima mancava la condizione sull'anno corrente: in un anno futuro i mesi
+    // fino a quello di oggi risultavano "passati".
+    const isPast    = isAnnoPassatoBil || (isCurrYear && m <= meseCurr);
     const isCurrent = isCurrYear && m === meseCurr;
     const speseM      = spese.filter(s=>new Date(s.data).getMonth()===m);
     const entrateM    = entrate.filter(e=>new Date(e.data).getMonth()===m);
@@ -78,7 +84,8 @@ function renderBilancio() {
 
   // Saldo cumulativo — parte dal riporto anni precedenti
   let cumulActual = saldoRiporto;
-  let cumulFull   = saldoRiporto;
+  // La curva con le previsioni di un anno futuro parte dal saldo stimato a inizio anno.
+  let cumulFull   = isAnnoFuturoBil ? getSaldoStimatoInizioAnno(anno).stimato : saldoRiporto;
   const cfCumul = cfMensile.map(cf => {
     cumulActual += cf.incassi - cf.cons;
     cumulFull   += cf.totIncassi - cf.totUscite;
@@ -92,10 +99,19 @@ function renderBilancio() {
   // imminenti, ma non ancora consuntivate) vengono scalate súbito, non ignorate: altrimenti
   // resterebbero fuori sia dal saldo (che include solo il consuntivato) sia dalla simulazione
   // mese per mese (che parte dal mese prossimo per non ricontare due volte quelle già chiuse).
-  const speseArretrateAperteBil = isAnnoPassatoBil ? 0 :
+  // Solo nell'anno corrente: in un anno futuro i mesi fino a quello di oggi non
+  // sono "arretrati" e la simulazione qui sotto li conta già (prima venivano
+  // sottratti due volte, con un falso allarme "cassa a zero già questo mese").
+  const speseArretrateAperteBil = !isCurrYear ? 0 :
     cfMensile.slice(0, meseCurr + 1).reduce((a, cf) => a + cf.prevForecast, 0);
+  // Anno futuro: si parte dal saldo stimato a inizio anno (cassa di oggi più ciò
+  // che resta da pagare e incassare prima), non dalla sola cassa di oggi.
+  const stimaInizioBil = getSaldoStimatoInizioAnno(anno);
+  const saldoInizioSim = isAnnoFuturoBil ? stimaInizioBil.stimato : saldo;
+  // Prima riga della tabella mese per mese: riporto reale, o saldo stimato per un anno futuro.
+  const saldoInizioRiga = isAnnoFuturoBil ? saldoInizioSim : saldoRiporto;
   let meseZero = speseArretrateAperteBil > 0 && (saldo - speseArretrateAperteBil) <= 0 ? meseCurr : null;
-  let saldoSim = saldo - speseArretrateAperteBil;
+  let saldoSim = saldoInizioSim - speseArretrateAperteBil;
   let minBalAnno = saldoSim;
   let usciteForecastAnno = speseArretrateAperteBil;
   const meseInizioSimBil = isAnnoPassatoBil ? 12 : (anno === oggi.getFullYear() ? meseCurr + 1 : 0);
@@ -109,7 +125,9 @@ function renderBilancio() {
   // Runway coerente con la stessa simulazione: se il saldo non scende mai sotto zero da qui a
   // fine anno è "coperto" (99 = mostrato come >12 mesi); altrimenti sono i mesi da oggi al
   // momento in cui si prevede la rottura — non più una media storica proiettata alla cieca.
-  const runwayMesi = saldo <= 0 ? 0 : meseZero !== null ? Math.max(1, meseZero - meseCurr) : 99;
+  // Mesi da oggi: per un anno futuro si contano anche i mesi che mancano alla fine dell'anno corrente.
+  const mesiDaOggiA = (m) => (anno - oggi.getFullYear()) * 12 + m - meseCurr;
+  const runwayMesi = saldoInizioSim <= 0 ? 0 : meseZero !== null ? Math.max(1, mesiDaOggiA(meseZero)) : 99;
   const maxCF = Math.max(...cfMensile.map(cf=>Math.max(cf.totUscite, cf.totIncassi, 1)), 1);
 
   // Categorie breakdown
@@ -178,13 +196,15 @@ function renderBilancio() {
   // ── TAB: PANORAMICA ───────────────────────────────────────────────────────
   function tabOverview() {
     const alertStatus = saldo < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
-    const meseZeroLabelBil = meseZero === meseCurr ? 'già questo mese' : 'a ' + nomiMesi[meseZero];
-    const alertMsg = saldo < 0
-      ? `⚠️ Saldo negativo di ${fmt(Math.abs(saldo))}`
+    const meseZeroLabelBil = isCurrYear && meseZero === meseCurr ? 'già questo mese' : 'a ' + nomiMesi[meseZero] + (isCurrYear ? '' : ' ' + anno);
+    // Per un anno futuro il riferimento è il saldo stimato a inizio anno, non la cassa di oggi.
+    const saldoRif = isAnnoFuturoBil ? `il saldo stimato a inizio ${anno} (${fmt(saldoInizioSim)})` : `il saldo attuale (${fmt(saldo)})`;
+    const alertMsg = saldoInizioSim < 0
+      ? `⚠️ ${isAnnoFuturoBil ? 'Saldo stimato a inizio ' + anno + ' negativo' : 'Saldo negativo'} di ${fmt(Math.abs(saldoInizioSim))}`
       : meseZero !== null
-      ? `⚠️ Il saldo attuale (${fmt(saldo)}) non basta a coprire le spese previsionali dell'anno: rischio di andare sotto zero ${meseZeroLabelBil}, minimo previsto ${fmt(minBalAnno)}`
+      ? `⚠️ ${saldoRif.charAt(0).toUpperCase() + saldoRif.slice(1)} non basta a coprire le spese previsionali dell'anno: rischio di andare sotto zero ${meseZeroLabelBil}, minimo previsto ${fmt(minBalAnno)}`
       : usciteForecastAnno > 0
-      ? `✅ Anno ${anno} coperto — il saldo di cassa attuale (${fmt(saldo)}) copre già da solo le spese previsionali dell'anno (${fmt(usciteForecastAnno)}), restando sempre sopra zero (minimo previsto ${fmt(minBalAnno)})`
+      ? `✅ Anno ${anno} coperto — ${saldoRif} copre le spese previsionali dell'anno (${fmt(usciteForecastAnno)}), restando sempre sopra zero (minimo previsto ${fmt(minBalAnno)})`
       : `✅ Situazione stabile — nessuna spesa previsionale ancora da coprire`;
 
     return `
@@ -224,7 +244,9 @@ function renderBilancio() {
       <div style="flex:1;min-width:0">
         <div style="font-weight:600">Riporto anni precedenti (fino al ${anno-1})</div>
         <div style="font-size:12px;color:var(--text2);margin-top:2px">
-          Saldo cumulativo di tutti gli anni prima del ${anno} · Anno corrente: ${fmt(saldoAnno)} · Totale cassa: ${fmt(saldo)}
+          ${isAnnoFuturoBil
+            ? `Cassa reale di oggi (movimenti già avvenuti). Saldo stimato a inizio ${anno}: <strong>${fmt(stimaInizioBil.stimato)}</strong>, dopo ${fmt(stimaInizioBil.speseAperte)} di spese ancora da consuntivare e ${fmt(stimaInizioBil.entratePreviste)} di versamenti previsti prima del ${anno}`
+            : `Saldo cumulativo di tutti gli anni prima del ${anno} · Anno corrente: ${fmt(saldoAnno)} · Totale cassa: ${fmt(saldo)}`}
         </div>
       </div>
       <div style="font-weight:800;font-size:1.2rem;color:${saldoRiporto>=0?'var(--green)':'var(--red)'}">${saldoRiporto>=0?'+':''}${fmt(saldoRiporto)}</div>
@@ -310,13 +332,15 @@ function renderBilancio() {
           <tbody>
           <tr style="background:#f0fdf4;font-weight:600">
             <td colspan="2" style="color:var(--green)">
-              ${saldoRiporto!==0
+              ${isAnnoFuturoBil
+                ? `Saldo stimato a inizio ${anno}`
+                : saldoRiporto!==0
                 ? `Riporto anni precedenti`
                 : `Inizio anno (nessun riporto)`}
             </td>
             <td></td><td></td><td></td>
-            <td style="color:${saldoRiporto>=0?'var(--green)':'var(--red)'}">${saldoRiporto>=0?'+':''}${fmt(saldoRiporto)}</td>
-            <td style="color:${saldoRiporto>=0?'var(--green)':'var(--red)'};font-weight:700">${fmt(saldoRiporto)}</td>
+            <td style="color:${saldoInizioRiga>=0?'var(--green)':'var(--red)'}">${saldoInizioRiga>=0?'+':''}${fmt(saldoInizioRiga)}</td>
+            <td style="color:${saldoInizioRiga>=0?'var(--green)':'var(--red)'};font-weight:700">${fmt(saldoInizioRiga)}</td>
           </tr>
           ${cfCumul.map((cf,i)=>{
             const hasData = cf.incassi>0||cf.cons>0||cf.incPrevis>0||cf.prevForecast>0;

@@ -5,8 +5,11 @@
 // DASHBOARD
 // ===========================
 function renderDashboard() {
-  const anno     = state.filterAnno;
   const oggi     = new Date();
+  // "Tutti gli anni" (0, scelto in Spese/Entrate) non ha senso per riporto e
+  // cassa mese per mese: si mostra l'anno corrente. Prima solo una parte dei
+  // calcoli ripiegava sull'anno corrente (riporto a zero, etichette "· 0").
+  const anno     = state.filterAnno || oggi.getFullYear();
   const meseCurr = oggi.getMonth(); // 0-11
   // STRICT: solo condomini dell'edificio attivo
   const nAttivi = state.condomini
@@ -16,10 +19,9 @@ function renderDashboard() {
   // Spese e entrate anno selezionato
   const _allSpese   = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
   const _allEntrate = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo);
-  // Se anno non valido (0), usa anno corrente per la dashboard
-  const annoEff = anno || new Date().getFullYear();
-  const spese   = _allSpese.filter(s => new Date(s.data).getFullYear() === annoEff);
-  const entrate = _allEntrate.filter(e => new Date(e.data).getFullYear() === annoEff);
+  const annoEff = anno;
+  const spese   = _allSpese.filter(s => annoDi(s.data) === annoEff);
+  const entrate = _allEntrate.filter(e => annoDi(e.data) === annoEff);
 
   const totSpeseCons = spese.reduce((a,s) => a + parseFloat(s.consuntivo||0), 0);
   const totSpesePrev = spese.reduce((a,s) => a + parseFloat(s.preventivo||0), 0);
@@ -48,7 +50,8 @@ function renderDashboard() {
       return acc + ref/nAttivi;
     }, 0);
   })();
-  const pagatoUtente   = entrate.filter(e=>e.condominoId===state.user.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+  // Solo versamenti reali: le rate previsionali (es. piano rate dell'anno prossimo) non sono "versate".
+  const pagatoUtente   = entrate.filter(e=>e.condominoId===state.user.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
 
   // ── Calcolo cashflow mensile (storico + previsionale) ──────────────────
   // Stesse componenti usate nel grafico "Andamento mensile" di Bilancio, per coerenza:
@@ -76,8 +79,14 @@ function renderDashboard() {
     };
   });
 
-  // Saldo cumulativo mese per mese — parte dal riporto anni precedenti
-  let cumulativo = saldoRiporto;
+  // Anno futuro: si parte dal saldo stimato a inizio anno (cassa di oggi più ciò
+  // che resta da pagare e incassare prima), non dalla sola cassa di oggi.
+  const isAnnoFuturoDash = anno > oggi.getFullYear();
+  const stimaInizioDash  = getSaldoStimatoInizioAnno(anno);
+  const saldoInizio      = isAnnoFuturoDash ? stimaInizioDash.stimato : saldo;
+
+  // Saldo cumulativo mese per mese — parte dal riporto anni precedenti (o dal saldo stimato per un anno futuro)
+  let cumulativo = isAnnoFuturoDash ? saldoInizio : saldoRiporto;
   const cfCumul = cashflow.map(cf => {
     cumulativo += cf.totIncassi - cf.totUscite;
     return {...cf, cumul: cumulativo};
@@ -100,13 +109,15 @@ function renderDashboard() {
   // già scadute o comunque imminenti, quindi vanno considerate súbito come rischio immediato —
   // non ignorate solo perché la simulazione "in avanti" mese per mese parte dal mese prossimo
   // (per non ricontare due volte le spese GIÀ consuntivate del mese corrente, quelle sì incluse in saldo).
-  const speseArretrateAperte = isAnnoPassatoDash ? 0 : spese
+  // Solo nell'anno corrente: in un anno futuro quei mesi sono nella finestra qui
+  // sotto e venivano contati due volte (falso allarme "già questo mese").
+  const speseArretrateAperte = !isAnnoCorrenteDash ? 0 : spese
     .filter(s => new Date(s.data).getMonth() <= meseCurr)
     .filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0)
     .reduce((a, s) => a + parseFloat(s.preventivo), 0);
 
   let meseZero = speseArretrateAperte > 0 && (saldo - speseArretrateAperte) <= 0 ? meseCurr : null;
-  let saldoSim = saldo - speseArretrateAperte;
+  let saldoSim = saldoInizio - speseArretrateAperte;
   let minBalFinestra = saldoSim;
   let usciteFinestra = speseArretrateAperte;
   for (let m = meseInizioSim; m <= meseFineSim; m++) {
@@ -134,9 +145,16 @@ function renderDashboard() {
   const maxCF = Math.max(...cashflow.map(cf=>Math.max(cf.totUscite, cf.totIncassi)), 1);
 
   // Alert status e messaggio — stessa impostazione chiara/esplicita del box "Piano rate" in Entrate/Quote
-  const alertStatus = saldo < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
-  const meseZeroLabel = meseZero === meseCurr ? 'già questo mese' : 'entro ' + nomiMesi[meseZero];
-  const alertMsg = saldo < 0
+  const alertStatus = saldoInizio < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
+  const meseZeroLabel = isAnnoCorrenteDash && meseZero === meseCurr ? 'già questo mese' : 'entro ' + nomiMesi[meseZero] + (isAnnoFuturoDash ? ' ' + anno : '');
+  const alertMsg = isAnnoFuturoDash
+    // Anno futuro: si valutano i primi mesi dell'anno a partire dal saldo stimato.
+    ? (saldoInizio < 0
+      ? `⚠️ Saldo stimato a inizio ${anno} negativo (${fmt(saldoInizio)}): cassa di oggi ${fmt(saldo)}, meno ${fmt(stimaInizioDash.speseAperte)} di spese ancora da consuntivare, più ${fmt(stimaInizioDash.entratePreviste)} di versamenti previsti`
+      : meseZero !== null
+      ? `⚠️ Il saldo stimato a inizio ${anno} (${fmt(saldoInizio)}) non basta per i primi ${mesiFinestraEffettivi} mesi: rischio di andare sotto zero ${meseZeroLabel}, minimo previsto ${fmt(minBalFinestra)}`
+      : `✅ Primi ${mesiFinestraEffettivi} mesi del ${anno} coperti — saldo stimato a inizio anno ${fmt(saldoInizio)}, spese previste fino a ${nomiMesi[meseFineSim]} ${fmt(usciteFinestra)}, minimo previsto ${fmt(minBalFinestra)}`)
+    : saldo < 0
     ? `⚠️ Saldo di cassa negativo (${fmt(saldo)}) — il condominio è già in deficit`
     : meseZero !== null
     ? `⚠️ Il saldo attuale (${fmt(saldo)}) non basta a coprire le spese previsionali ancora aperte: rischio di andare sotto zero ${meseZeroLabel}, minimo previsto ${fmt(minBalFinestra)}`
@@ -255,13 +273,13 @@ function renderDashboard() {
             : ''}
         </div>
       </div>
-      <div class="kpi-card ${saldo<0||meseZero!==null?'kpi-red':'kpi-green'}">
-        <div class="kpi-label">Copertura prossimi ${mesiFinestraEffettivi || FINESTRA_MESI} mesi</div>
-        <div class="kpi-value" style="color:${saldo<0?'var(--red)':meseZero!==null?'var(--red)':'var(--green)'}">
-          ${saldo<0?'⚠️ Deficit':meseZero!==null?'⚠️ '+nomiMesi[meseZero]:'✅ Coperto'}
+      <div class="kpi-card ${saldoInizio<0||meseZero!==null?'kpi-red':'kpi-green'}">
+        <div class="kpi-label">${isAnnoFuturoDash ? 'Copertura primi '+(mesiFinestraEffettivi || FINESTRA_MESI)+' mesi '+anno : 'Copertura prossimi '+(mesiFinestraEffettivi || FINESTRA_MESI)+' mesi'}</div>
+        <div class="kpi-value" style="color:${saldoInizio<0?'var(--red)':meseZero!==null?'var(--red)':'var(--green)'}">
+          ${saldoInizio<0?'⚠️ Deficit':meseZero!==null?'⚠️ '+nomiMesi[meseZero]:'✅ Coperto'}
         </div>
         <div class="kpi-sub">
-          ${saldo<0?fmt(saldo):meseZero!==null?'mancherebbero circa '+fmt(Math.abs(minBalFinestra)):'minimo previsto '+fmt(minBalFinestra)}
+          ${saldoInizio<0?fmt(saldoInizio)+(isAnnoFuturoDash?' stimato a inizio anno':''):meseZero!==null?'mancherebbero circa '+fmt(Math.abs(minBalFinestra)):'minimo previsto '+fmt(minBalFinestra)}
         </div>
       </div>
     </div>

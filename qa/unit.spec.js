@@ -202,3 +202,91 @@ describe('UNIT — guida rapida delle pagine', () => {
     assert.ok(guida('vita', 'mod').includes('rivolgiti') && !guida('vita', 'admin').includes('Proporre un avviso'));
   });
 });
+
+describe('UNIT — più anni (anno passato, corrente, prossimo)', () => {
+  const Y = new Date().getFullYear();
+  const base = (extra) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], filterAnno: Y,
+      user: { id: 101, nome: 'A', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 101, nome: 'A', edificioId: 1 }, { id: 102, nome: 'B', edificioId: 1 }], spese: [], entrate: [], ...extra });
+    return app;
+  };
+
+  it('annoDi legge l\'anno dal testo della data (niente fuso orario) e scarta le date non valide', () => {
+    const app = loadApp();
+    assert.strictEqual(app.annoDi('2027-01-01'), 2027);
+    assert.strictEqual(app.annoDi('2026-12-31'), 2026);
+    assert.ok(Number.isNaN(app.annoDi('')));
+    assert.ok(Number.isNaN(app.annoDi(undefined)));
+    assert.ok(Number.isNaN(app.annoDi('abc')));
+  });
+  it('getAnni offre sempre l\'anno prossimo e l\'anno scelto, senza buchi né "NaN"', () => {
+    const app = base({ spese: [{ data: `${Y - 2}-05-01`, edificioId: 1 }, { data: 'non-valida', edificioId: 1 }], filterAnno: Y + 3 });
+    const anni = app.getAnni();
+    assert.ok(!anni.some(Number.isNaN), 'opzione NaN');
+    for (let a = Y - 2; a <= Y + 3; a++) assert.ok(anni.includes(a), 'manca ' + a);
+    assert.strictEqual(JSON.stringify(anni), JSON.stringify([...anni].sort((a, b) => b - a)));
+  });
+  it('saldo stimato a inizio anno prossimo: cassa di oggi − spese aperte + versamenti previsti dell\'anno corrente', () => {
+    const app = base({
+      spese: [
+        { data: `${Y}-02-01`, consuntivo: '1000', edificioId: 1 },
+        { data: `${Y}-12-01`, preventivo: '400', consuntivo: '', edificioId: 1 },   // ancora da pagare
+        { data: `${Y - 1}-06-01`, preventivo: '999', consuntivo: '', edificioId: 1 }, // anno chiuso: non più atteso
+        { data: `${Y + 1}-03-01`, preventivo: '700', consuntivo: '', edificioId: 1 }, // dell'anno stimato: escluso
+      ],
+      entrate: [
+        { data: `${Y}-01-10`, importo: '5000', edificioId: 1 },
+        { data: `${Y}-12-10`, importo: '300', edificioId: 1, previsionale: true },
+      ] });
+    const s = app.getSaldoStimatoInizioAnno(Y + 1);
+    assert.strictEqual(s.reale, 4000);
+    assert.strictEqual(s.speseAperte, 400);
+    assert.strictEqual(s.entratePreviste, 300);
+    assert.strictEqual(s.stimato, 3900);
+    // anno corrente o passato: coincide con il riporto reale
+    assert.strictEqual(app.getSaldoStimatoInizioAnno(Y).stimato, app.getSaldoRiporto(Y));
+  });
+  it('ricorrenza con solo consuntivo: le occorrenze successive hanno quell\'importo come preventivo', () => {
+    const app = loadApp();
+    const occ = app.generaOccorrenze({ data: `${Y}-11-30`, preventivo: '', consuntivo: '100', frequenza: 'mensile' }, `${Y + 1}-02-28`);
+    assert.ok(occ.length >= 3);
+    for (const o of occ) { assert.strictEqual(o.preventivo, '100'); assert.strictEqual(o.consuntivo, ''); }
+    assert.ok(occ.some((o) => o.data.startsWith(String(Y + 1))), 'deve attraversare il capodanno');
+  });
+  it('Bilancio con "Tutti gli anni" mostra l\'anno corrente, non una pagina a zero con "· 0"', () => {
+    const app = base({ filterAnno: 0, page: 'bilancio', spese: [{ id: 1, data: `${Y}-02-01`, consuntivo: '250', preventivo: '250', edificioId: 1, split: [] }] });
+    const h = app.renderBilancio();
+    assert.ok(!h.includes('· 0<'), 'etichetta anno 0');
+    assert.ok(h.includes(`· ${Y}`));
+    assert.ok(h.includes('250,00'));
+  });
+  it('anno prossimo: nessun mese "passato" e nessun falso allarme "già questo mese"', () => {
+    const app = base({ filterAnno: Y + 1, page: 'bilancio', bilancioTab: 'forecast',
+      spese: Array.from({ length: 12 }, (_, m) => ({ id: m + 1, data: `${Y + 1}-${String(m + 1).padStart(2, '0')}-15`, preventivo: '1000', consuntivo: '', edificioId: 1, split: [] })),
+      entrate: [{ data: `${Y}-01-10`, importo: '5000', edificioId: 1 }] });
+    const h = app.renderBilancio();
+    assert.ok(!h.includes('già questo mese'));
+    assert.ok(!/runway-dot (positive|warning|negative)/.test(h), 'mesi dell\'anno prossimo trattati come passati');
+    const d = app.renderDashboard();
+    assert.ok(!d.includes('già questo mese'));
+    assert.ok(d.includes(`mesi del ${Y + 1}`) && d.includes('stimato a inizio'), 'la Dashboard deve parlare del saldo stimato a inizio anno');
+  });
+  it('Dashboard con "Tutti gli anni": riporto e saldo dell\'anno corrente (prima riporto azzerato)', () => {
+    const app = base({ filterAnno: 0, page: 'dashboard',
+      spese: [{ id: 1, data: `${Y - 1}-03-01`, consuntivo: '1000', edificioId: 1 }, { id: 2, data: `${Y}-03-01`, consuntivo: '200', edificioId: 1 }],
+      entrate: [{ data: `${Y - 1}-01-10`, importo: '3000', edificioId: 1 }] });
+    const d = app.renderDashboard();
+    assert.ok(d.includes('2000,00'), 'riporto dell\'anno precedente mancante'); // 3000 − 1000
+    assert.ok(d.includes('1800,00'), 'saldo di cassa errato');               // 2000 − 200
+  });
+  it('"La tua situazione" non conta come versate le rate solo previste', () => {
+    const app = base({ page: 'dashboard', user: { id: 103, nome: 'M', edificioId: 1 }, condomini: [{ id: 103, nome: 'M', edificioId: 1 }],
+      entrate: [{ data: `${Y}-12-10`, importo: '400', edificioId: 1, condominoId: 103, previsionale: true }] });
+    const d = app.renderDashboard();
+    const i = d.indexOf('La tua situazione');
+    assert.ok(i > 0);
+    assert.ok(!d.slice(i, i + 1500).includes('400,00'), 'rata prevista contata come versata');
+  });
+});

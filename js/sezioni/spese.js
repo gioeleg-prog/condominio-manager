@@ -145,7 +145,10 @@ function generaOccorrenze(spesaBase, fineStr) {
       ...spesaBase,
       id: newId(),
       data,
-      consuntivo: '', // le future sono solo preventivo
+      // Le future sono solo preventivo; se la prima aveva solo il consuntivo,
+      // quell'importo diventa il preventivo delle successive (prima restavano a zero).
+      preventivo: spesaBase.preventivo || spesaBase.consuntivo || '',
+      consuntivo: '',
     });
   }
   return occorrenze;
@@ -401,7 +404,19 @@ function renderModalSpesa(d) {
   // Carica split da DB oppure calcola uguale
   // Se viene da DB, filtra solo i condomini dell'edificio attivo e ricalibra le %
   let splitData;
-  if (d?.split && d.split.length > 0) {
+  // Righe della tabella: i condomini attivi più, per una spesa già salvata,
+  // chi aveva una quota ed è stato archiviato dopo (mostrato come "non più
+  // attivo"). Così aprire e salvare una spesa di un anno passato non riscrive
+  // la sua ripartizione con i condomini di oggi.
+  let _righeSplit = _condSplit;
+  const _condEdificio = state.condomini.filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin);
+  const _salvatoValido = (d?.split || []).filter(s => _condEdificio.some(c => c.id === s.id));
+  if (_salvatoValido.length > 0) {
+    const exAttivi = _condEdificio.filter(c => c.disabled && _salvatoValido.some(s => s.id === c.id && (s.perc || 0) > 0));
+    _righeSplit = [..._condSplit, ...exAttivi];
+    // Percentuali salvate così come sono; chi non era nella ripartizione parte da 0%.
+    splitData = _righeSplit.map(c => _salvatoValido.find(s => s.id === c.id) || { id: c.id, perc: 0, locked: false });
+  } else if (d?.split && d.split.length > 0) {
     const validIds = new Set(_condSplit.map(c=>c.id));
     const filtered = d.split.filter(s => validIds.has(s.id));
     if (filtered.length === 0) {
@@ -428,7 +443,7 @@ function renderModalSpesa(d) {
       <td><div style="display:flex;align-items:center;gap:6px">
         <div class="avatar" style="${avatarStyle(c.color)};width:22px;height:22px;font-size:9px">${initials(c.nome)}</div>
         <span style="font-weight:500">${esc(c.nome)}</span>
-        <span style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</span>
+        <span style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</span>${c.disabled ? '<span class="badge badge-gray" style="font-size:10px">non più attivo</span>' : ''}
       </div></td>
       <td>
         <input type="number" class="split-perc-inp" data-cid="${c.id}" value="${perc.toFixed(2)}" min="0" max="100" step="0.01" placeholder="0.00">
@@ -559,7 +574,7 @@ function renderModalSpesa(d) {
                 <th title="Blocca: questa quota non si ricalcola automaticamente">🔒</th>
               </tr></thead>
               <tbody id="split-tbody">
-                ${_condSplit.map(c => splitRow(c, splitData.find(s=>s.id===c.id))).join('')}
+                ${_righeSplit.map(c => splitRow(c, splitData.find(s=>s.id===c.id))).join('')}
               </tbody>
             </table>
             <div class="split-bar-wrap" id="split-bar"></div>
@@ -852,10 +867,13 @@ function bindSchedaSpese() {
     const checked = mRic.checked;
     box.style.display = checked ? 'block' : 'none';
     if (checked) {
-      // Default data fine = 31 dicembre anno corrente
+      // Default data fine = 31 dicembre dell'anno della spesa (non dell'anno di
+      // oggi: una spesa del preventivo dell'anno prossimo avrebbe una fine già
+      // passata e nessuna occorrenza).
       const mFreqFineEl = document.getElementById('m-freq-fine');
       if (mFreqFineEl && !mFreqFineEl.value) {
-        mFreqFineEl.value = new Date().getFullYear() + '-12-31';
+        const annoSpesa = parseInt(String(mData?.value || '').slice(0, 4)) || new Date().getFullYear();
+        mFreqFineEl.value = annoSpesa + '-12-31';
       }
       aggiornaAnteprimaRicorrenza();
     }
@@ -903,6 +921,18 @@ function salvaSchedaSpesa(m) {
       else alert('Inserisci la data di fine per la spesa ricorrente');
       return;
     }
+    // La fine deve venire dopo la prima spesa, altrimenti non si crea nessuna
+    // occorrenza e il preventivo risulta più basso senza avvisi. Solo quando la
+    // ricorrenza nasce o cambia: l'ultima occorrenza può cadere proprio nella
+    // data di fine e deve restare modificabile (es. per consuntivarla).
+    const ricorrenzaCambiata = !m.data?.id || !m.data?.ricorrente || m.data.frequenza !== frequenza || m.data.ricorrenzaFine !== ricorrenzaFine;
+    if (ricorrente && ricorrenzaCambiata && ricorrenzaFine <= data) {
+      const msg = 'La data di fine della ricorrenza deve essere successiva alla data della spesa';
+      const errEl = document.getElementById('m-err');
+      if (errEl) { errEl.textContent = msg; errEl.style.display='block'; }
+      else alert(msg);
+      return;
+    }
     const ricGruppoId = m.data?.ricGruppoId || (ricorrente ? newId() : null);
     const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId };
     let spese;
@@ -915,15 +945,21 @@ function salvaSchedaSpesa(m) {
       const cambiataFreq  = m.data?.frequenza !== frequenza;
       const cambiatiFine  = m.data?.ricorrenzaFine !== ricorrenzaFine;
       if (ricorrente && (!eraRicorrente || cambiataFreq || cambiatiFine)) {
-        // Rimuovi occorrenze precedenti dello stesso gruppo (se erano già state create)
-        if (item.ricGruppoId) {
-          spese = spese.filter(s => !(s.ricGruppoId === item.ricGruppoId && s.id !== item.id));
-        }
-        // Genera nuove occorrenze future (dalla data della spesa in poi)
-        const occorrenze = generaOccorrenze(item, ricorrenzaFine);
+        // Si rigenerano solo le occorrenze SUCCESSIVE a questa e ancora da
+        // consuntivare. Prima si cancellava tutto il gruppo, anche le righe
+        // passate e quelle già consuntivate (perdita di dati e di cassa reale).
+        const sostituibile = (s) => item.ricGruppoId && s.ricGruppoId === item.ricGruppoId && s.id !== item.id
+          && s.data > item.data && !(parseFloat(s.consuntivo) > 0);
+        const daSostituire = spese.filter(sostituibile).length;
+        spese = spese.filter(s => !sostituibile(s));
+        // Le date ancora occupate da righe del gruppo (consuntivate) non vengono duplicate.
+        const occupate = new Set(spese.filter(s => item.ricGruppoId && s.ricGruppoId === item.ricGruppoId).map(s => s.data));
+        const occorrenze = generaOccorrenze(item, ricorrenzaFine).filter(o => !occupate.has(o.data));
         spese = [...spese, ...occorrenze];
-        if (occorrenze.length > 0) {
-          alert('✅ Ricorrenza aggiornata: create ' + occorrenze.length + ' occorrenze future.');
+        if (occorrenze.length > 0 || daSostituire > 0) {
+          alert('✅ Ricorrenza aggiornata: ' + occorrenze.length + ' occorrenze successive create'
+            + (daSostituire ? ' (sostituite ' + daSostituire + ' ancora da consuntivare)' : '')
+            + '. Le righe precedenti e quelle già consuntivate non sono state toccate.');
         }
       }
     } else {
