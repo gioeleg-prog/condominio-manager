@@ -25,7 +25,7 @@
     }
   }
   async function crawlPage(role, p) {
-    try { setState({ page: p, filterAnno: 0, modal: null }); } catch (e) { hits.push(`${role}/${p}: ERRORE ${e.message}`); return; }
+    try { setState({ page: p, filterAnno: 0, filterAnni: [], modal: null }); } catch (e) { hits.push(`${role}/${p}: ERRORE ${e.message}`); return; }
     await wait(); check(`${role}/${p}`);
     const tabs = [...document.querySelectorAll('[data-vita-tab],[data-tab]')]
       .map((b) => (b.dataset.vitaTab ? ['vitaTab', b.dataset.vitaTab] : ['bilancioTab', b.dataset.tab]));

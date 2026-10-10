@@ -347,3 +347,55 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .section-divider h3 { font-size: 15px; font-weight: 700; white-space: nowrap; }
 .section-divider::after { content:''; flex:1; height:1px; background:var(--border); }
 
+
+/* ── Confronto anni (js/sezioni/confronto.js) ───────────────────────── */
+.cf-comandi { display: flex; flex-wrap: wrap; gap: .25rem 1.5rem; margin-bottom: .5rem; }
+.cf-card { margin-bottom: 1.25rem; }
+.cf-scroll { overflow-x: auto; }
+.cf-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cf-tab { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.cf-tab th, .cf-tab td { padding: .55rem .75rem; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; white-space: nowrap; }
+.cf-tab thead th { font-size: 12px; color: var(--text2); font-weight: 700; background: var(--surface2); }
+.cf-tab tbody th { font-weight: 500; }
+.cf-tab tfoot th, .cf-tab tfoot td, .cf-tab tr.cf-forte th, .cf-tab tr.cf-forte td { font-weight: 700; }
+.cf-tab tr.cf-sotto th { padding-left: 1.5rem; color: var(--text2); font-weight: 400; }
+.cf-tab tr.cf-sotto td { color: var(--text2); }
+.cf-num { text-align: right !important; font-variant-numeric: tabular-nums; }
+.cf-vuoto { color: var(--text2); }
+.cf-delta { font-size: 11px; color: var(--text2); font-weight: 600; margin-top: 2px; }
+.cf-delta.bene, .cf-tab td.bene { color: var(--green); }
+.cf-delta.male, .cf-tab td.male { color: var(--red); }
+.cf-badge { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
+.cf-badge.prev { color: var(--purple); }
+.cf-badge.corso { color: var(--amber); }
+.cf-sub { font-size: 11px; color: var(--text2); }
+.cf-gruppo { border-left: 2px solid var(--border); text-align: center !important; }
+.cf-nota { font-size: 12px; color: var(--text2); padding: .5rem .75rem .75rem; margin: 0; }
+.cf-base { margin: .25rem 0 1rem; }
+.cf-grafico { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; padding: .75rem; border-top: 1px solid var(--border); }
+.cf-grafico-tit { font-weight: 700; margin-bottom: .35rem; }
+.cf-barra-riga { display: grid; grid-template-columns: 78px 1fr auto; align-items: center; gap: .5rem; font-size: 12px; margin-bottom: .3rem; }
+.cf-barra-lbl { color: var(--text2); }
+.cf-barra-wrap { background: var(--surface2); border-radius: 4px; height: 12px; overflow: hidden; }
+.cf-barra { height: 100%; border-radius: 4px; }
+.cf-barra.entrate { background: var(--green); }
+.cf-barra.uscite { background: var(--red); }
+.cf-barra.prev { background: var(--purple); opacity: .75; }
+.cf-barra-val { font-variant-numeric: tabular-nums; min-width: 90px; text-align: right; }
+.cf-stack-wrap { padding: .75rem; border-top: 1px solid var(--border); }
+.cf-stack-riga { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: .5rem; margin-bottom: .35rem; font-size: 12px; }
+.cf-stack { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: var(--surface2); }
+.cf-stack-ord { background: var(--accent); }
+.cf-stack-str { background: var(--amber); }
+.cf-legenda { display: flex; gap: 1rem; font-size: 12px; color: var(--text2); margin-top: .5rem; }
+.cf-legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+@media (max-width: 768px) {
+  .cf-tab { font-size: 12.5px; }
+  .cf-tab th, .cf-tab td { padding: .45rem .5rem; }
+  .cf-barra-val { min-width: 76px; }
+}
+/* Le etichette di riga sono intestazioni (<th scope="row">) per i lettori di schermo,
+   ma si leggono come testo normale, non in maiuscoletto come le intestazioni di colonna. */
+.cf-tab tbody th, .cf-tab tfoot th { text-transform: none; letter-spacing: normal; font-size: 13.5px; color: var(--text); background: none; }
+.cf-tab tr.cf-sotto th { color: var(--text2); }
+@media (max-width: 768px) { .cf-tab tbody th, .cf-tab tfoot th { font-size: 12.5px; } }

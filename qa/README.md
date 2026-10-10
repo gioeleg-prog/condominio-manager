@@ -65,7 +65,7 @@ Nella pagina harness, dalla console:
 ```js
 const s = document.createElement('script'); s.textContent = await (await fetch('/qa/xss-crawl.js')).text(); document.head.appendChild(s);
 await qaXss.login('admin1@qa.test');
-await qaXss.crawl(['dashboard','spese','entrate','bilancio','fornitori','vita','condomini','impostazioni']);
+await qaXss.crawl(['dashboard','spese','entrate','bilancio','confronto','fornitori','vita','condomini','impostazioni']);
 ```
 
 `hits` deve restare vuoto per ogni ruolo (member1, editor1, admin1, superadmin), anche a larghezza mobile.

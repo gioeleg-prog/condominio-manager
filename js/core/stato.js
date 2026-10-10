@@ -106,7 +106,11 @@ let state = {
   filterTipo: 'all',
   filterStato: 'all',
   filterFornitore: 'all',
-  filterAnno: new Date().getFullYear(),
+  filterAnno: new Date().getFullYear(),   // anno singolo di Dashboard e Bilancio (0 = tutti → anno corrente)
+  filterAnni: [new Date().getFullYear()], // anni scelti in Spese/Entrate/Fornitori ([] = tutti), js/core/filtro-anni.js
+  confrontoAnni: null,       // anni della pagina Confronto anni (null = predefiniti)
+  confrontoPeriodo: 'anno',  // 'anno' intero | 'ytd' da inizio anno alla data di oggi
+  confrontoBase: 'reale',    // 'reale' consuntivo | 'preventivo' | 'misto' (consuntivo se c'è, altrimenti preventivo)
   // Verbali ha un archivio storico spesso sparso su pochi anni: un default
   // "anno corrente" (come Spese/Entrate) nasconderebbe silenziosamente tutto
   // il resto con il filtro che sembra "Tutti gli anni" nel <select> — campo

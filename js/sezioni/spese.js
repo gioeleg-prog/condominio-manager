@@ -161,7 +161,8 @@ function renderSpese() {
   const canEdit = canUserEdit(state.user);
   const myEdId = getUserEdificio(state.user);
   let items = state.spese.filter(s => s.edificioId === state.edificioAttivo);
-  if (state.filterAnno) items = items.filter(s=>new Date(s.data).getFullYear()===state.filterAnno);
+  // Anni scelti con i pulsanti (uno o più; nessuno = tutti): i totali sommano gli anni scelti.
+  items = items.filter(s=>inAnniSelezionati(s.data));
   if (state.filterCat !== 'all') items = items.filter(s=>s.categoria===state.filterCat);
   if (state.filterTipo !== 'all') items = items.filter(s=>s.tipoSpesa===state.filterTipo);
   if (state.searchQ) items = items.filter(s=>s.titolo.toLowerCase().includes(state.searchQ.toLowerCase())||s.descrizione?.toLowerCase().includes(state.searchQ.toLowerCase()));
@@ -281,16 +282,11 @@ function renderSpese() {
       <span style="color:var(--text2)">${speseChiuse.length} spese · prev. ${fmt(totPrevChiuse)} → cons. ${fmt(totConsChiuse)}</span>
     </div>`:''}
 
+    ${renderFiltroAnni('filterAnni', anni, { nota: anniSelezionati().length > 1 ? 'importi sommati' : '' })}
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;align-items:center">
       <!-- Ricerca: max metà schermo -->
       <input type="text" class="spese-filter-search" placeholder="🔍 Cerca…" id="search-spese"
         value="${esc(state.searchQ)}" style="flex:0 1 220px;min-width:120px;max-width:280px">
-
-      <!-- Anno -->
-      <select class="spese-filter-sel" id="filter-anno-spese" style="flex:0 1 90px;min-width:70px">
-        <option value="0">Tutti</option>
-        ${anni.map(a=>`<option value="${a}" ${a===state.filterAnno?'selected':''}>${a}</option>`).join('')}
-      </select>
 
       <!-- Tipo -->
       <select class="spese-filter-sel" id="filter-tipo-spese" style="flex:0 1 110px;min-width:90px">
@@ -636,15 +632,7 @@ function esportaSpeseCSV(spese, nomeFile) {
     const mySplit = validSplit.find(s => s.id === condId);
     return mySplit ? (mySplit.perc||0)/100*importoRef : 0;
   }
-  function csvField(v) {
-    const s = String(v ?? '');
-    // Escapa i campi che contengono il separatore, virgolette o a-capo (standard CSV)
-    // QA (CSV injection): un testo che inizia con = + - @ verrebbe eseguito da
-    // Excel come formula (es. =HYPERLINK). Si antepone un apice, che Excel
-    // non mostra; i numeri (anche negativi) restano numeri.
-    const t = /^[=+\-@\t\r]/.test(s) && !/^-?\d+(,\d+)?$/.test(s) ? "'" + s : s;
-    return /[;"\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
-  }
+  const csvField = csvCampo; // js/core/utils.js (escape CSV e protezione dalle formule di Excel)
   function numCSV(n) {
     // Virgola come separatore decimale: coerente con Excel in locale italiano quando il
     // separatore di campo è il punto e virgola (altrimenti Excel legge tutto in una colonna)
@@ -821,8 +809,6 @@ function bindAzioniSpese() {
   // Spese filters
   const ss = document.getElementById('search-spese');
   if (ss) ss.oninput = e => setState({searchQ: e.target.value});
-  const fas = document.getElementById('filter-anno-spese');
-  if (fas) fas.onchange = e => setState({filterAnno: parseInt(e.target.value)||0});
   const fts = document.getElementById('filter-tipo-spese');
   if (fts) fts.onchange = e => setState({filterTipo: e.target.value});
   const fcs = document.getElementById('filter-cat-spese');

@@ -24,15 +24,15 @@ function renderFornitori() {
   const canEdit = canUserEdit(state.user);
   // Mostra fornitori dell'edificio attivo + quelli senza edificioId (da migrare)
   const fornitori = (state.fornitori || []).filter(f => !f.edificioId || f.edificioId === state.edificioAttivo);
-  // 0 = "Tutti gli anni" (prima ripiegava sull'anno corrente: "Tutti" non si poteva scegliere).
-  const anno = state.filterAnno || 0;
-  const annoLbl = anno || 'tutti gli anni';
+  // Anni scelti con i pulsanti (uno o più; nessuno = tutti): importi sommati.
+  const anniSel = anniSelezionati();
+  const annoLbl = etichettaAnni(anniSel);
 
   // Stats — coerenti con le altre pagine (stessa base di getSpeseVisibili,
   // include anche eventuali spese storiche non ancora migrate su questo edificio)
   const totFornitoriAttivi = fornitori.filter(f=>!f.disabled).length;
   const _speseEd     = getSpeseVisibili();
-  const _speseEdAnno = _speseEd.filter(s=>!anno || annoDi(s.data)===anno);
+  const _speseEdAnno = _speseEd.filter(s=>inAnniSelezionati(s.data, anniSel));
 
   // Con fornitore
   const _conFornAnno = _speseEdAnno.filter(s=>s.fornitoreId);
@@ -58,13 +58,8 @@ function renderFornitori() {
       ${canEdit ? `<button class="btn btn-primary" id="btn-nuovo-fornitore">+ Nuovo fornitore</button>` : ''}
     </div>
 
-    <!-- Filtro anno -->
-    <div style="margin-bottom:1rem">
-      <select class="spese-filter-sel" onchange="setState({filterAnno:this.value?parseInt(this.value):0})" style="max-width:160px">
-        <option value="">Tutti gli anni</option>
-        ${getAnni().map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
-      </select>
-    </div>
+    <!-- Filtro anni -->
+    ${renderFiltroAnni('filterAnni', getAnni(), { nota: anniSel.length > 1 ? 'importi sommati' : '' })}
 
     <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-bottom:1.5rem;align-items:stretch">
 
@@ -132,11 +127,11 @@ function renderFornitoreCard(f, canEdit, archived=false) {
   const _edForn = f.edificioId || getUserEdificio(state.user);
   const _allSpeseF = state.spese.filter(s=>!s.edificioId||s.edificioId===_edForn);
   const speseF = _allSpeseF.filter(s=>s.fornitoreId===f.id).sort((a,b)=>new Date(b.data)-new Date(a.data));
-  const anno = state.filterAnno || 0; // 0 = tutti gli anni
-  const annoLbl = anno || 'tutti gli anni';
+  const anniSel = anniSelezionati(); // nessuno = tutti gli anni
+  const annoLbl = etichettaAnni(anniSel);
 
   // Separa actual da forecast — filtrato per anno selezionato
-  const speseFAnno   = speseF.filter(s=>!anno || annoDi(s.data)===anno);
+  const speseFAnno   = speseF.filter(s=>inAnniSelezionati(s.data, anniSel));
   const actualAnno   = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)>0);
   const forecastAnno = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
   const totActual    = actualAnno.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
@@ -293,9 +288,10 @@ function renderModalStoricoFornitore(f) {
   const speseF = state.spese.filter(s=>s.fornitoreId===f.id && (!s.edificioId||s.edificioId===_edFornSt))
     .sort((a,b)=>new Date(b.data)-new Date(a.data));
   const totale = speseF.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
-  // Anno scelto nel filtro (prima sempre l'anno di oggi, anche con la pagina su un altro anno).
-  const anno = state.filterAnno || new Date().getFullYear();
-  const totAnno = speseF.filter(s=>annoDi(s.data)===anno)
+  // Anni scelti nel filtro (prima sempre l'anno di oggi); con "Tutti" l'anno corrente,
+  // perché il totale di tutti gli anni è già nel riquadro accanto.
+  const anniSt = anniSelezionati().length ? anniSelezionati() : [new Date().getFullYear()];
+  const totAnno = speseF.filter(s=>inAnniSelezionati(s.data, anniSt))
     .reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
 
   // Raggruppa per anno
@@ -316,7 +312,7 @@ function renderModalStoricoFornitore(f) {
       <div class="modal-body">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;margin-bottom:1.25rem">
           <div class="fornitore-stat"><div style="font-size:11px;color:var(--text2)">Interventi totali</div><div style="font-size:1.3rem;font-weight:700;color:var(--accent)">${speseF.length}</div></div>
-          <div class="fornitore-stat"><div style="font-size:11px;color:var(--text2)">Anno ${anno}</div><div style="font-size:1.3rem;font-weight:700;color:var(--red)">${fmt(totAnno)}</div></div>
+          <div class="fornitore-stat"><div style="font-size:11px;color:var(--text2)">${anniSt.length > 1 ? 'Anni' : 'Anno'} ${etichettaAnni(anniSt)}</div><div style="font-size:1.3rem;font-weight:700;color:var(--red)">${fmt(totAnno)}</div></div>
           <div class="fornitore-stat"><div style="font-size:11px;color:var(--text2)">Totale storico</div><div style="font-size:1.3rem;font-weight:700">${fmt(totale)}</div></div>
         </div>
 
