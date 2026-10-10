@@ -1,0 +1,34 @@
+# Aggiornamenti automatici delle librerie: Dependabot apre una PR quando esce
+# una nuova versione (una a settimana per cartella, aggiornamenti minori
+# raggruppati). Ogni PR passa dai test della CI e si unisce solo a mano:
+# niente aggiornamenti automatici in produzione senza revisione.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /functions
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      minori-e-correzioni:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "Functions"
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      minori-e-correzioni:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "Test"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "CI"

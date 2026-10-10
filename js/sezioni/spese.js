@@ -546,6 +546,7 @@ function renderModalSpesa(d) {
             <div id="ricorrenza-preview-list" style="color:var(--text2)">Seleziona frequenza e data fine per vedere l'anteprima</div>
           </div>
         </div>
+        ${renderBoxSerie(d)}
 
         <!-- ═══ SEZIONE SUDDIVISIONE ═══ -->
         ${splitWarning}
@@ -842,6 +843,7 @@ function bindAzioniSpese() {
 
 // Scheda spesa: ricorrenza, ripartizione, tipo in base alla categoria. Chiamata da bindModal() (schede.js).
 function bindSchedaSpese() {
+  bindSerieSpesa();
   // Toggle ricorrenza + aggiorna anteprima
   const mRic = document.getElementById('m-ricorrente');
   const mFreq = document.getElementById('m-freq');
@@ -948,6 +950,12 @@ function salvaSchedaSpesa(m) {
             + '. Le righe precedenti e quelle già consuntivate non sono state toccate.');
         }
       }
+      // Serie: modifiche applicate anche alle occorrenze successive non consuntivate
+      // (se la ricorrenza è cambiata quelle sono già state rigenerate dai nuovi valori).
+      else if (document.getElementById('m-serie-applica')?.checked) {
+        const succ = new Set(occorrenzeSuccessive(m.data).map(s => s.id));
+        spese = spese.map(s => succ.has(s.id) ? { ...s, titolo, descrizione: desc, categoria: cat, tipoSpesa: tipo, preventivo: prev || '', fornitoreId, split } : s);
+      }
     } else {
       spese = [...state.spese, item];
       // Genera occorrenze future se ricorrente (nuova spesa)
@@ -958,4 +966,46 @@ function salvaSchedaSpesa(m) {
     }
     save('cm_spese', spese);
     setState({spese, modal:null, pendingFiles:[]});
+}
+
+// ===========================
+// SPESE RICORRENTI COME SERIE
+// ===========================
+// Occorrenze della stessa serie successive a questa e non ancora consuntivate:
+// sono quelle che si possono aggiornare o eliminare in un colpo solo.
+function occorrenzeSuccessive(d) {
+  if (!d?.id || !d.ricGruppoId) return [];
+  return state.spese.filter(s => s.ricGruppoId === d.ricGruppoId && s.id !== d.id && s.data > d.data && !(parseFloat(s.consuntivo) > 0));
+}
+
+// Riquadro nella scheda di una spesa ricorrente già salvata: applica le modifiche
+// alle occorrenze successive, oppure eliminale (prima si faceva riga per riga).
+function renderBoxSerie(d) {
+  const succ = occorrenzeSuccessive(d);
+  if (!succ.length) return '';
+  const fino = succ.map(s => s.data).sort().at(-1).split('-').reverse().join('/');
+  return `<div class="serie-box" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:.75rem .875rem;margin-bottom:1rem">
+    <div style="font-weight:600;font-size:13px;margin-bottom:.4rem">🔁 Serie: ${succ.length} ${succ.length === 1 ? 'occorrenza successiva' : 'occorrenze successive'} non ancora consuntivate (fino al ${fino})</div>
+    <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="m-serie-applica" style="width:16px;height:16px;margin-top:2px">
+      <span>Applica anche a quelle le modifiche di titolo, descrizione, categoria, tipo, preventivo, fornitore e ripartizione. Date, consuntivi e allegati di ciascuna restano com'erano.</span>
+    </label>
+    <button type="button" class="btn btn-secondary btn-sm" id="btn-serie-elimina" style="margin-top:.6rem;color:var(--red)">🗑 Elimina le ${succ.length} successive</button>
+  </div>`;
+}
+
+function bindSerieSpesa() {
+  const b = document.getElementById('btn-serie-elimina');
+  if (!b || state.modal?.type !== 'spesa') return;
+  b.onclick = () => {
+    const d = state.modal.data;
+    const succ = occorrenzeSuccessive(d);
+    if (!succ.length) return;
+    if (!confirm('Eliminare le ' + succ.length + ' occorrenze successive non consuntivate di questa serie? Questa spesa e quelle già consuntivate restano.')) return;
+    const via = new Set(succ.map(s => s.id));
+    // La serie ora finisce con questa occorrenza.
+    const spese = state.spese.filter(s => !via.has(s.id)).map(s => s.id === d.id ? { ...s, ricorrenzaFine: s.data } : s);
+    save('cm_spese', spese);
+    setState({ spese, modal: null, pendingFiles: [] });
+  };
 }
