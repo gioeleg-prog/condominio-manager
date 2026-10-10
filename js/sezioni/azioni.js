@@ -17,6 +17,7 @@ function bindPageActions() {
   ]);
   bindAzioniImpostazioni();
   bindAzioniFornitori();
+  bindPulsantiEstratto(); // "📄 Estratto conto" in Bilancio, Condomini e Dashboard
   // Data-page quick links
   document.querySelectorAll('[data-page]').forEach(el => {
     if (!el.onclick) el.onclick = () => setState({page:el.dataset.page, sidebarOpen:false});

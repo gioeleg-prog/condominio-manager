@@ -22,6 +22,7 @@ function bindModal() {
   bindSchedaVita();
   bindSchedaCondomini();
   bindSchedaRendiconto();
+  bindSchedaEstratto();
 }
 
 function saveModal() {

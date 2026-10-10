@@ -16,7 +16,7 @@ const GUIDA = {
       'Il grafico mese per mese: dati reali fino a oggi, previsioni per i mesi che verranno.',
       'Ultimi versamenti, spese confermate e spese previste.',
       'Avvisi, lavori e delibere più recenti, con il collegamento "Vedi tutti".',
-      ['lettura', '"La tua situazione": quanto ti spetta pagare nell\'anno, quanto hai già versato e il saldo, compreso ciò che arriva dagli anni precedenti.'],
+      ['lettura', '"La tua situazione": quanto ti spetta pagare nell\'anno, quanto hai già versato e il saldo, compreso ciò che arriva dagli anni precedenti. "📄 Il mio estratto conto" scarica il dettaglio in PDF.'],
     ],
     fare: [
       ['Vedere un altro anno', 'Usa il menu dell\'anno in alto a destra.'],
@@ -89,6 +89,7 @@ const GUIDA = {
     fare: [
       ['Cambiare anno o vista', 'Menu dell\'anno in alto e schede sotto il titolo.'],
       ['Vedere il dettaglio di un condomino', 'Scheda "👥 Per condomino", poi tocca il nome.'],
+      ['mod', 'Estratto conto di un condomino', 'Scheda "👥 Per condomino", "📄 Estratto conto" sotto il nome: PDF con saldo iniziale, quote delle spese, versamenti e saldo progressivo, poi le prossime scadenze.'],
       ['mod', 'Preparare il rendiconto da inviare', '"📄 Rendiconto PDF": scegli l\'anno, sintetico (cassa, categorie, riparto) o dettagliato (anche tutte le spese e i versamenti), aggiungi una nota e scarica il PDF da allegare all\'email. Per l\'anno prossimo diventa il bilancio preventivo.'],
     ],
     sapere: [
@@ -169,7 +170,7 @@ const GUIDA = {
       ['admin', 'Cambiare dati o ruolo', '"✏️ Modifica".'],
       ['admin', 'Chi ha cambiato casa', '"⏸ Archivia": non entra più, ma pagamenti e storico restano. "▶ Riattiva" lo riporta.'],
       ['admin', 'Password dimenticata', '"🔑 Reset PW" imposta una password temporanea da comunicare alla persona.'],
-      ['admin', 'Situazione di una persona', '"📊 Bilancio" apre il suo dettaglio.'],
+      ['admin', 'Situazione di una persona', '"📊 Bilancio" apre il suo dettaglio; "📄 Estratto conto" scarica in PDF movimenti e saldo, da inviarle.'],
     ],
     sapere: [
       '<b>Lettura</b>: solo consultazione. <b>Modifica</b>: inserisce spese, entrate e fornitori. <b>Amm. Edificio</b>: gestisce anche persone e comunicazioni.',

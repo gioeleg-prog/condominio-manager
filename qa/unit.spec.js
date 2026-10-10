@@ -563,3 +563,44 @@ describe('UNIT — rendiconto annuale', () => {
     assert.strictEqual(app.dataPdf('2026-03-31'), '31/03/2026');
   });
 });
+
+describe('UNIT — estratto conto del condomino', () => {
+  const Y = new Date().getFullYear();
+  const app = loadApp();
+  app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [],
+    user: { id: 101, nome: 'Anna', isAdmin: true, canEdit: true, edificioId: 1 },
+    condomini: [{ id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 }, { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }],
+    spese: [
+      { id: 1, data: `${Y - 2}-05-01`, consuntivo: '400', split: [], edificioId: 1 },
+      { id: 2, data: `${Y - 1}-03-01`, titolo: 'Pulizie', categoria: 'pulizie', tipoSpesa: 'ordinaria', preventivo: '1000', consuntivo: '1100', split: [{ id: 101, perc: 60 }, { id: 102, perc: 40 }], edificioId: 1 },
+      { id: 3, data: `${Y - 1}-09-01`, titolo: 'Tetto', categoria: 'tetto', tipoSpesa: 'straordinaria', preventivo: '2000', consuntivo: '1500', split: [], edificioId: 1 },
+      { id: 4, data: `${Y - 1}-11-01`, titolo: 'Ascensore', categoria: 'ascensore', tipoSpesa: 'ordinaria', preventivo: '600', consuntivo: '', split: [], edificioId: 1 },
+    ],
+    entrate: [
+      { id: 10, data: `${Y - 2}-01-10`, importo: '1000', condominoId: 101, edificioId: 1 },
+      { id: 11, data: `${Y - 1}-03-01`, importo: '500', condominoId: 101, descrizione: 'Rata 1', edificioId: 1 },
+      { id: 12, data: `${Y - 1}-12-10`, importo: '300', condominoId: 101, edificioId: 1, previsionale: true },
+    ] });
+  const d = app.datiEstratto(101, Y - 1);
+  it('riepilogo: saldo iniziale, quote ordinarie e straordinarie, versamenti, saldo finale', () => {
+    assert.strictEqual(d.riporto, 800);            // 1000 - 200
+    assert.strictEqual(d.quoteOrd, 660);           // 60% di 1100
+    assert.strictEqual(d.quoteStr, 750);           // metà di 1500
+    assert.strictEqual(d.versato, 500);
+    assert.strictEqual(d.saldo, 800 - 660 - 750 + 500);
+  });
+  it('movimenti in ordine di data con saldo progressivo (nello stesso giorno prima il versamento)', () => {
+    assert.strictEqual(JSON.stringify(d.movimenti.map((m) => m.tipo)), JSON.stringify(['versamento', 'quota', 'quota']));
+    assert.strictEqual(d.movimenti[0].saldo, 1300);
+    assert.strictEqual(d.movimenti.at(-1).saldo, d.saldo);
+    assert.ok(d.movimenti[1].dettaglio.includes('60%'));
+  });
+  it('prossime scadenze: quota sulle spese da consuntivare e rate previste, fuori dal saldo', () => {
+    assert.strictEqual(d.quotaPrevista, 300);      // metà di 600
+    assert.strictEqual(d.ratePreviste, 300);
+  });
+  it('il saldo coincide con quello del riparto nel rendiconto dello stesso anno', () => {
+    const r = app.datiRendiconto(Y - 1).riparto.find((x) => x.nome === 'Anna');
+    assert.ok(Math.abs(r.saldo - d.saldo) < 0.001);
+  });
+});

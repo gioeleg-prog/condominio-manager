@@ -549,6 +549,7 @@ function renderBilancio() {
               </div>
             </div>`:''}
           </div>
+          ${canUserEdit(state.user) ? `<button class="btn btn-secondary btn-sm" data-estratto-cond="${c.id}" style="width:100%;margin-top:.6rem">📄 Estratto conto</button>` : ''}
 
         </div>`;
       }).join('')}

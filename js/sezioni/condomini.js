@@ -51,6 +51,7 @@ function renderCondomini() {
             ${canEdit?`
             <button class="btn btn-secondary btn-sm" data-edit-cond="${c.id}" title="Modifica anagrafica">✏️ Modifica</button>
             <button class="btn btn-secondary btn-sm" data-bilancio-cond="${c.id}" style="color:var(--accent)" title="Vedi bilancio individuale">📊 Bilancio</button>
+            <button class="btn btn-secondary btn-sm" data-estratto-cond="${c.id}" title="Estratto conto in PDF">📄 Estratto conto</button>
             <button class="btn btn-secondary btn-sm" data-disable-cond="${c.id}" style="color:var(--amber)" title="Archivia — il condomino non potrà più accedere ma i dati restano">⏸ Archivia</button>
             ${isSuperAdmin(state.user)?`<button class="btn btn-secondary btn-sm" data-reset-pw-cond="${c.id}" title="Reset password — imposta una nuova password temporanea">🔑 Reset PW</button>`:''}
             <button class="btn btn-danger btn-sm" data-del-cond="${c.id}" title="Elimina definitivamente — attenzione: i versamenti restano nello storico">🗑 Elimina</button>`:''}
