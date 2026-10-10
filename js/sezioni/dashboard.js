@@ -471,5 +471,5 @@ function renderDashboard() {
 function bindAzioniDashboard() {
   // Anno filter dashboard
   const ad = document.getElementById('anno-filter');
-  if (ad) ad.onchange = e => setState({filterAnno: parseInt(e.target.value)||new Date().getFullYear()});
+  if (ad) ad.onchange = e => { const a = parseInt(e.target.value)||new Date().getFullYear(); setState({filterAnno: a, filterAnni: [a]}); }; // anno singolo, allineato al filtro delle pagine elenco
 }

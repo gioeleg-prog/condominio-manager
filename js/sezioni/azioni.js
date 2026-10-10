@@ -6,6 +6,7 @@ function bindPageActions() {
   bindAzioniDashboard();
   bindAzioniSpese();
   bindAzioniBilancio();
+  bindAzioniConfronto();
   bindAzioniVita();
   bindAzioniEntrate();
   bindAzioniCondomini();

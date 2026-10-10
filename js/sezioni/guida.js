@@ -94,6 +94,27 @@ const GUIDA = {
       '"Tutti gli anni", scelto in Spese o Entrate, qui mostra l\'anno corrente: il bilancio si legge un anno alla volta.',
     ],
   },
+  confronto: {
+    titolo: 'Confronto anni',
+    breve: 'I conti di più anni affiancati, come il bilancio di un\'azienda: cosa è cambiato e dove.',
+    trovi: [
+      '<b>📋 Sintesi</b>: entrate, uscite (ordinarie e straordinarie), risultato, cassa a fine periodo, budget e scostamento. Sotto ogni cifra la variazione rispetto all\'anno prima.',
+      '<b>🏷️ Per categoria</b>: quanto si è speso per ogni voce, anno per anno.',
+      '<b>⚖️ Ordinarie e straordinarie</b>: importi e peso dello straordinario.',
+      '<b>👥 Per condomino</b>: quota, versato e saldo di ciascuno, anno per anno.',
+    ],
+    fare: [
+      ['Scegliere gli anni', 'Accendi o spegni i pulsanti degli anni; "Tutti" li mostra tutti.'],
+      ['Confrontare a parità di periodo', '"Da inizio anno a oggi" confronta ogni anno dal 1° gennaio alla data di oggi (year to date): utile quando l\'anno è in corso.'],
+      ['Usare il preventivo', 'Con "Importi: Preventivo" o "Reali + previsti" categorie, tipo e quote usano anche le spese non ancora consuntivate (utile per l\'anno prossimo).'],
+      ['Portarlo in Excel', '"📊 Esporta Excel" scarica sintesi e categorie.'],
+    ],
+    sapere: [
+      'Le frecce: <b>▲ verde</b> = va meglio (più entrate o meno spese), <b>▼ rossa</b> = va peggio.',
+      '"—" indica dati reali di un anno non ancora iniziato: per quell\'anno conta il preventivo.',
+      'Il saldo per condomino è quello del singolo anno; la situazione cumulativa (con il riporto) è in Entrate.',
+    ],
+  },
   fornitori: {
     titolo: 'Fornitori',
     breve: 'La rubrica delle ditte e dei professionisti che lavorano per il condominio.',

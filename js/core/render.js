@@ -9,6 +9,10 @@ function render() {
   const nomeProdotto = getBranding().nomeProdotto;
   if (!state.user) { document.title = nomeProdotto; app.innerHTML = renderLogin(); applyA11y(app); bindLogin(); return; }
   document.title = nomeEdificioAttivo() ? nomeEdificioAttivo() + ' · ' + nomeProdotto : nomeProdotto;
+  // Ogni render ridisegna tutto: chi usa la tastiera perderebbe il punto in cui
+  // si trova. Gli elementi con data-focus-key (es. i pulsanti degli anni)
+  // ritrovano il focus dopo il ridisegno.
+  const focusKey = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.focusKey;
   app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
   // Applica classe per pagine a piena larghezza
   const _pageEl = document.querySelector('.page');
@@ -17,6 +21,7 @@ function render() {
   }
   applyA11y(app);
   bindApp();
+  if (focusKey) { const el = app.querySelector(`[data-focus-key="${focusKey}"]`); if (el) el.focus(); }
 }
 
 // Accessibilità (QA, WCAG 2.2 AA): dopo ogni render collega le etichette dei
@@ -60,6 +65,7 @@ function renderApp() {
     {id:'spese', label:'Spese', icon:svgSpese()},
     {id:'entrate', label:'Entrate / Quote', icon:svgEntrate()},
     {id:'bilancio', label:'Bilancio', icon:svgBilancio()},
+    {id:'confronto', label:'Confronto anni', icon:svgConfronto()},
     {id:'fornitori', label:'Fornitori', icon:svgFornitori()},
     {id:'vita', label:'Vita condominiale', icon:svgVita()},
     ...(canUserAdmin(user) ? [{id:'condomini', label:'Condomini', icon:svgCondomini()}] : []),
@@ -271,6 +277,7 @@ function bindApp() {
   }, {once:false, capture:false});
   bindPageActions();
   bindGuida();
+  bindFiltroAnni();
   if (state.modal) bindModal();
   if (state.viewer) bindViewer();
 }
@@ -284,6 +291,7 @@ function renderPage() {
     case 'spese': return renderSpese();
     case 'entrate': return renderEntrate();
     case 'bilancio': return renderBilancio();
+    case 'confronto': return renderConfronto();
     case 'fornitori': return renderFornitori();
     case 'vita': return renderVita();
     case 'condomini': return renderCondomini();

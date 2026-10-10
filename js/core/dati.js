@@ -252,6 +252,6 @@ function applyLoadedDataFromCache() {
   const anniConDati = new Set([...state.spese.filter(edOk), ...state.entrate.filter(edOk)].map(r => annoDi(r.data)).filter(a => a > 0));
   if (!anniConDati.has(currYear)) {
     const passati = [...anniConDati].filter(a => a < currYear).sort((a,b)=>b-a);
-    if (passati.length > 0) state.filterAnno = passati[0];
+    if (passati.length > 0) { state.filterAnno = passati[0]; state.filterAnni = [passati[0]]; }
   }
 }

@@ -176,7 +176,7 @@ describe('UNIT — guida rapida delle pagine', () => {
   const guida = (page, ruolo) => { app.__set('state', { ...app.__get('state'), page, user: user(ruolo) }); return app.renderGuida(); };
 
   it('ogni pagina del menu ha la sua guida', () => {
-    for (const p of ['dashboard', 'spese', 'entrate', 'bilancio', 'fornitori', 'vita', 'condomini', 'impostazioni']) {
+    for (const p of ['dashboard', 'spese', 'entrate', 'bilancio', 'confronto', 'fornitori', 'vita', 'condomini', 'impostazioni']) {
       assert.ok(GUIDA[p] && GUIDA[p].titolo && GUIDA[p].breve, 'manca la guida di ' + p);
     }
   });
@@ -288,5 +288,109 @@ describe('UNIT — più anni (anno passato, corrente, prossimo)', () => {
     const i = d.indexOf('La tua situazione');
     assert.ok(i > 0);
     assert.ok(!d.slice(i, i + 1500).includes('400,00'), 'rata prevista contata come versata');
+  });
+});
+
+describe('UNIT — filtro anni multiplo e Confronto anni', () => {
+  const Y = new Date().getFullYear();
+  const base = (extra) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }],
+      user: { id: 101, nome: 'A', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 101, nome: 'A', edificioId: 1 }, { id: 102, nome: 'B', edificioId: 1 }], spese: [], entrate: [], ...extra });
+    return app;
+  };
+  it('normalizza, filtra ed etichetta gli anni scelti', () => {
+    const app = base({ filterAnni: ['2026', 2025, 2026, 'x'] });
+    assert.strictEqual(JSON.stringify(app.anniSelezionati()), '[2025,2026]');
+    assert.ok(app.inAnniSelezionati('2025-12-31') && app.inAnniSelezionati('2026-01-01'));
+    assert.ok(!app.inAnniSelezionati('2027-01-01'));
+    assert.strictEqual(app.etichettaAnni(), '2025 + 2026');
+    assert.strictEqual(app.etichettaAnni([]), 'tutti gli anni');
+    app.__set('state', { ...app.__get('state'), filterAnni: [] });
+    assert.ok(app.inAnniSelezionati('1999-05-05'), '"Tutti" deve includere ogni anno');
+  });
+  it('Spese con due anni accesi: lista e totali sommano entrambi gli anni', () => {
+    const app = base({ page: 'spese', filterAnni: [Y - 1, Y], spese: [
+      { id: 1, titolo: 'Vecchia', data: `${Y - 1}-05-01`, consuntivo: '100', preventivo: '100', categoria: 'pulizie', edificioId: 1, split: [] },
+      { id: 2, titolo: 'Nuova', data: `${Y}-05-01`, consuntivo: '50', preventivo: '50', categoria: 'pulizie', edificioId: 1, split: [] },
+      { id: 3, titolo: 'Futura', data: `${Y + 1}-05-01`, preventivo: '999', categoria: 'pulizie', edificioId: 1, split: [] } ] });
+    const h = app.renderSpese();
+    assert.ok(h.includes('Vecchia') && h.includes('Nuova') && !h.includes('Futura'));
+    assert.ok(h.includes('150,00'), 'totale consuntivo dei due anni');
+  });
+  it('anno intero e "da inizio anno a oggi": entrate, uscite, risultato, cassa, scostamento', () => {
+    const oggi = new Date();
+    const mmgg = String(oggi.getMonth() + 1).padStart(2, '0') + '-' + String(oggi.getDate()).padStart(2, '0');
+    const dopo = mmgg === '12-31' ? null : '12-31'; // una data sicuramente dopo oggi nell'anno
+    const app = base({
+      spese: [
+        { data: `${Y - 1}-01-01`, consuntivo: '300', preventivo: '250', tipoSpesa: 'ordinaria', categoria: 'pulizie', edificioId: 1 },
+        { data: `${Y - 1}-12-31`, consuntivo: '200', preventivo: '', tipoSpesa: 'straordinaria', categoria: 'tetto', edificioId: 1 },
+        { data: `${Y - 1}-06-01`, consuntivo: '', preventivo: '80', tipoSpesa: 'ordinaria', categoria: 'pulizie', edificioId: 1 },
+      ],
+      entrate: [
+        { data: `${Y - 1}-01-02`, importo: '1000', edificioId: 1 },
+        { data: `${Y - 1}-11-30`, importo: '40', edificioId: 1, previsionale: true },
+      ] });
+    const d = app.datiAnnoConfronto(Y - 1, 'anno');
+    assert.strictEqual(d.entrateReali, 1000);
+    assert.strictEqual(d.usciteCons, 500);
+    assert.strictEqual(d.usciteConsOrd, 300);
+    assert.strictEqual(d.usciteConsStr, 200);
+    assert.strictEqual(d.risultato, 500);
+    assert.strictEqual(d.cassaFine, 500);
+    assert.strictEqual(d.preventivo, 330);
+    assert.strictEqual(d.daConsuntivare, 80);
+    assert.strictEqual(d.scostamento, 50); // solo la spesa chiusa con preventivo: 300 − 250
+    assert.strictEqual(d.entratePreviste, 40);
+    if (dopo) {
+      const ytd = app.datiAnnoConfronto(Y - 1, 'ytd');
+      assert.strictEqual(ytd.usciteConsStr, 0, 'la spesa del 31/12 non è "da inizio anno a oggi"');
+      assert.ok(ytd.usciteCons <= d.usciteCons);
+    }
+  });
+  it('quota per condomino: percentuale salvata, zero se escluso dalla ripartizione, parti uguali senza ripartizione', () => {
+    const app = loadApp();
+    assert.strictEqual(app.quotaSuSpesa({ split: [{ id: 1, perc: 40 }, { id: 2, perc: 60 }] }, 1, 100, 2), 40);
+    assert.strictEqual(app.quotaSuSpesa({ split: [{ id: 1, perc: 100 }] }, 3, 100, 3), 0);
+    assert.strictEqual(app.quotaSuSpesa({ split: [] }, 3, 90, 3), 30);
+  });
+  it('la pagina mostra "—" per i dati reali dell\'anno prossimo e le categorie con l\'importo scelto', () => {
+    const app = base({ page: 'confronto', confrontoAnni: [Y, Y + 1], confrontoBase: 'preventivo', spese: [
+      { id: 1, data: `${Y + 1}-03-01`, preventivo: '700', consuntivo: '', categoria: 'pulizie', tipoSpesa: 'ordinaria', edificioId: 1, split: [] },
+      { id: 2, data: `${Y}-03-01`, preventivo: '500', consuntivo: '450', categoria: 'pulizie', tipoSpesa: 'ordinaria', edificioId: 1, split: [] } ] });
+    const h = app.renderConfronto();
+    assert.ok(h.includes('cf-vuoto'), 'manca il "—" per l\'anno non iniziato');
+    assert.ok(h.includes('700,00') && h.includes('500,00'));
+    assert.ok(h.includes('preventivo</span>'), 'badge "preventivo" sull\'anno prossimo');
+  });
+  it('Entrate con anni non consecutivi: il riporto include gli anni saltati, così il saldo resta la cassa vera', () => {
+    const app = base({ page: 'entrate', filterAnni: [Y - 2, Y], condomini: [{ id: 101, nome: 'A', edificioId: 1 }],
+      spese: [], entrate: [
+        { id: 1, condominoId: 101, importo: '100', data: `${Y - 2}-03-01`, edificioId: 1 },
+        { id: 2, condominoId: 101, importo: '200', data: `${Y - 1}-03-01`, edificioId: 1 },
+        { id: 3, condominoId: 101, importo: '300', data: `${Y}-03-01`, edificioId: 1 } ] });
+    const h = app.renderEntrate();
+    assert.ok(h.includes('400,00'), 'versato degli anni scelti (100 + 300)');
+    assert.ok(h.includes('200,00'), 'riporto dell\'anno saltato');
+    assert.ok(h.includes('600,00'), 'saldo = cassa vera (100 + 200 + 300)');
+  });
+});
+
+describe('UNIT — export del Confronto anni', () => {
+  it('una colonna per anno, importi con la virgola, nomi di categoria protetti dalle formule di Excel', () => {
+    const Y = new Date().getFullYear();
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], confrontoAnni: [Y - 1, Y], confrontoPeriodo: 'anno', confrontoBase: 'reale',
+      condomini: [], entrate: [{ data: `${Y - 1}-02-01`, importo: '1000', edificioId: 1 }],
+      spese: [{ data: `${Y}-02-01`, consuntivo: '250.5', categoria: '=HYPERLINK("x")', edificioId: 1 }] });
+    app.esportaConfrontoCSV();
+    const blob = app.__downloads.find((d) => d.blob).blob;
+    const righe = blob.text.replace(/^﻿/, '').split('\r\n');
+    assert.ok(righe.includes(`Sintesi;${Y - 1};${Y}`));
+    assert.ok(righe.includes('Entrate reali;1000,00;0,00'));
+    assert.ok(righe.some((r) => r.startsWith('"\'=HYPERLINK(""x"")";')), 'categoria non protetta: ' + righe.slice(-1));
+    assert.ok(righe.some((r) => r.endsWith(';0,00;250,50')));
   });
 });

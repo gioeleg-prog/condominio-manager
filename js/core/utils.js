@@ -113,6 +113,26 @@ function getSaldoStimatoInizioAnno(anno) {
   return { reale, speseAperte, entratePreviste, stimato };
 }
 
+// Campo CSV (separatore ";"): virgolette se contiene separatore, virgolette o a-capo.
+// QA (CSV injection): un testo che inizia con = + - @ verrebbe eseguito da
+// Excel come formula (es. =HYPERLINK). Si antepone un apice, che Excel
+// non mostra; i numeri (anche negativi) restano numeri.
+function csvCampo(v) {
+  const s = String(v ?? '');
+  const t = /^[=+\-@\t\r]/.test(s) && !/^-?\d+(,\d+)?$/.test(s) ? "'" + s : s;
+  return /[;"\n\r]/.test(t) ? '"' + t.replace(/"/g,'""') + '"' : t;
+}
+
+// Scarica righe (array di array) come CSV con BOM, così Excel riconosce gli accenti.
+function scaricaCSV(nomeFile, righe) {
+  const corpo = righe.map(r => r.map(csvCampo).join(';')).join('\r\n');
+  const blob = new Blob(['﻿' + corpo], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nomeFile; a.click();
+  URL.revokeObjectURL(url);
+}
+
 // getAnni per spese/entrate: include opzione "Tutti"
 function getAnniConTutti() {
   return getAnni(); // usato nelle pagine spese/entrate dove c'è già l'opzione "Tutti gli anni"

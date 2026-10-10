@@ -33,7 +33,9 @@ function renderEntrate() {
   const canEdit = canUserEdit(state.user);
   const myEdId2 = getUserEdificio(state.user);
   let items = state.entrate.filter(e => e.edificioId === state.edificioAttivo);
-  if (state.filterAnno) items = items.filter(e=>new Date(e.data).getFullYear()===state.filterAnno);
+  // Anni scelti con i pulsanti (uno o più; nessuno = tutti).
+  const anniSel = anniSelezionati();
+  items = items.filter(e=>inAnniSelezionati(e.data, anniSel));
   if (state.searchQ) items = items.filter(e=>{
     const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:''};
     return cond.nome.toLowerCase().includes(state.searchQ.toLowerCase())||e.descrizione?.toLowerCase().includes(state.searchQ.toLowerCase());
@@ -48,7 +50,7 @@ function renderEntrate() {
   });
   // ── Calcoli quota per condomino con split reali ──────────────────────────
   const _allSpeseEnt = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
-  const speseAnno = _allSpeseEnt.filter(s=>!state.filterAnno||new Date(s.data).getFullYear()===state.filterAnno);
+  const speseAnno = _allSpeseEnt.filter(s=>inAnniSelezionati(s.data, anniSel));
   const nAttiviEnt = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).length || 1;
 
   // Quota per ogni condomino usando split reali — divisa tra ord/straord
@@ -90,17 +92,12 @@ function renderEntrate() {
 
     <div class="spese-filters">
       <input type="text" class="spese-filter-search" placeholder="🔍 Cerca condomino…" id="search-entrate" value="${esc(state.searchQ)}">
-      <div class="spese-filter-row">
-        <select class="spese-filter-sel" id="filter-anno-entrate">
-          <option value="0">Tutti gli anni</option>
-          ${anni.map(a=>`<option value="${a}" ${a===state.filterAnno?'selected':''}>${a}</option>`).join('')}
-        </select>
-      </div>
     </div>
+    ${renderFiltroAnni('filterAnni', anni, { nota: anniSel.length > 1 ? 'importi sommati' : '' })}
 
     <div class="card" style="margin-bottom:1.5rem">
       <div class="card-header">
-        <h3>Stato versamenti per condomino (${state.filterAnno||'tutti gli anni'})</h3>
+        <h3>Stato versamenti per condomino (${etichettaAnni(anniSel)})</h3>
       </div>
       <div style="padding:.75rem 1.25rem 1rem">
         <!-- Legenda -->
@@ -116,16 +113,18 @@ function renderEntrate() {
             const versato       = items.filter(e=>e.condominoId===c.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
             const versatoPrev   = items.filter(e=>e.condominoId===c.id &&  e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
             const q             = getQuotaCondomino(c.id);
-            // Riporto anni precedenti per questo condomino. Con "Tutti gli anni"
-            // versato e quote sono già cumulativi: il riporto è zero (prima gli anni
-            // precedenti all'anno corrente venivano contati due volte).
-            const annoSel       = state.filterAnno || 0;
-            const myEdId2l      = getUserEdificio(state.user);
+            // Riporto per questo condomino: tutti gli anni NON scelti che vengono
+            // prima dell'ultimo anno scelto. Con un anno solo sono gli anni precedenti;
+            // con anni non consecutivi entrano anche quelli in mezzo, così il saldo
+            // resta la cassa vera a fine periodo; con "Tutti" è zero (già cumulativo).
+            const annoMax       = anniSel.length ? anniSel[anniSel.length - 1] : 0;
+            const nelRiporto    = (d) => { const a = annoDi(d); return a < annoMax && !anniSel.includes(a); };
+            const annoSel       = anniSel.length === 1 ? anniSel[0] : 0; // per l'etichetta "Versato <anno>"
             const versatiPrec   = (state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo))
-              .filter(e=>e.condominoId===c.id && !e.previsionale && new Date(e.data).getFullYear()<annoSel)
+              .filter(e=>e.condominoId===c.id && !e.previsionale && nelRiporto(e.data))
               .reduce((a,e)=>a+parseFloat(e.importo||0),0);
             const spesePrecQuota= (state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo))
-              .filter(s=>new Date(s.data).getFullYear()<annoSel && parseFloat(s.consuntivo||0)>0)
+              .filter(s=>nelRiporto(s.data) && parseFloat(s.consuntivo||0)>0)
               .reduce((acc,s)=>{
                 const ref=parseFloat(s.consuntivo||0);
                 if(s.split?.length){const e=s.split.find(x=>x.id===c.id);return acc+(e?(e.perc||0)/100*ref:ref/nAttiviEnt);}
@@ -154,7 +153,7 @@ function renderEntrate() {
               <!-- SEZIONE 1: CASSA REALE -->
               <div style="background:var(--surface2);border-radius:var(--radius-sm);padding:.625rem .75rem;margin-bottom:.5rem">
                 <div style="font-size:10px;font-weight:700;color:var(--green);letter-spacing:.06em;margin-bottom:5px">💰 INCASSI (ACTUAL)</div>
-                <div class="row"><span>${annoSel ? 'Versato ' + annoSel : 'Versato totale'}</span><span style="font-weight:600;color:var(--green)">${fmt(versato)}</span></div>
+                <div class="row"><span>${annoSel ? 'Versato ' + annoSel : 'Versato ' + etichettaAnni(anniSel)}</span><span style="font-weight:600;color:var(--green)">${fmt(versato)}</span></div>
                 ${riporto!==0?`<div class="row"><span style="color:var(--text2);font-size:12px">Riporto anni prec.</span><span style="font-size:12px;color:${riporto>=0?'var(--green)':'var(--red)'}">${riporto>=0?'+':''}${fmt(riporto)}</span></div>`:''}
                 ${versatoPrev>0?`<div class="row"><span style="color:#7c3aed;font-size:12px">🔮 Previsionali attesi</span><span style="font-size:12px;color:#7c3aed">${fmt(versatoPrev)}</span></div>`:''}
               </div>
@@ -257,7 +256,7 @@ function renderEntrate() {
         '</tr></tbody></table></div></div>';
     })()}
 
-    ${renderPianoRateBox(state.filterAnno, canEdit) /* con "Tutti gli anni" il piano (che è per un anno) non compare */}
+    ${anniSel.length === 1 ? renderPianoRateBox(anniSel[0], canEdit) : (canEdit && anniSel.length > 1 ? '<div class="alert alert-info" style="font-size:13px;margin-bottom:1rem">📅 Il piano rate si calcola su un anno alla volta: lascia acceso un solo anno per vederlo.</div>' : '') /* con più anni o "Tutti" il piano non compare */}
 
     <div class="card">
       <div class="card-header"><h3>Tutti i versamenti</h3><strong style="color:var(--green)">${fmt(totale)}</strong></div>
@@ -759,8 +758,6 @@ function bindAzioniEntrate() {
   // Entrate filters
   const se = document.getElementById('search-entrate');
   if (se) se.oninput = e => setState({searchQ: e.target.value});
-  const fae = document.getElementById('filter-anno-entrate');
-  if (fae) fae.onchange = e => setState({filterAnno: parseInt(e.target.value)||0});
   const bAddEntrata = document.getElementById('btn-add-entrata');
   if (bAddEntrata) bAddEntrata.onclick = () => setState({modal:{type:'entrata',data:null}});
   // Delete entrate
@@ -769,7 +766,7 @@ function bindAzioniEntrate() {
   //             3) "Annulla" chiude il pannello senza scrivere nulla
   const bAvviaPiano = document.getElementById('btn-crea-rate-piano');
   if (bAvviaPiano) bAvviaPiano.onclick = () => {
-    const annoSel = state.filterAnno || new Date().getFullYear();
+    const annoSel = (anniSelezionati().length === 1 ? anniSelezionati()[0] : state.filterAnno) || new Date().getFullYear(); // anno del piano mostrato
     setState({ pianoRateConferma: annoSel });
   };
   const bAnnullaPiano = document.getElementById('btn-annulla-rate-piano');
@@ -778,7 +775,7 @@ function bindAzioniEntrate() {
   };
   const bConfermaPiano = document.getElementById('btn-conferma-rate-piano');
   if (bConfermaPiano) bConfermaPiano.onclick = () => {
-    const annoSel = state.filterAnno || new Date().getFullYear();
+    const annoSel = (anniSelezionati().length === 1 ? anniSelezionati()[0] : state.filterAnno) || new Date().getFullYear(); // anno del piano mostrato
     const piano   = calcolaPianoRate(annoSel);
     const edId = getUserEdificio(state.user);
 
