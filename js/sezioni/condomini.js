@@ -524,7 +524,7 @@ function bindAzioniCondomini() {
   document.querySelectorAll('[data-subentro-cond]').forEach(btn => {
     btn.onclick = () => {
       const cond = state.condomini.find(c => c.id === parseInt(btn.dataset.subentroCond));
-      if (cond) setState({ modal: { type: 'subentro', data: { ...cond } } });
+      if (cond && canUserAdmin(state.user)) setState({ modal: { type: 'subentro', data: { ...cond } } });
     };
   });
   document.querySelectorAll('[data-disable-cond]').forEach(btn => {
@@ -675,7 +675,10 @@ function speseDaPassare(condId, data, edificioId) {
     && !(parseFloat(s.consuntivo) > 0) && (s.split || []).some(x => x.id === condId && (x.perc || 0) > 0));
 }
 
+// Solo amministratore e amministratore di edificio (come archiviare e creare condomini;
+// lo stesso vincolo è nelle regole del server su members).
 function renderModalSubentro(d) {
+  if (!canUserAdmin(state.user)) return '';
   const oggi = ymdLocale(new Date());
   const n = speseDaPassare(d.id, oggi, d.edificioId || state.edificioAttivo).length;
   return `
@@ -724,9 +727,10 @@ function renderModalSubentro(d) {
 
 function bindSchedaSubentro() {
   const b = document.getElementById('btn-sub-conferma');
-  if (!b || state.modal?.type !== 'subentro') return;
+  if (!b || state.modal?.type !== 'subentro' || !canUserAdmin(state.user)) return;
   b.onclick = () => {
     const err = (t) => { const e = document.getElementById('sub-err'); e.textContent = t; e.style.display = 'block'; };
+    if (!canUserAdmin(state.user)) return err('Solo l\'amministratore può registrare un subentro.');
     const vecchio = state.condomini.find(c => c.id === Number(b.dataset.cond));
     const data = document.getElementById('sub-data').value;
     const nome = document.getElementById('sub-nome').value.trim();
