@@ -25,7 +25,7 @@ function renderVita() {
   return `
   <div>
     <div class="page-header">
-      <div><div class="page-title">Vita condominiale</div><div class="page-sub">Bacheca, verbali, lavori e delibere</div></div>
+      <div><div class="page-title">Vita condominiale ${btnGuida()}</div><div class="page-sub">Bacheca, verbali, lavori e delibere</div></div>
     </div>
     <div class="bil-tabs">
       ${VITA_TABS.map(t=>`<button class="bil-tab vita-tab ${tab===t.id?'active':''}" data-vita-tab="${t.id}">${t.label}</button>`).join('')}

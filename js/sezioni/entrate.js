@@ -84,7 +84,7 @@ function renderEntrate() {
   return `
   <div>
     <div class="page-header">
-      <div><div class="page-title">Entrate / Quote</div><div class="page-sub">${items.length} versamenti</div></div>
+      <div><div class="page-title">Entrate / Quote ${btnGuida()}</div><div class="page-sub">${items.length} versamenti</div></div>
       ${canEdit?`<button class="btn btn-primary" id="btn-add-entrata">+ Registra versamento</button>`:''}
     </div>
 

@@ -21,7 +21,7 @@ function renderCondomini() {
   return `
   <div>
     <div class="page-header">
-      <div><div class="page-title">Condomini</div><div class="page-sub">${attivi.length} appartamenti attivi</div></div>
+      <div><div class="page-title">Condomini ${btnGuida()}</div><div class="page-sub">${attivi.length} appartamenti attivi</div></div>
       ${canEdit?`<button class="btn btn-primary" id="btn-add-cond">+ Aggiungi condomino</button>`:''}
     </div>
 

@@ -182,3 +182,45 @@ tr:hover td { background: var(--surface2); }
 }
 .fab:active { transform: scale(.93); box-shadow: 0 2px 8px rgba(37,99,235,.3); }
 
+
+/* ── Guida rapida (js/sezioni/guida.js) ──────────────────────────────
+   Pulsante "? Guida" accanto al titolo di ogni pagina; pannello a destra
+   che affianca la pagina sugli schermi larghi (non la copre), in
+   sovrapposizione sugli schermi medi, dal basso sui telefoni. */
+.btn-guida { position: relative; display: inline-flex; align-items: center; gap: 5px; vertical-align: middle; margin-left: 8px; padding: 3px 10px 3px 4px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--accent); font-size: 12.5px; font-weight: 600; cursor: pointer; line-height: 1.2; }
+.btn-guida:hover, .btn-guida.attivo { background: var(--accent-light); border-color: var(--accent); }
+.btn-guida:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn-guida-icona { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; }
+.btn-guida-nuova { position: absolute; top: -3px; right: -3px; width: 9px; height: 9px; border-radius: 50%; background: #F59E0B; border: 2px solid var(--surface); }
+.guida-sfondo { display: none; }
+.guida-pannello { position: fixed; top: 0; right: 0; bottom: 0; width: 360px; max-width: 100%; z-index: 400; background: var(--surface); border-left: 1px solid var(--border); box-shadow: -6px 0 24px rgba(27,42,74,.10); display: flex; flex-direction: column; animation: guida-entra .18s ease-out; }
+@keyframes guida-entra { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .guida-pannello { animation: none; } }
+.guida-testa { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 1.1rem 1.25rem .9rem; border-bottom: 1px solid var(--border); }
+.guida-etichetta { font-size: 11px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
+.guida-testa h2 { font-size: 1.15rem; margin: 2px 0 0; }
+.guida-chiudi { background: none; border: none; font-size: 18px; color: var(--text2); cursor: pointer; padding: 4px 8px; border-radius: 6px; }
+.guida-chiudi:hover { background: var(--surface2); }
+.guida-corpo { flex: 1; overflow-y: auto; padding: 1rem 1.25rem 1.5rem; font-size: 14px; line-height: 1.5; }
+.guida-breve { font-size: 15px; color: var(--text); margin: 0 0 .5rem; }
+.guida-corpo h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--text2); margin: 1.1rem 0 .45rem; }
+.guida-lista { margin: 0; padding-left: 1.1rem; }
+.guida-lista li { margin-bottom: .35rem; }
+.guida-passi { list-style: none; margin: 0; padding: 0; }
+.guida-passi li { display: flex; flex-direction: column; gap: 2px; padding: .55rem .7rem; margin-bottom: .45rem; background: var(--surface2); border-radius: var(--radius-sm); }
+.guida-passi li span { color: var(--text2); font-size: 13.5px; }
+.guida-sapere li { color: var(--text2); }
+.guida-piede { margin-top: 1.25rem; padding-top: .75rem; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text2); }
+/* Schermi larghi: la pagina si stringe e resta tutta visibile accanto alla guida. */
+@media (min-width: 1100px) { .app.guida-aperta .main { margin-right: 360px; } }
+/* Schermi medi: guida sopra la pagina, con sfondo che si tocca per chiudere. */
+@media (max-width: 1099px) { .guida-sfondo { display: block; position: fixed; inset: 0; z-index: 390; background: rgba(27,42,74,.25); } }
+/* Telefoni: pannello dal basso, sopra la barra di navigazione. */
+@media (max-width: 768px) {
+  .btn-guida { padding: 3px; margin-left: 6px; }
+  .btn-guida-testo { display: none; }
+  .btn-guida-icona { width: 22px; height: 22px; font-size: 13px; }
+  .guida-pannello { top: auto; left: 0; width: 100%; max-height: 85vh; border-left: none; border-radius: 16px 16px 0 0; box-shadow: 0 -6px 24px rgba(27,42,74,.15); padding-bottom: env(safe-area-inset-bottom); animation-name: guida-sale; }
+  @keyframes guida-sale { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+}
+.guida-corpo:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

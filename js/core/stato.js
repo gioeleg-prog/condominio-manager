@@ -124,6 +124,7 @@ let state = {
   wizardData: {},
   bilancioTab: 'overview',
   bilancioCondId: null,  // id condomino selezionato per dettaglio
+  guidaAperta: false,   // pannello della guida rapida (js/sezioni/guida.js)
   vitaTab: 'bacheca',    // tab attiva nella pagina "Vita condominiale"
   pianoRateConferma: null, // anno per cui è in attesa di conferma la generazione/rigenerazione del piano rate
   loginEmail: '',

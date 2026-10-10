@@ -237,7 +237,7 @@ function renderImpostazioni() {
   <div>
     <div class="page-header">
       <div>
-        <div class="page-title">Impostazioni</div>
+        <div class="page-title">Impostazioni ${btnGuida()}</div>
         <div class="page-sub">Gestione utenti, ruoli e sicurezza</div>
       </div>
     </div>

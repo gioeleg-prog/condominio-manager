@@ -52,7 +52,7 @@ function renderFornitori() {
   return `
   <div>
     <div class="page-header">
-      <div><div class="page-title">Fornitori</div><div class="page-sub">${totFornitoriAttivi} fornitori attivi</div></div>
+      <div><div class="page-title">Fornitori ${btnGuida()}</div><div class="page-sub">${totFornitoriAttivi} fornitori attivi</div></div>
       ${canEdit ? `<button class="btn btn-primary" id="btn-nuovo-fornitore">+ Nuovo fornitore</button>` : ''}
     </div>
 

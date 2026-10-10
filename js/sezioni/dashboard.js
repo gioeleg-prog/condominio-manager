@@ -171,7 +171,7 @@ function renderDashboard() {
   <div>
     <div class="page-header">
       <div>
-        <div class="page-title">Dashboard</div>
+        <div class="page-title">Dashboard ${btnGuida()}</div>
         <div class="page-sub">${esc((state.edifici.find(e=>e.id===state.edificioAttivo)||{nome:'—'}).nome)} · ${anno}</div>
       </div>
       <select style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;" id="anno-filter">

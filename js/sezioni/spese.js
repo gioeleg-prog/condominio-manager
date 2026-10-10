@@ -209,7 +209,7 @@ function renderSpese() {
   return `
   <div>
     <div class="page-header spese-page-header">
-      <div><div class="page-title">Spese</div><div class="page-sub">${items.length} voci</div></div>
+      <div><div class="page-title">Spese ${btnGuida()}</div><div class="page-sub">${items.length} voci</div></div>
       <div style="display:flex;gap:.5rem">
         ${canEdit?`<button class="btn btn-primary btn-add-spesa" id="btn-add-spesa">+ Aggiungi spesa</button>`:''}
         <button class="btn btn-secondary" id="btn-export-spese" title="Esporta in Excel — tutte le spese visibili, o solo quelle selezionate">📊 Esporta Excel</button>
@@ -811,7 +811,6 @@ function bindAzioniSpese() {
   const fts = document.getElementById('filter-tipo-spese');
   if (fts) fts.onchange = e => setState({filterTipo: e.target.value});
   const fcs = document.getElementById('filter-cat-spese');
-  if (fcs) fcs.onchange = e => setState({filterCat: e.target.value});
   if (fcs) fcs.onchange = e => setState({filterCat: e.target.value});
   const fss = document.getElementById('filter-stato-spese');
   if (fss) fss.onchange = e => setState({filterStato: e.target.value});
