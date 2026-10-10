@@ -115,3 +115,14 @@ Il test `qa/assets.spec.js` fallisce se impronte o pagina di staging non sono ag
 
 Il progetto emulato è `demo-qa`: il prefisso `demo-` impedisce qualunque
 accesso ai progetti Firebase reali (staging e produzione non vengono toccati).
+
+### Librerie caricate su richiesta (js/vendor/)
+
+`js/vendor/` contiene librerie copiate dal pacchetto npm (con la licenza accanto) e caricate
+solo quando servono, per non appesantire l'avvio: oggi jsPDF e jsPDF-AutoTable per il
+rendiconto PDF (`js/sezioni/rendiconto.js`, costante `RENDICONTO_LIBRERIE`). La versione è nel
+nome del file, così il browser non riusa una copia vecchia. Per aggiornarle (Dependabot apre la
+PR sui devDependencies `jspdf` e `jspdf-autotable`): copiare i file `dist/*.min.js` nuovi in
+`js/vendor/` con il nuovo numero di versione, aggiornare `RENDICONTO_LIBRERIE`, cancellare i
+vecchi; `qa/assets.spec.js` controlla che i file esistano e che non ne restino di inutilizzati.
+Per guardare un PDF di prova senza scaricarlo: `node qa/out/genera-pdf-prova.js` (dati di prova).

@@ -25,8 +25,22 @@ describe('FILE DELLA PAGINA — css/ e js/', () => {
   }
   it('nessun file di css/ o js/ dimenticato fuori dalla pagina', () => {
     const cited = new Set([...refs(read('index.html')), ...refs(read('index.staging.html'))].map((r) => r.file));
-    const orphans = [...listDir('css'), ...listDir('js')].filter((f) => !cited.has(f));
+    // js/vendor/ = librerie caricate solo quando servono (es. jsPDF per il rendiconto):
+    // controllate dal test sotto, non dalla pagina.
+    const orphans = [...listDir('css'), ...listDir('js')].filter((f) => !cited.has(f) && !f.startsWith('js/vendor/'));
     assert.deepStrictEqual(orphans, []);
+  });
+  it('le librerie caricate su richiesta esistono, con versione nel nome e licenza accanto', () => {
+    const code = read('js/sezioni/rendiconto.js');
+    const libs = [...code.matchAll(/'(js\/vendor\/[^']+\.js)'/g)].map((m) => m[1]);
+    assert.ok(libs.length >= 2, 'elenco delle librerie del rendiconto non trovato');
+    for (const f of libs) {
+      assert.ok(fs.existsSync(path.join(root, f)), 'manca ' + f);
+      assert.match(f, /-\d+\.\d+\.\d+[.-]/, 'la versione va nel nome del file (così il browser non usa una copia vecchia): ' + f);
+    }
+    const vendor = listDir('js').filter((f) => f.startsWith('js/vendor/') && f.endsWith('.js'));
+    assert.deepStrictEqual(vendor.filter((f) => !libs.includes(f)), [], 'file in js/vendor/ non usati');
+    assert.ok(fs.existsSync(path.join(root, 'js/vendor/LICENSE-jspdf.txt')) && fs.existsSync(path.join(root, 'js/vendor/LICENSE-jspdf-autotable.txt')));
   });
   it('la pagina di staging è identica a quella di produzione salvo la configurazione', () => {
     const norm = (h) => h.replace(/<script src="js\/config(\.staging)?\.js\?v=[0-9a-f]+"><\/script>/, 'CONFIG');

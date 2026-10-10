@@ -21,6 +21,7 @@ function bindModal() {
   bindSchedaFornitori();
   bindSchedaVita();
   bindSchedaCondomini();
+  bindSchedaRendiconto();
 }
 
 function saveModal() {
