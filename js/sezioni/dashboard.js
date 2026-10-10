@@ -364,6 +364,7 @@ function renderDashboard() {
         <div><div style="font-size:12px;color:var(--text2)">Quota dovuta ${anno}</div><div style="font-size:1.3rem;font-weight:700;color:var(--red)">${fmt(quotaPersonale)}</div></div>
         <div><div style="font-size:12px;color:var(--text2)">Versato ${anno}</div><div style="font-size:1.3rem;font-weight:700;color:var(--green)">${fmt(pagatoUtente)}</div></div>
         <div><div style="font-size:12px;color:var(--text2)">${Math.abs(riportoUtente) > 0.005 ? 'Saldo (con riporto)' : 'Differenza'}</div><div style="font-size:1.3rem;font-weight:700;color:${riportoUtente+pagatoUtente>=quotaPersonale?'var(--green)':'var(--red)'}">${fmt(riportoUtente+pagatoUtente-quotaPersonale)}</div></div>
+        ${isSuperAdmin(state.user) ? '' : `<div style="align-self:center;margin-left:auto"><button class="btn btn-secondary btn-sm" data-estratto-cond="${state.user.id}">📄 Il mio estratto conto</button></div>`}
       </div>
     </div>` : ''}
 

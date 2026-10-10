@@ -351,3 +351,226 @@ function generaRendicontoPDF(opts) {
   const pulito = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
   doc.save(`${d.preventivo ? 'Preventivo' : 'Rendiconto'}_${d.anno}_${pulito(ed.nome)}_${dettagliato ? 'dettagliato' : 'sintetico'}.pdf`);
 }
+
+// ===========================================================================
+// ESTRATTO CONTO DEL SINGOLO CONDOMINO
+// ===========================================================================
+// Come l'estratto della banca: saldo iniziale (riporto), quote delle spese
+// consuntivate (addebiti), versamenti (accrediti), saldo progressivo; poi le
+// prossime scadenze (quote sulle spese ancora da consuntivare e rate previste).
+// Il saldo finale coincide con quello del riparto nel rendiconto dello stesso anno.
+
+function datiEstratto(condId, anno) {
+  const oggi = new Date();
+  const preventivo = anno > oggi.getFullYear();
+  const num = (v) => parseFloat(v) || 0;
+  const edOk = (r) => !r.edificioId || r.edificioId === state.edificioAttivo;
+  const cond = state.condomini.find(c => c.id === condId) || { id: condId, nome: '—' };
+  const nAttivi = state.condomini.filter(c => c.edificioId === state.edificioAttivo && !c.disabled && !c.superAdmin).length || 1;
+  const cats = getCategorie();
+  const catLabel = (id) => (cats.find(c => c.id === id) || { label: id || '' }).label;
+  const spese = state.spese.filter(s => edOk(s) && annoDi(s.data) === anno);
+  const entrate = state.entrate.filter(e => edOk(e) && annoDi(e.data) === anno && e.condominoId === condId);
+  const riporto = riportoCondomino(condId, (d) => annoDi(d) < anno, nAttivi);
+  const movimenti = [];
+  spese.filter(s => num(s.consuntivo) > 0).forEach(s => {
+    const quota = quotaSuSpesa(s, condId, num(s.consuntivo), nAttivi);
+    if (quota <= 0.004) return;
+    const perc = (Math.round(quota / num(s.consuntivo) * 10000) / 100).toString().replace('.', ',');
+    movimenti.push({ data: s.data, tipo: 'quota', descrizione: s.titolo || 'Spesa',
+      dettaglio: catLabel(s.categoria) + ' · ' + (s.tipoSpesa === 'straordinaria' ? 'straordinaria' : 'ordinaria') + ' · spesa ' + euroPdf(num(s.consuntivo)) + ' · tua quota ' + perc + '%',
+      straordinaria: s.tipoSpesa === 'straordinaria', addebito: quota, accredito: 0 });
+  });
+  entrate.filter(e => !e.previsionale).forEach(e => movimenti.push({ data: e.data, tipo: 'versamento',
+    descrizione: 'Versamento' + (e.descrizione ? ': ' + e.descrizione : ''), dettaglio: '', addebito: 0, accredito: num(e.importo) }));
+  // In ordine di data; nello stesso giorno prima i versamenti.
+  movimenti.sort((a, b) => String(a.data).localeCompare(String(b.data)) || (a.tipo === 'versamento' ? -1 : 1));
+  let saldo = riporto;
+  movimenti.forEach(m => { saldo += m.accredito - m.addebito; m.saldo = saldo; });
+  const daConsuntivare = spese.filter(s => !(num(s.consuntivo) > 0) && num(s.preventivo) > 0)
+    .map(s => ({ data: s.data, descrizione: s.titolo || 'Spesa', categoria: catLabel(s.categoria), quota: quotaSuSpesa(s, condId, num(s.preventivo), nAttivi) }))
+    .filter(x => x.quota > 0.004).sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  const rate = entrate.filter(e => e.previsionale).map(e => ({ data: e.data, descrizione: e.descrizione || 'Rata prevista', importo: num(e.importo) }))
+    .sort((a, b) => String(a.data).localeCompare(String(b.data)));
+  const quoteOrd = movimenti.filter(m => m.tipo === 'quota' && !m.straordinaria).reduce((a, m) => a + m.addebito, 0);
+  const quoteStr = movimenti.filter(m => m.tipo === 'quota' && m.straordinaria).reduce((a, m) => a + m.addebito, 0);
+  const versato = movimenti.reduce((a, m) => a + m.accredito, 0);
+  return {
+    anno, preventivo, inCorso: anno === oggi.getFullYear(), alGiorno: ymdLocale(oggi),
+    condomino: { id: cond.id, nome: cond.nome, appartamento: cond.appartamento || '' },
+    riporto, quoteOrd, quoteStr, versato, saldo: riporto + versato - quoteOrd - quoteStr,
+    movimenti, daConsuntivare, rate,
+    quotaPrevista: daConsuntivare.reduce((a, x) => a + x.quota, 0), ratePreviste: rate.reduce((a, r) => a + r.importo, 0),
+  };
+}
+
+// Pulsanti "📄 Estratto conto" (Bilancio, Condomini, Dashboard): aprono la scheda.
+function bindPulsantiEstratto() {
+  document.querySelectorAll('[data-estratto-cond]').forEach(b => {
+    b.onclick = () => setState({ modal: { type: 'estratto', data: { condId: Number(b.dataset.estrattoCond), anno: state.filterAnno || new Date().getFullYear() } } });
+  });
+}
+
+function renderModalEstratto(d) {
+  const annoOggi = new Date().getFullYear();
+  const anni = getAnni().filter(a => a <= annoOggi + 1);
+  const anno = d?.anno || annoOggi;
+  // Chi gestisce sceglie qualunque condomino dell'edificio; un condomino vede solo il proprio.
+  const puoScegliere = canUserEdit(state.user);
+  const condEd = state.condomini.filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin)
+    .sort((a, b) => String(a.appartamento || '').localeCompare(String(b.appartamento || ''), 'it', { numeric: true }));
+  const scelto = puoScegliere ? (d?.condId || condEd[0]?.id) : state.user.id;
+  const elenco = puoScegliere ? condEd : condEd.filter(c => c.id === scelto);
+  return `
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <h2>📄 Estratto conto</h2>
+        <button class="modal-close" id="modal-close" aria-label="Chiudi">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="estr-cond">Condomino</label>
+          <select id="estr-cond" ${puoScegliere ? '' : 'disabled'}>
+            ${elenco.map(c => `<option value="${c.id}" ${c.id === scelto ? 'selected' : ''}>${esc(c.nome)}${c.appartamento ? ' · ' + esc(c.appartamento) : ''}${c.disabled ? ' (non più attivo)' : ''}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label for="estr-anno">Anno</label>
+          <select id="estr-anno">
+            ${anni.map(a => `<option value="${a}" ${a === anno ? 'selected' : ''}>${a}${a > annoOggi ? ' (previsioni)' : a === annoOggi ? ' (in corso)' : ''}</option>`).join('')}
+          </select>
+        </div>
+        <p class="hint">Saldo iniziale, quote delle spese e versamenti in ordine di data con il saldo progressivo, poi le prossime scadenze.</p>
+        <div id="estr-err" class="alert alert-warning" style="display:none;font-size:13px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
+        <button class="btn btn-primary" id="btn-estr-genera">📄 Scarica PDF</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindSchedaEstratto() {
+  const b = document.getElementById('btn-estr-genera');
+  if (!b || state.modal?.type !== 'estratto') return;
+  b.onclick = async () => {
+    const condId = canUserEdit(state.user) ? Number(document.getElementById('estr-cond').value) : state.user.id;
+    const anno = parseInt(document.getElementById('estr-anno').value, 10);
+    const err = document.getElementById('estr-err');
+    b.disabled = true; b.textContent = '⏳ Preparazione…';
+    try {
+      await caricaLibrerieRendiconto();
+      generaEstrattoPDF(condId, anno);
+      setState({ modal: null });
+    } catch (e) {
+      reportClientError('Estratto conto PDF: ' + (e.message || e), e.stack);
+      if (err) { err.textContent = 'Il PDF non è stato creato: ' + (e.message || e); err.style.display = 'block'; }
+      b.disabled = false; b.textContent = '📄 Scarica PDF';
+    }
+  };
+}
+
+function generaEstrattoPDF(condId, anno) {
+  const d = datiEstratto(condId, anno);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const tab = (o) => window.autoTable(doc, o);
+  const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 15;
+  const BLU = [29, 78, 216], INK = [27, 42, 74], GRIGIO = [90, 110, 138], RIGA = [238, 242, 247], ROSSO = [185, 28, 28], VERDE = [22, 101, 52];
+  const ed = state.edifici.find(e => e.id === state.edificioAttivo) || {};
+  let y = M;
+  doc.setTextColor(...BLU).setFont('helvetica', 'bold').setFontSize(9).text('ESTRATTO CONTO DEL CONDOMINO', M, y + 4);
+  doc.setTextColor(...INK).setFontSize(18).text(d.condomino.nome, M, y + 13);
+  doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(...GRIGIO);
+  doc.text([d.condomino.appartamento, ed.nome, ed.indirizzo].filter(Boolean).join(' · '), M, y + 19);
+  const periodo = d.preventivo ? `Anno ${d.anno}: previsioni (l'anno non è ancora iniziato)`
+    : d.inCorso ? `Anno ${d.anno}: movimenti fino al ${dataPdf(d.alGiorno)}` : `Anno ${d.anno}: 1 gennaio – 31 dicembre ${d.anno}`;
+  doc.setTextColor(...INK).text(periodo, M, y + 26);
+  doc.setTextColor(...GRIGIO).text(`Emesso il ${dataPdf(d.alGiorno)}`, M, y + 31);
+  doc.setDrawColor(...BLU).setLineWidth(0.6).line(M, y + 35, W - M, y + 35);
+  y += 43;
+  const stile = {
+    margin: { left: M, right: M, bottom: 18 },
+    styles: { font: 'helvetica', fontSize: 9, textColor: INK, cellPadding: 1.8, lineColor: [216, 226, 238], lineWidth: 0.1 },
+    headStyles: { fillColor: RIGA, textColor: GRIGIO, fontStyle: 'bold', fontSize: 8 },
+    alternateRowStyles: { fillColor: [250, 251, 253] },
+    footStyles: { fillColor: [255, 255, 255], textColor: INK, fontStyle: 'bold' },
+    showHead: 'everyPage', showFoot: 'lastPage', rowPageBreak: 'avoid',
+  };
+  const titolo = (t, sotto) => {
+    if (y > H - 60) { doc.addPage(); y = M + 4; }
+    doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(...BLU).text(t, M, y); y += 2;
+    if (sotto) { const r = doc.splitTextToSize(sotto, W - 2 * M); doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(...GRIGIO).text(r, M, y + 4); y += 4 + 3.6 * r.length; }
+    y += 2;
+  };
+  const dopo = () => { y = doc.lastAutoTable.finalY + 8; };
+  const num = { halign: 'right' };
+  const colSaldo = (v) => (v < -0.005 ? ROSSO : v > 0.005 ? VERDE : INK);
+  const segno = (v) => (v > 0.005 ? 'a credito' : v < -0.005 ? 'da versare' : 'in pari');
+
+  // Riepilogo
+  titolo('Riepilogo', 'Saldo positivo = a credito, negativo = da versare.');
+  const voceSaldo = (d.inCorso ? `Saldo al ${dataPdf(d.alGiorno)}` : d.preventivo ? 'Saldo attuale' : 'Saldo a fine anno') + ' (' + segno(d.saldo) + ')';
+  tab({ ...stile, startY: y, head: [['Voce', 'Importo']], body: [
+    ['Saldo iniziale (dagli anni precedenti, ' + segno(d.riporto) + ')', euroPdf(d.riporto)],
+    ['- Quote delle spese ordinarie', euroPdf(d.quoteOrd)],
+    ['- Quote delle spese straordinarie', euroPdf(d.quoteStr)],
+    ['+ Versamenti', euroPdf(d.versato)],
+  ], foot: [[voceSaldo, euroPdf(d.saldo)]],
+  columnStyles: { 1: { ...num, cellWidth: 40 } },
+  didParseCell: (h) => { if (h.section === 'foot' && h.column.index === 1) { h.cell.styles.halign = 'right'; h.cell.styles.textColor = colSaldo(d.saldo); } } });
+  dopo();
+
+  // Movimenti
+  if (!d.preventivo) {
+    titolo('Movimenti', `${d.movimenti.length} movimenti in ordine di data. Le quote sono calcolate sulle spese consuntivate, secondo la ripartizione di ciascuna.`);
+    tab({ ...stile, startY: y,
+      head: [['Data', 'Descrizione', 'Addebito', 'Accredito', 'Saldo']],
+      body: [[{ content: 'Saldo iniziale', colSpan: 4, styles: { fontStyle: 'italic', textColor: GRIGIO } }, euroPdf(d.riporto)],
+        ...d.movimenti.map(m => [dataPdf(m.data), m.descrizione + (m.dettaglio ? '\n' + m.dettaglio : ''), m.addebito ? euroPdf(m.addebito) : '', m.accredito ? euroPdf(m.accredito) : '', euroPdf(m.saldo)])],
+      foot: [['', 'Totali', euroPdf(d.quoteOrd + d.quoteStr), euroPdf(d.versato), euroPdf(d.saldo)]],
+      styles: { ...stile.styles, fontSize: 8.3 },
+      columnStyles: { 0: { cellWidth: 20 }, 2: { ...num, cellWidth: 26 }, 3: { ...num, cellWidth: 26 }, 4: { ...num, cellWidth: 28, fontStyle: 'bold' } },
+      didParseCell: (h) => {
+        if (h.section === 'foot' && h.column.index >= 2) h.cell.styles.halign = 'right';
+        if (h.section === 'body' && h.column.index === 4) { const v = h.row.index === 0 ? d.riporto : (d.movimenti[h.row.index - 1] || {}).saldo || 0; h.cell.styles.textColor = colSaldo(v); }
+      },
+    });
+    dopo();
+  }
+
+  // Prossime scadenze
+  if (d.daConsuntivare.length || d.rate.length) {
+    titolo(d.preventivo ? 'Previsioni dell\'anno' : 'Prossime scadenze', 'Importi previsti: non sono ancora nel saldo.');
+    if (d.daConsuntivare.length) {
+      tab({ ...stile, startY: y, head: [['Data', 'Spesa prevista', 'Categoria', 'Tua quota']],
+        body: d.daConsuntivare.map(x => [dataPdf(x.data), x.descrizione, x.categoria, euroPdf(x.quota)]),
+        foot: [['', 'Totale quote previste', '', euroPdf(d.quotaPrevista)]],
+        columnStyles: { 0: { cellWidth: 20 }, 3: { ...num, cellWidth: 30 } },
+        didParseCell: (h) => { if (h.section === 'foot' && h.column.index === 3) h.cell.styles.halign = 'right'; } });
+      dopo();
+    }
+    if (d.rate.length) {
+      tab({ ...stile, startY: y, head: [['Data', 'Rata pianificata', 'Importo']],
+        body: d.rate.map(r => [dataPdf(r.data), r.descrizione, euroPdf(r.importo)]),
+        foot: [['', 'Totale rate', euroPdf(d.ratePreviste)]],
+        columnStyles: { 0: { cellWidth: 20 }, 2: { ...num, cellWidth: 30 } },
+        didParseCell: (h) => { if (h.section === 'foot' && h.column.index === 2) h.cell.styles.halign = 'right'; } });
+      dopo();
+    }
+  }
+  if (y > H - 30) { doc.addPage(); y = M + 4; }
+  doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(...GRIGIO);
+  doc.text(doc.splitTextToSize('Per chiarimenti rivolgiti all\'amministratore del condominio. Le quote seguono la ripartizione salvata su ogni spesa; le spese senza ripartizione sono divise in parti uguali tra i condomini attivi.', W - 2 * M), M, y + 2);
+  const pagine = doc.getNumberOfPages();
+  for (let i = 1; i <= pagine; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...GRIGIO);
+    doc.text(`Estratto conto ${d.anno} · ${d.condomino.nome} · ${ed.nome || ''}`, M, H - 8);
+    doc.text(`Pagina ${i} di ${pagine}`, W - M, H - 8, { align: 'right' });
+  }
+  const pulito = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  doc.save(`EstrattoConto_${d.anno}_${pulito(d.condomino.nome)}.pdf`);
+}
