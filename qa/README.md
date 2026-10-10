@@ -83,6 +83,14 @@ Ogni file di `js/sezioni/` contiene, oltre al disegno della pagina, i suoi colle
 dove serve, `salvaScheda…(m)` per il salvataggio. `azioni.js` (`bindPageActions`) e
 `schede.js` (`bindModal`, `saveModal`) fanno solo da regia e richiamano le sezioni.
 
+**Guida rapida** (pulsante "? Guida" su ogni pagina): i testi stanno tutti in `js/sezioni/guida.js`
+(oggetto `GUIDA`, una voce per pagina). Quando si aggiunge, toglie o rinomina un pulsante o una
+funzione, aggiornare anche la guida di quella pagina, con il nome del pulsante scritto esattamente
+come appare. Ogni voce può avere un livello (`lettura`, `noadmin`, `mod`, `admin`, `super`) per
+mostrarla solo ai ruoli interessati; i test in `qa/unit.spec.js` controllano che ogni pagina del
+menu abbia la sua guida e che i livelli siano validi. Una pagina nuova va aggiunta a `GUIDA` e al
+suo titolo va aggiunto `${btnGuida()}`.
+
 Dopo ogni modifica a `css/` o `js/`:
 
 ```bash
