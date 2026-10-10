@@ -348,3 +348,122 @@ function renderModalStoricoFornitore(f) {
     </div>
   </div>`;
 }
+
+// Pulsanti della pagina Fornitori. Chiamata da bindPageActions() (azioni.js).
+function bindAzioniFornitori() {
+  // Nuovo fornitore
+  const bNuovoFornitore = document.getElementById('btn-nuovo-fornitore');
+  if (bNuovoFornitore) bNuovoFornitore.onclick = () => setState({modal:{type:'fornitore', data:null}});
+  // Edit fornitore
+  document.querySelectorAll('[data-edit-fornitore]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editFornitore);
+      const f = state.fornitori.find(x=>x.id===id);
+      if (f) setState({modal:{type:'fornitore', data:{...f}}});
+    };
+  });
+  // Storico fornitore
+  document.querySelectorAll('[data-storico-fornitore]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.storicoFornitore);
+      const f = state.fornitori.find(x=>x.id===id);
+      if (f) setState({modal:{type:'storico-fornitore', data:{...f}}});
+    };
+  });
+  // Disabilita fornitore
+  document.querySelectorAll('[data-disable-fornitore]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.disableFornitore);
+      if (!confirm('Disabilitare questo fornitore? Rimarrà nello storico.')) return;
+      const fornitori = state.fornitori.map(f=>f.id===id?{...f,disabled:true}:f);
+      save('cm_fornitori', fornitori);
+      setState({fornitori});
+    };
+  });
+  // Riabilita fornitore
+  document.querySelectorAll('[data-enable-fornitore]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.enableFornitore);
+      const fornitori = state.fornitori.map(f=>f.id===id?{...f,disabled:false}:f);
+      save('cm_fornitori', fornitori);
+      setState({fornitori});
+    };
+  });
+  // Elimina fornitore
+  document.querySelectorAll('[data-del-fornitore]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.delFornitore);
+      const f = state.fornitori.find(x=>x.id===id);
+      if (!f) return;
+      const myEdIdForn = getUserEdificio(state.user);
+      const usato = state.spese.filter(s=>s.fornitoreId===id && (!s.edificioId||s.edificioId===myEdIdForn)).length;
+      const msg = usato > 0
+        ? `"${f.nome}" è associato a ${usato} spese. Eliminandolo le spese perderanno il riferimento. Procedere?`
+        : `Eliminare definitivamente "${f.nome}"?`;
+      if (!confirm(msg)) return;
+      const fornitori = state.fornitori.filter(x=>x.id!==id);
+      save('cm_fornitori', fornitori);
+      setState({fornitori});
+    };
+  });
+  // Copia IBAN
+  document.querySelectorAll('[data-copy-iban]').forEach(btn => {
+    btn.onclick = () => {
+      navigator.clipboard.writeText(btn.dataset.copyIban).then(()=>{
+        btn.textContent='✅';
+        setTimeout(()=>btn.textContent='📋', 2000);
+      });
+    };
+  });
+}
+
+// Scheda fornitore. Chiamata da bindModal() (schede.js).
+function bindSchedaFornitori() {
+  // Salva fornitore
+  const bSaveF = document.getElementById('btn-save-fornitore');
+  if (bSaveF) bSaveF.onclick = () => {
+    const nome     = document.getElementById('fn-nome')?.value?.trim();
+    const cat      = document.getElementById('fn-cat')?.value;
+    const piva     = document.getElementById('fn-piva')?.value?.trim();
+    const tel      = document.getElementById('fn-tel')?.value?.trim();
+    const email    = document.getElementById('fn-email')?.value?.trim();
+    const web      = document.getElementById('fn-web')?.value?.trim();
+    const indirizzo= document.getElementById('fn-indirizzo')?.value?.trim();
+    const iban     = document.getElementById('fn-iban')?.value?.trim().replace(/\s/g,'');
+    const ref      = document.getElementById('fn-ref')?.value?.trim();
+    const reftel   = document.getElementById('fn-reftel')?.value?.trim();
+    const note     = document.getElementById('fn-note')?.value?.trim();
+    const origId   = bSaveF.dataset.id;
+    const errEl    = document.getElementById('fn-err');
+    errEl.style.display = 'none';
+
+    if (!nome) { errEl.textContent='Il nome è obbligatorio'; errEl.style.display='block'; return; }
+    if (!cat)  { errEl.textContent='Seleziona una categoria'; errEl.style.display='block'; return; }
+
+    if (iban && (iban.length < 15 || iban.length > 34)) {
+      errEl.textContent='IBAN non valido (lunghezza errata)'; errEl.style.display='block'; return;
+    }
+
+    // Edificio: mantieni quello esistente se modifica, assegna quello attivo se nuovo
+    const edificioIdFornitore = origId
+      ? (state.fornitori.find(f=>f.id===parseInt(origId))?.edificioId || getUserEdificio(state.user))
+      : getUserEdificio(state.user);
+
+    const fornitore = {
+      id: origId ? parseInt(origId) : newId(),
+      nome, categoria:cat, piva, telefono:tel, email, web,
+      indirizzo, iban, riferimento:ref, riferimentoTel:reftel, note,
+      disabled: false,
+      edificioId: edificioIdFornitore,
+    };
+
+    let fornitori;
+    if (origId) {
+      fornitori = state.fornitori.map(f=>f.id===fornitore.id?fornitore:f);
+    } else {
+      fornitori = [...state.fornitori, fornitore];
+    }
+    save('cm_fornitori', fornitori);
+    setState({fornitori, modal:null});
+  };
+}

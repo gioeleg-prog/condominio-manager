@@ -430,3 +430,201 @@ function bindWizard() {
     }
   };
 }
+
+// Gestione di condomini e utenti: modifica, ruoli, disattivazione, reset password. Chiamata da bindPageActions() (azioni.js).
+function bindAzioniCondomini() {
+  const bAddCond = document.getElementById('btn-add-cond');
+  if (bAddCond) bAddCond.onclick = () => setState({modal:{type:'cond',data:null}});
+  // Reset password da superAdmin
+  document.querySelectorAll('[data-reset-pw-cond]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.resetPwCond);
+      const c  = state.condomini.find(x=>x.id===id);
+      if (!c) return;
+      setState({modal:{type:'admin-reset-pw', data:c}});
+    };
+  });
+  // Edit cond
+  document.querySelectorAll('[data-edit-cond]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editCond);
+      const item = state.condomini.find(c=>c.id===id);
+      if (item) setState({modal:{type:'cond',data:{...item}}});
+    };
+  });
+  // Aggiungi nuovo utente (wizard)
+  const bNuovoUtente = document.getElementById('btn-nuovo-utente');
+  if (bNuovoUtente) bNuovoUtente.onclick = () => setState({modal:{type:'nuovo-utente'}, wizardStep:1, wizardData:{}});
+  // Ruolo select inline nelle card impostazioni
+  document.querySelectorAll('.ruolo-select').forEach(sel => {
+    sel.onchange = async () => {
+      const id = parseInt(sel.dataset.ruoloId);
+      const ruolo = sel.value;
+      const isAdminNew    = ruolo === 'adminedificio' || ruolo === 'superadmin';
+      const canEditNew    = ruolo === 'modifica' || isAdminNew;
+      const superAdminNew = ruolo === 'superadmin';
+      if (superAdminNew && !confirm('Stai promuovendo questo utente a Super Admin globale. Potrà vedere e gestire TUTTI i condomini. Confermi?')) {
+        sel.value = sel.dataset.prevValue || 'lettura';
+        return;
+      }
+      const target = state.condomini.find(c => c.id === id);
+      if (!target?.uid) {
+        alert('Questo utente non ha ancora effettuato il primo login: il ruolo server-side verrà assegnato automaticamente al suo primo accesso.');
+        sel.value = sel.dataset.prevValue || 'lettura';
+        return;
+      }
+      // SEC-02/05 — assegna il ruolo lato server (custom claims), unico punto autorizzato
+      try {
+        const { functionsInstance, httpsCallable } = window._fb;
+        const setUserRole = httpsCallable(functionsInstance, 'setUserRole');
+        // 'editor' (REB-01 P1): canEdit:true ma non admin. Prima di questo fix
+        // veniva sempre inviato 'member' anche per "Modifica", disallineando il
+        // claim server-side dal ruolo mostrato in UI.
+        const serverRole = superAdminNew ? 'superAdmin' : (isAdminNew ? 'adminEdificio' : (canEditNew ? 'editor' : 'member'));
+        const resp = await setUserRole({
+          targetUid: target.uid,
+          role: serverRole,
+          buildingId: String(target.edificioId || state.edificioAttivo),
+        });
+        console.log('setUserRole OK:', resp.data);
+      } catch (err) {
+        alert('Impossibile assegnare il ruolo: ' + (err.message || err));
+        sel.value = sel.dataset.prevValue || 'lettura';
+        return; // NIENTE scrittura locale se la function fallisce
+      }
+      sel.dataset.prevValue = ruolo;
+      const condomini = state.condomini.map(c => c.id===id
+        ? {...c, canEdit:canEditNew, isAdmin:isAdminNew, superAdmin:superAdminNew}
+        : c);
+      save('cm_condomini', condomini);
+      setState({condomini});
+    };
+    sel.dataset.prevValue = sel.value;
+  });
+  // Disabilita utente
+  document.querySelectorAll('[data-disable-cond]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.disableCond);
+      const cond = state.condomini.find(c=>c.id===id);
+      if (cond) setState({modal:{type:'disable-cond', data:{...cond}}});
+    };
+  });
+  // Riabilita utente
+  document.querySelectorAll('[data-enable-cond]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.enableCond);
+      if (!confirm('Riabilitare questo utente? Potrà tornare ad accedere al sistema.')) return;
+      const condomini = state.condomini.map(c => c.id===id
+        ? {...c, disabled:false, disabledOn:null, disabledNote:null}
+        : c);
+      save('cm_condomini', condomini);
+      setState({condomini});
+    };
+  });
+  // Elimina utente definitivamente
+  document.querySelectorAll('[data-delete-cond]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.deleteCond);
+      const cond = state.condomini.find(c=>c.id===id);
+      if (!cond) return;
+      const hasData = state.entrate.some(e=>e.condominoId===id) ||
+                      state.spese.some(s=>s.split?.some(x=>x.id===id));
+      const msg = hasData
+        ? `⚠️ Attenzione: "${cond.nome}" ha versamenti o spese collegate.\n\nEliminando l'utente questi dati perderanno il riferimento (rimarranno nello storico senza nome).\n\nProcedere comunque con l'eliminazione definitiva?`
+        : `Eliminare definitivamente "${cond.nome}"? Questa operazione è irreversibile.`;
+      if (!confirm(msg)) return;
+      const condomini = state.condomini.filter(c=>c.id!==id);
+      save('cm_condomini', condomini);
+      setState({condomini});
+    };
+  });
+  // Admin reset password per condomino
+  document.querySelectorAll('[data-admin-reset-pw]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.adminResetPw);
+      const cond = state.condomini.find(c=>c.id===id);
+      if (cond) setState({modal:{type:'admin-reset-pw', data:{...cond}}});
+    };
+  });
+  // Toggle edit permission
+  document.querySelectorAll('[data-toggle-edit]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.toggleEdit);
+      const condomini = state.condomini.map(c=>c.id===id?{...c,canEdit:!c.canEdit}:c);
+      save('cm_condomini', condomini);
+      setState({condomini});
+    };
+  });
+}
+
+// Schede di disattivazione utente e nuovo utente. Chiamata da bindModal() (schede.js).
+function bindSchedaCondomini() {
+  // Conferma disabilita utente
+  const bConfDis = document.getElementById('btn-confirm-disable');
+  if (bConfDis) bConfDis.onclick = () => {
+    const id = parseInt(bConfDis.dataset.uid);
+    const note = document.getElementById('disable-note')?.value?.trim() || null;
+    const condomini = state.condomini.map(c => c.id===id
+      ? {...c, disabled:true, disabledOn: new Date().toISOString(), disabledNote: note}
+      : c);
+    save('cm_condomini', condomini);
+    setState({condomini, modal:null});
+  };
+  // Wizard nuovo utente
+  bindWizard();
+}
+
+// Salvataggio della scheda condomino (nuovo o modificato, con controllo sullo spostamento di edificio). Chiamata da saveModal() (schede.js).
+function salvaSchedaCondomino(m) {
+    const nome = document.getElementById('m-nome')?.value?.trim();
+    const apt = document.getElementById('m-apt')?.value?.trim();
+    const email = document.getElementById('m-email')?.value?.trim();
+    const ruolo = document.getElementById('m-ruolo')?.value || 'lettura';
+    const edificioId = parseInt(document.getElementById('m-edificio')?.value) || getUserEdificio(state.user);
+    const isAdminNew = ruolo === 'adminedificio';
+    const canEditNew = ruolo === 'modifica' || isAdminNew;
+    const superAdminNew = false; // promozione a superAdmin solo via select dedicata
+    if (!nome || !apt) { alert('Nome e appartamento sono obbligatori'); return; }
+    let condomini;
+    if (m.data?.id) {
+      const username = document.getElementById('m-username')?.value?.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') || '';
+      // ── Blocco spostamento: RIGIDO se ha transazioni ─────────────────
+      const condOld      = state.condomini.find(c=>c.id===m.data.id);
+      const oldEdId      = condOld?.edificioId || state.edificioAttivo;
+      const cambiaEd     = edificioId !== oldEdId;
+      const hasEntrate   = state.entrate.some(e=>e.condominoId===m.data.id);
+      const hasSpeseSplit= state.spese.some(s=>s.split?.some(x=>x.id===m.data.id));
+      const hasDati      = hasEntrate || hasSpeseSplit;
+      const edificioIdFinale = (() => {
+        if (!cambiaEd) return edificioId;  // stesso edificio — sempre OK
+        if (hasDati) {
+          const nEnt = state.entrate.filter(e=>e.condominoId===m.data.id).length;
+          const nSp  = state.spese.filter(s=>s.split?.some(x=>x.id===m.data.id)).length;
+          alert(
+            `⛔ Impossibile spostare "${condOld?.nome}" in un altro condominio.\n\n` +
+            `Ha transazioni associate:\n• ${nEnt} versamenti\n• ${nSp} spese\n\n` +
+            `Crea un profilo separato per questo utente nel nuovo condominio.`
+          );
+          return oldEdId;  // mantieni edificio originale — BLOCCO TOTALE
+        }
+        return edificioId;  // nessuna transazione → spostamento libero
+      })();
+      condomini = state.condomini.map(c=>c.id===m.data.id
+        ? {...c, nome, appartamento:apt, email, username, canEdit:canEditNew, isAdmin:isAdminNew, superAdmin:c.superAdmin||false, edificioId:edificioIdFinale}
+        : c);
+      // Se il ruolo dell'utente loggato è cambiato, aggiornare anche state.user
+      if (state.user && state.user.id === m.data.id) {
+        setState({user:{...state.user, canEdit:canEditNew, isAdmin:isAdminNew, edificioId}});
+      }
+    } else {
+      const nextIdx = state.condomini.length % COLORS.length;
+      const usernameNew = document.getElementById('m-username')?.value?.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') || '';
+      // Verifica unicità username
+      if (usernameNew && state.condomini.some(c=>c.username===usernameNew)) {
+        alert('Username già in uso. Scegli un nome diverso.'); return;
+      }
+      condomini = [...state.condomini, {id:newId(),nome,appartamento:apt,email,username:usernameNew,canEdit:canEditNew,isAdmin:isAdminNew,superAdmin:false,edificioId,color:COLORS[nextIdx]}];
+    }
+    save('cm_condomini', condomini);
+    setState({condomini, modal:null});
+}

@@ -448,3 +448,10 @@ function renderDashboard() {
     </div>
   </div>`;
 }
+
+// Pulsanti e filtri della Dashboard. Chiamata da bindPageActions() (azioni.js).
+function bindAzioniDashboard() {
+  // Anno filter dashboard
+  const ad = document.getElementById('anno-filter');
+  if (ad) ad.onchange = e => setState({filterAnno: parseInt(e.target.value)||new Date().getFullYear()});
+}

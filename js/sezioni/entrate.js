@@ -748,3 +748,253 @@ function renderMiniCashflowRateChart(piano, anno) {
     '<div style="font-size:11px;color:var(--text2);margin-top:2px">🟣 mese della rata &nbsp; 🟩 cassa positiva &nbsp; 🟥 cassa a rischio &nbsp; (linea tratteggiata = zero)</div>' +
     '</div>';
 }
+
+// Filtri, versamenti, validazione delle rate e piano rate della pagina Entrate. Chiamata da bindPageActions() (azioni.js).
+function bindAzioniEntrate() {
+  // Entrate filters
+  const se = document.getElementById('search-entrate');
+  if (se) se.oninput = e => setState({searchQ: e.target.value});
+  const fae = document.getElementById('filter-anno-entrate');
+  if (fae) fae.onchange = e => setState({filterAnno: parseInt(e.target.value)||0});
+  const bAddEntrata = document.getElementById('btn-add-entrata');
+  if (bAddEntrata) bAddEntrata.onclick = () => setState({modal:{type:'entrata',data:null}});
+  // Delete entrate
+  // Piano rate: 1) "Avvia" mostra il pannello di conferma con le rate già calcolate sopra
+  //             2) "Conferma" crea davvero i versamenti (sostituendo eventuali proposte precedenti)
+  //             3) "Annulla" chiude il pannello senza scrivere nulla
+  const bAvviaPiano = document.getElementById('btn-crea-rate-piano');
+  if (bAvviaPiano) bAvviaPiano.onclick = () => {
+    const annoSel = state.filterAnno || new Date().getFullYear();
+    setState({ pianoRateConferma: annoSel });
+  };
+  const bAnnullaPiano = document.getElementById('btn-annulla-rate-piano');
+  if (bAnnullaPiano) bAnnullaPiano.onclick = () => {
+    setState({ pianoRateConferma: null });
+  };
+  const bConfermaPiano = document.getElementById('btn-conferma-rate-piano');
+  if (bConfermaPiano) bConfermaPiano.onclick = () => {
+    const annoSel = state.filterAnno || new Date().getFullYear();
+    const piano   = calcolaPianoRate(annoSel);
+    const edId = getUserEdificio(state.user);
+
+    // Proposte pendenti (non validate) di QUESTO piano per l'anno selezionato: quando la
+    // combinazione rata+condomino esiste ancora nel nuovo piano, il record viene AGGIORNATO
+    // sul posto (stesso id) invece di essere cancellato e ricreato — così eventuali riferimenti
+    // o note aggiunte a mano restano intatti. Viene rimosso solo ciò che non esiste più nel nuovo
+    // piano (es. perché il numero di rate necessarie è cambiato).
+    const vecchieProposte = state.entrate.filter(e =>
+      (!e.edificioId || e.edificioId === edId) && e.previsionale && e.pianoRataAuto && e.pianoAnno === annoSel
+    );
+    const vecchieByKey = new Map(vecchieProposte.map(e => [e.pianoRataN + ':' + e.condominoId, e]));
+
+    // Combinazioni rata+condomino GIÀ VALIDATE (pagamento reale arrivato): per queste non si crea
+    // né si aggiorna nulla — restano un dato storico stabile anche se il piano ricalcolato cambia,
+    // altrimenti rischieremmo di proporre di nuovo una rata già pagata.
+    const validatiByKey = new Set(
+      state.entrate
+        .filter(e => (!e.edificioId || e.edificioId === edId) && !e.previsionale && e.pianoRataAuto && e.pianoAnno === annoSel)
+        .map(e => e.pianoRataN + ':' + e.condominoId)
+    );
+    const usedKeys = new Set();
+
+    let entrate = [...state.entrate];
+    let creati = 0, aggiornati = 0, saltati = 0;
+
+    for (const r of piano.rate) {
+      for (const c of r.perCondomino) {
+        const key = r.n + ':' + c.id;
+        usedKeys.add(key);
+        if (validatiByKey.has(key)) { saltati++; continue; } // già pagata: non toccare, non duplicare
+        const esistente = vecchieByKey.get(key);
+        const descrizione = 'Piano rate ' + annoSel + ' - Rata ' + r.n + ' (' + r.mese + ')';
+        if (esistente) {
+          // stesso id: aggiorno solo i valori che il ricalcolo può aver cambiato.
+          // importoPrevisto tiene traccia dell'ultima proposta calcolata — utile da confrontare
+          // con importo se in futuro viene validato con un importo diverso da quello proposto.
+          entrate = entrate.map(e => e.id === esistente.id
+            ? { ...e, importo: String(c.importo), importoPrevisto: String(c.importo), data: r.data, descrizione }
+            : e);
+          aggiornati++;
+        } else {
+          entrate.push({
+            id: newId() + creati + aggiornati, // offset per evitare collisioni quando si creano più record nello stesso istante
+            condominoId: c.id,
+            importo: String(c.importo),
+            importoPrevisto: String(c.importo),
+            data: r.data,
+            descrizione,
+            categoria: 'quote',
+            edificioId: edId,
+            previsionale: true,
+            pianoRataAuto: true,
+            pianoAnno: annoSel,
+            pianoRataN: r.n,
+          });
+          creati++;
+        }
+      }
+    }
+
+    // Proposte pendenti che non fanno più parte del piano ricalcolato (rate/condomini cambiati):
+    // queste sì vanno rimosse, non ha senso lasciarle in sospeso.
+    const daRimuovere = vecchieProposte.filter(e => !usedKeys.has(e.pianoRataN + ':' + e.condominoId));
+    if (daRimuovere.length) {
+      const idsRimuovi = new Set(daRimuovere.map(e=>e.id));
+      entrate = entrate.filter(e => !idsRimuovi.has(e.id));
+    }
+
+    save('cm_entrate', entrate);
+    setState({ entrate, pianoRateConferma: null });
+
+    const parti = [];
+    if (creati) parti.push(creati + ' creati');
+    if (aggiornati) parti.push(aggiornati + ' aggiornati');
+    if (daRimuovere.length) parti.push(daRimuovere.length + ' rimossi perché non più necessari');
+    if (saltati) parti.push(saltati + ' già pagati, lasciati invariati');
+    alert(parti.length
+      ? 'Piano rate ' + annoSel + ': ' + parti.join(', ') + '. Valida i versamenti quando arrivano i pagamenti.'
+      : 'Nessuna modifica: il piano era già aggiornato.');
+  };
+  // Valida entrata previsionale → effettiva
+  document.querySelectorAll('[data-valida-entrata]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.validaEntrata);
+      if (!confirm('Confermi il versamento come effettivo? Verrà spostato dagli importi previsionali a quelli reali.')) return;
+      const entrate = state.entrate.map(e => e.id===id ? {...e, previsionale:false} : e);
+      save('cm_entrate', entrate);
+      setState({entrate});
+    };
+  });
+  // Modifica versamento
+  document.querySelectorAll('[data-edit-entrata]').forEach(btn => {
+    btn.onclick = () => {
+      const id = parseInt(btn.dataset.editEntrata);
+      const e  = state.entrate.find(x=>x.id===id);
+      if (!e) return;
+      setState({modal:{type:'entrata', data:e}});
+    };
+  });
+  document.querySelectorAll('[data-del-entrata]').forEach(btn => {
+    btn.onclick = () => {
+      if (!confirm('Eliminare questo versamento?')) return;
+      const entrate = state.entrate.filter(e=>e.id!==parseInt(btn.dataset.delEntrata));
+      save('cm_entrate', entrate);
+      setState({entrate});
+    };
+  });
+}
+
+// Scheda versamento: versamento effettivo o rate previsionali. Chiamata da bindModal() (schede.js).
+function bindSchedaEntrate() {
+  // Toggle effettivo/previsionale entrata
+  const tabEff  = document.getElementById('tab-effettivo');
+  const tabPrev = document.getElementById('tab-previsionale');
+  if (tabEff && tabPrev) {
+    const setPrev = (val) => {
+      document.getElementById('m-previsionale').value = val ? '1' : '0';
+      document.getElementById('prev-info').style.display      = val ? 'block' : 'none';
+      document.getElementById('rate-section').style.display   = val ? 'block' : 'none';
+      document.getElementById('singolo-section').style.display= val ? 'none'  : 'block';
+      tabEff.className  = `btn ${!val?'btn-primary':'btn-secondary'} btn-sm`;
+      tabPrev.className = `btn ${val?'btn-primary':'btn-secondary'} btn-sm`;
+      tabEff.style.flex = tabPrev.style.flex = '1';
+      const saveBtn = document.getElementById('modal-save');
+      if (saveBtn) saveBtn.textContent = val ? '💾 Pianifica rate' : '💾 Registra';
+    };
+    tabEff.onclick  = () => setPrev(false);
+    tabPrev.onclick = () => setPrev(true);
+  }
+  // Toggle rate aggiuntive (R3, R4)
+  [2,3,4].forEach(i => {
+    const btn = document.getElementById(`rata-toggle-${i}`);
+    if (!btn) return;
+    btn.onclick = () => {
+      const row = document.getElementById(`rata-row-${i}`);
+      if (!row) return;
+      const visible = row.style.display !== 'none';
+      row.style.display = visible ? 'none' : 'flex';
+      btn.textContent = visible ? '➕' : '➖';
+      if (visible) {
+        const di = document.getElementById(`rata-importo-${i}`);
+        if (di) di.value = '';
+      }
+      aggiornaRateTotale();
+    };
+  });
+  // Calcola totale rate in tempo reale
+  function aggiornaRateTotale() {
+    let tot = 0;
+    [1,2,3,4].forEach(i => {
+      const row = document.getElementById(`rata-row-${i}`);
+      if (row && row.style.display !== 'none') {
+        tot += parseFloat(document.getElementById(`rata-importo-${i}`)?.value||0);
+      }
+    });
+    const el = document.getElementById('rate-totale-val');
+    if (el) el.textContent = fmt(tot);
+  }
+  [1,2,3,4].forEach(i => {
+    const inp = document.getElementById(`rata-importo-${i}`);
+    if (inp) inp.addEventListener('input', aggiornaRateTotale);
+  });
+}
+
+// Salvataggio della scheda versamento: modifica, rate previsionali o versamento effettivo. Chiamata da saveModal() (schede.js).
+function salvaSchedaEntrata(m) {
+    const previsionale = document.getElementById('m-previsionale')?.value === '1';
+    const errEl = document.getElementById('entrata-err');
+    const showErr = (msg) => { if(errEl){errEl.textContent=msg;errEl.style.display='block';} else alert(msg); };
+
+    if (m.data?.id) {
+      // ── MODIFICA / VALIDAZIONE singola ──────────────────────────────────
+      const condoId  = parseInt(document.getElementById('m-condo-s')?.value);
+      const importo  = document.getElementById('m-importo-s')?.value;
+      const data     = document.getElementById('m-data-s')?.value;
+      const desc     = document.getElementById('m-desc-s')?.value?.trim();
+      const cat      = document.getElementById('m-cat-s')?.value||'quote';
+      if (!condoId || !importo || !data) { showErr('Compila tutti i campi obbligatori'); return; }
+      // Validazione: rimane previsionale SOLO se il toggle è ancora su prev
+      const entrate = state.entrate.map(e => e.id===m.data.id
+        ? {...e, condominoId:condoId, importo, data, descrizione:desc, categoria:cat, previsionale: m.data.previsionale ? previsionale : false}
+        : e);
+      save('cm_entrate', entrate);
+      setState({entrate, modal:null});
+
+    } else if (previsionale) {
+      // ── INSERIMENTO RATE PREVISIONALI ────────────────────────────────────
+      const condoId = parseInt(document.getElementById('m-condo')?.value);
+      const desc    = document.getElementById('m-desc')?.value?.trim();
+      const cat     = document.getElementById('m-cat')?.value||'quote';
+      if (!condoId) { showErr('Seleziona il condomino'); return; }
+
+      const rate = [];
+      [1,2,3,4].forEach(i => {
+        const row     = document.getElementById(`rata-row-${i}`);
+        if (!row || row.style.display === 'none') return;
+        const dataR   = document.getElementById(`rata-data-${i}`)?.value;
+        const importoR= document.getElementById(`rata-importo-${i}`)?.value;
+        if (dataR && importoR && parseFloat(importoR)>0) {
+          rate.push({ id:newId(), condominoId:condoId, importo:importoR, data:dataR,
+            descrizione: desc ? `${desc} — Rata ${i}` : `Rata ${i}`,
+            categoria:cat, edificioId:state.edificioAttivo, previsionale:true });
+        }
+      });
+      if (rate.length === 0) { showErr('Inserisci almeno una rata con data e importo'); return; }
+      const entrate = [...state.entrate, ...rate];
+      save('cm_entrate', entrate);
+      setState({entrate, modal:null});
+
+    } else {
+      // ── INSERIMENTO EFFETTIVO SINGOLO ────────────────────────────────────
+      const condoId = parseInt(document.getElementById('m-condo-s')?.value);
+      const importo = document.getElementById('m-importo-s')?.value;
+      const data    = document.getElementById('m-data-s')?.value;
+      const desc    = document.getElementById('m-desc-s')?.value?.trim();
+      const cat     = document.getElementById('m-cat-s')?.value||'quote';
+      if (!condoId || !importo || !data) { showErr('Compila tutti i campi obbligatori'); return; }
+      const item = { id:newId(), condominoId:condoId, importo, data, descrizione:desc, categoria:cat, edificioId:state.edificioAttivo, previsionale:false };
+      const entrate = [...state.entrate, item];
+      save('cm_entrate', entrate);
+      setState({entrate, modal:null});
+    }
+}
