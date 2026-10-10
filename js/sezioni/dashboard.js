@@ -40,16 +40,10 @@ function renderDashboard() {
   const quotaPersonale = (() => {
     if (isSuperAdmin(state.user)) return totSpeseCons / nAttivi;
     const uid = state.user.id;
-    return spese.reduce((acc, s) => {
-      const ref = parseFloat(s.consuntivo||0);
-      if (!ref) return acc;
-      if (s.split?.length) {
-        const entry = s.split.find(x => x.id === uid);
-        return acc + (entry ? (entry.perc||0)/100*ref : ref/nAttivi);
-      }
-      return acc + ref/nAttivi;
-    }, 0);
+    return spese.reduce((acc, s) => acc + quotaSuSpesa(s, uid, parseFloat(s.consuntivo||0), nAttivi), 0);
   })();
+  // Debito o credito degli anni precedenti del condomino collegato.
+  const riportoUtente = isSuperAdmin(state.user) ? 0 : riportoCondomino(state.user.id, d => annoDi(d) < anno, nAttivi);
   // Solo versamenti reali: le rate previsionali (es. piano rate dell'anno prossimo) non sono "versate".
   const pagatoUtente   = entrate.filter(e=>e.condominoId===state.user.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
 
@@ -59,8 +53,8 @@ function renderDashboard() {
   // un mese passato può avere spese ancora aperte, un mese futuro può avere versamenti già reali).
   const nomiMesi = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
   const cashflow = Array.from({length:12}, (_,m) => {
-    const speseM   = spese.filter(s=>new Date(s.data).getMonth()===m);
-    const entrateM = entrate.filter(e=>new Date(e.data).getMonth()===m);
+    const speseM   = spese.filter(s=>meseDi(s.data)===m);
+    const entrateM = entrate.filter(e=>meseDi(e.data)===m);
     const cons         = speseM.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
     const prevForecast = speseM.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
     const incassi       = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
@@ -112,7 +106,7 @@ function renderDashboard() {
   // Solo nell'anno corrente: in un anno futuro quei mesi sono nella finestra qui
   // sotto e venivano contati due volte (falso allarme "già questo mese").
   const speseArretrateAperte = !isAnnoCorrenteDash ? 0 : spese
-    .filter(s => new Date(s.data).getMonth() <= meseCurr)
+    .filter(s => meseDi(s.data) <= meseCurr)
     .filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0)
     .reduce((a, s) => a + parseFloat(s.preventivo), 0);
 
@@ -121,8 +115,8 @@ function renderDashboard() {
   let minBalFinestra = saldoSim;
   let usciteFinestra = speseArretrateAperte;
   for (let m = meseInizioSim; m <= meseFineSim; m++) {
-    const speseM = spese.filter(s => new Date(s.data).getMonth() === m);
-    const entrateM = entrate.filter(e => new Date(e.data).getMonth() === m);
+    const speseM = spese.filter(s => meseDi(s.data) === m);
+    const entrateM = entrate.filter(e => meseDi(e.data) === m);
     const forecastMese = speseM.filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo),0);
     const incPrevistiMese = entrateM.filter(e => e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
     usciteFinestra += forecastMese;
@@ -137,7 +131,7 @@ function renderDashboard() {
   const totEntratePrevis  = entrate.filter(e=>e.previsionale).reduce((a,e) => a + parseFloat(e.importo||0), 0);
   const cassaProiettata   = saldo + totEntratePrevis; // saldo reale + previsionali in entrata
   // Media mensile basata sui mesi con spese inserite (usata per lo storico/i pallini del runway-card, non per il messaggio principale)
-  const mesiConSpese      = new Set(spese.filter(s=>parseFloat(s.consuntivo||s.preventivo||0)>0).map(s=>new Date(s.data).getMonth()));
+  const mesiConSpese      = new Set(spese.filter(s=>parseFloat(s.consuntivo||s.preventivo||0)>0).map(s=>meseDi(s.data)));
   const nMesiPianificati  = Math.max(mesiConSpese.size, 1);
   const spesaMensileMedia = totSpeseFull / nMesiPianificati;
 
@@ -366,9 +360,10 @@ function renderDashboard() {
     <div class="card" style="margin-bottom:1.25rem">
       <div class="card-header"><h3>La tua situazione</h3></div>
       <div style="padding:1rem 1.25rem;display:flex;gap:1.5rem;flex-wrap:wrap">
-        <div><div style="font-size:12px;color:var(--text2)">Quota dovuta</div><div style="font-size:1.3rem;font-weight:700;color:var(--red)">${fmt(quotaPersonale)}</div></div>
-        <div><div style="font-size:12px;color:var(--text2)">Versato</div><div style="font-size:1.3rem;font-weight:700;color:var(--green)">${fmt(pagatoUtente)}</div></div>
-        <div><div style="font-size:12px;color:var(--text2)">Differenza</div><div style="font-size:1.3rem;font-weight:700;color:${pagatoUtente>=quotaPersonale?'var(--green)':'var(--red)'}">${fmt(pagatoUtente-quotaPersonale)}</div></div>
+        ${Math.abs(riportoUtente) > 0.005 ? `<div><div style="font-size:12px;color:var(--text2)">Dagli anni precedenti</div><div style="font-size:1.3rem;font-weight:700;color:${riportoUtente>=0?'var(--green)':'var(--red)'}">${riportoUtente>=0?'+':''}${fmt(riportoUtente)}</div></div>` : ''}
+        <div><div style="font-size:12px;color:var(--text2)">Quota dovuta ${anno}</div><div style="font-size:1.3rem;font-weight:700;color:var(--red)">${fmt(quotaPersonale)}</div></div>
+        <div><div style="font-size:12px;color:var(--text2)">Versato ${anno}</div><div style="font-size:1.3rem;font-weight:700;color:var(--green)">${fmt(pagatoUtente)}</div></div>
+        <div><div style="font-size:12px;color:var(--text2)">${Math.abs(riportoUtente) > 0.005 ? 'Saldo (con riporto)' : 'Differenza'}</div><div style="font-size:1.3rem;font-weight:700;color:${riportoUtente+pagatoUtente>=quotaPersonale?'var(--green)':'var(--red)'}">${fmt(riportoUtente+pagatoUtente-quotaPersonale)}</div></div>
       </div>
     </div>` : ''}
 

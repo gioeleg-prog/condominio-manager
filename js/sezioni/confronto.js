@@ -54,17 +54,6 @@ function importoBase(s, base) {
   return base === 'preventivo' ? p : base === 'misto' ? (c || p) : c;
 }
 
-// Quota di un condomino su una spesa: percentuale salvata; se la spesa ha una
-// ripartizione e lui non c'è, zero (come la pagina Spese); senza ripartizione,
-// parti uguali tra i condomini attivi di oggi.
-function quotaSuSpesa(s, condId, importo, nAttivi) {
-  if (!importo) return 0;
-  if (s.split?.length) {
-    const e = s.split.find(x => x.id === condId);
-    return e ? (e.perc || 0) / 100 * importo : 0;
-  }
-  return importo / nAttivi;
-}
 
 function renderConfronto() {
   // Alla prima apertura i pulsanti mostrano accesi gli anni predefiniti (e il clic parte da quelli).

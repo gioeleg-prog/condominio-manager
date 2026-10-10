@@ -45,6 +45,21 @@ function setServerSnap(key, val) {
   _serverSnap[key] = val === undefined ? undefined : JSON.parse(JSON.stringify(val));
 }
 
+// Versione di ogni record letta dal server (_updatedAt in millisecondi), per
+// chiave e id. Prima di modificare o cancellare un record si controlla che sul
+// server sia ancora quella versione: se un'altra persona l'ha cambiato nel
+// frattempo il salvataggio si ferma invece di sovrascriverlo in silenzio.
+const _versioni = {};
+
+function versioneDi(d) {
+  const t = d && d._updatedAt;
+  return t && typeof t.toMillis === 'function' ? t.toMillis() : null;
+}
+function setVersioni(key, docs) {
+  _versioni[key] = _versioni[key] || new Map();
+  docs.forEach(d => { const v = d.data(); if (v && v.id != null) _versioni[key].set(String(v.id), versioneDi(v)); });
+}
+
 // Salvataggi in coda per chiave: due salvataggi ravvicinati della stessa
 // sezione devono partire in ordine, ognuno confrontato con l'esito del precedente.
 const _saveQueue = {};
@@ -114,11 +129,48 @@ async function saveRecords(key, val) {
   for (const prev of before.values()) {
     writes.push([recordRef(key, prev), { _deleted: true, _deletedBy: uid, _updatedBy: uid, _updatedAt: serverTimestamp() }, { merge: true }]);
   }
+  await controllaConflitti(key, writes);
   for (let i = 0; i < writes.length; i += 400) {
     const batch = writeBatch(db);
     writes.slice(i, i + 400).forEach(([ref, data, opts]) => opts ? batch.set(ref, data, opts) : batch.set(ref, data));
     await batch.commit();
   }
+  await aggiornaVersioni(key, writes);
+}
+
+// Modifiche e cancellazioni (scritture con merge) di record di cui si conosce
+// la versione: se sul server la versione è cambiata, o il record è stato
+// cancellato, qualcun altro ci ha lavorato dopo il caricamento della pagina.
+async function controllaConflitti(key, writes) {
+  const { getDoc } = window._fb;
+  const note = _versioni[key];
+  if (!note) return;
+  const daControllare = writes.filter(([ref, , opts]) => opts && note.has(ref.id));
+  const conflitti = [];
+  await Promise.all(daControllare.map(async ([ref]) => {
+    const snap = await getDoc(ref);
+    const cur = snap.exists() ? snap.data() : null;
+    if (!cur || cur._deleted || versioneDi(cur) !== note.get(ref.id)) conflitti.push(cur);
+  }));
+  if (conflitti.length) {
+    const nome = (r) => r && (r.titolo || r.nome || r.descrizioneSintetica || r.descrizione);
+    const nomi = conflitti.map(nome).filter(Boolean).slice(0, 3).map(n => '«' + n + '»').join(', ');
+    const err = new Error((nomi ? nomi + ': ' : '') + (conflitti.length === 1 ? 'questa voce è stata modificata' : conflitti.length + ' voci sono state modificate')
+      + ' da un\'altra persona dopo che hai aperto la pagina. Ricarica la pagina per vedere la versione aggiornata, poi ripeti la modifica.');
+    err.code = 'conflitto';
+    throw err;
+  }
+}
+
+// Dopo il salvataggio si rilegge la versione dei record scritti, così la
+// prossima modifica della stessa voce da questa pagina non risulta un conflitto.
+async function aggiornaVersioni(key, writes) {
+  const { getDoc } = window._fb;
+  _versioni[key] = _versioni[key] || new Map();
+  await Promise.all(writes.map(async ([ref]) => {
+    try { const snap = await getDoc(ref); if (snap.exists()) _versioni[key].set(ref.id, versioneDi(snap.data())); }
+    catch (e) { _versioni[key].delete(ref.id); } // versione sconosciuta: nessun controllo, come prima
+  }));
 }
 
 async function fbSaveKeyNow(key, val) {
@@ -174,16 +226,22 @@ async function fbLoadBuildings(profile) {
   const { db, doc, getDoc, getDocs, collection } = window._fb;
   let edifici;
   if (isSuperAdmin(profile)) {
-    edifici = fromDocs((await getDocs(collection(db, 'buildings'))).docs);
+    const docs = (await getDocs(collection(db, 'buildings'))).docs;
+    setVersioni('cm_edifici', docs);
+    edifici = fromDocs(docs);
   } else {
     const snap = await getDoc(doc(db, 'buildings', String(profile.edificioId)));
+    if (snap.exists()) setVersioni('cm_edifici', [snap]);
     edifici = snap.exists() ? fromDocs([snap]) : [];
   }
   edifici.sort((a, b) => Number(a.id) - Number(b.id));
   const perKey = {};
   await Promise.all(RECORD_KEYS.filter(k => APPDATA_CONFIG[k].coll).map(async (key) => {
-    const parts = await Promise.all(edifici.map(async (ed) =>
-      fromDocs((await getDocs(collection(db, 'buildings', String(ed.id), APPDATA_CONFIG[key].coll))).docs)));
+    const parts = await Promise.all(edifici.map(async (ed) => {
+      const docs = (await getDocs(collection(db, 'buildings', String(ed.id), APPDATA_CONFIG[key].coll))).docs;
+      setVersioni(key, docs);
+      return fromDocs(docs);
+    }));
     perKey[key] = parts.flat();
   }));
   _cache.cm_edifici = edifici;

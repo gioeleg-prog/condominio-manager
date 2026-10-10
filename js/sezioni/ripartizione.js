@@ -258,5 +258,16 @@ function readSplitFromDOM() {
       locked: lockBtn?.dataset?.locked === '1',
     });
   });
+  // Le caselle hanno due decimali: se per arrotondamento il totale è tra 99,95%
+  // e 100,05% (es. 6 × 16,67% = 100,02%) si riporta a 100,00% esatto togliendo
+  // o aggiungendo un centesimo di punto alle quote più grandi.
+  const cent = Math.round(split.reduce((a, s) => a + s.perc, 0) * 100) - 10000;
+  if (cent !== 0 && Math.abs(cent) <= 5) {
+    const ordine = split.filter(s => s.perc > 0).sort((a, b) => b.perc - a.perc);
+    for (let i = 0; i < Math.abs(cent) && ordine.length; i++) {
+      const s = ordine[i % ordine.length];
+      s.perc = Math.round((s.perc - Math.sign(cent) * 0.01) * 100) / 100;
+    }
+  }
   return split;
 }
