@@ -263,7 +263,7 @@ async function fbLoadBuildings(profile) {
 const RECORD_SCHEMA = {
   arrays: { allegati: 'object', split: 'object', storicoAggiornamenti: 'object', argomenti: 'string', decisioni: 'string' },
   text: ['titolo', 'testo', 'descrizione', 'descrizioneSintetica', 'nome', 'appartamento', 'email', 'username', 'note', 'responsabile',
-    'indirizzo', 'categoria', 'tipo', 'tipoSpesa', 'stato', 'data', 'scadenza', 'telefono'],
+    'indirizzo', 'categoria', 'tipo', 'tipoSpesa', 'stato', 'data', 'scadenza', 'telefono', 'dataIngresso', 'dataUscita'],
 };
 
 function normalizeRecords(arr) {

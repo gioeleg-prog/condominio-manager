@@ -46,7 +46,9 @@ function renderEntrate() {
   const totalePrevisto = items.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
 
   const anni = getAnni();
-  const perCondomino = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).map(c=>{
+  // Chi ha fatto parte del condominio negli anni scelti (anche se poi è uscito per un subentro), o vi ha versamenti.
+  const perCondomino = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.superAdmin
+    && ((anniSel.length ? anniSel.some(a=>attivoNellAnno(c,a)) : !c.disabled) || items.some(e=>e.condominoId===c.id))).map(c=>{
     const tot = items.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
     return {...c, totale:tot};
   });

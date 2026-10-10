@@ -52,6 +52,7 @@ function renderCondomini() {
             <button class="btn btn-secondary btn-sm" data-edit-cond="${c.id}" title="Modifica anagrafica">✏️ Modifica</button>
             <button class="btn btn-secondary btn-sm" data-bilancio-cond="${c.id}" style="color:var(--accent)" title="Vedi bilancio individuale">📊 Bilancio</button>
             <button class="btn btn-secondary btn-sm" data-estratto-cond="${c.id}" title="Estratto conto in PDF">📄 Estratto conto</button>
+            <button class="btn btn-secondary btn-sm" data-subentro-cond="${c.id}" title="Vendita o cambio di inquilino: archivia chi esce e inserisce chi entra">🔁 Subentro</button>
             <button class="btn btn-secondary btn-sm" data-disable-cond="${c.id}" style="color:var(--amber)" title="Archivia — il condomino non potrà più accedere ma i dati restano">⏸ Archivia</button>
             ${isSuperAdmin(state.user)?`<button class="btn btn-secondary btn-sm" data-reset-pw-cond="${c.id}" title="Reset password — imposta una nuova password temporanea">🔑 Reset PW</button>`:''}
             <button class="btn btn-danger btn-sm" data-del-cond="${c.id}" title="Elimina definitivamente — attenzione: i versamenti restano nello storico">🗑 Elimina</button>`:''}
@@ -66,7 +67,8 @@ function renderCondomini() {
       ${disabilitati.map(c=>`<div class="utente-card" style="background:var(--surface2);border-style:dashed">
         <div class="uc-head">
           <div class="avatar-lg" style="${avatarStyle(c.color)}">${initials(c.nome)}</div>
-          <div style="flex:1"><div class="uc-name">${esc(c.nome)}</div><div class="uc-apt">🏠 ${esc(c.appartamento)}</div></div>
+          <div style="flex:1"><div class="uc-name">${esc(c.nome)}</div><div class="uc-apt">🏠 ${esc(c.appartamento)}</div>
+            ${periodoCondomino(c).fine && periodoCondomino(c).fine !== '0000-00-00' ? `<div style="font-size:11px;color:var(--text2)">${periodoCondomino(c).inizio ? 'dal ' + dataPdf(periodoCondomino(c).inizio) + ' ' : ''}uscito il ${dataPdf(periodoCondomino(c).fine)}</div>` : ''}</div>
           <span class="badge badge-gray">Archiviato</span>
         </div>
         ${canEdit?`<div class="uc-actions" style="margin-top:.75rem">
@@ -138,6 +140,11 @@ function renderModalDisableCond(cond) {
         </div>
         <div class="alert alert-warning" style="margin-bottom:1rem">
           <strong>L'utente verrà disabilitato</strong> e non potrà più accedere al sistema. Tutte le spese, i versamenti e lo storico rimarranno intatti e visibili nella sezione archivio.
+        </div>
+        <div class="field">
+          <label for="disable-uscita">Data di uscita</label>
+          <input type="date" id="disable-uscita" value="${ymdLocale(new Date())}">
+          <p class="hint">Dal giorno indicato non partecipa più alle spese senza ripartizione. Per chi ha venduto a un nuovo condomino usa invece "🔁 Subentro".</p>
         </div>
         <div class="field">
           <label>Motivazione (opzionale)</label>
@@ -297,6 +304,18 @@ function renderModalCond(d) {
             <input type="email" id="m-email" value="${esc(d?.email||'')}" placeholder="email@example.com">
             <p class="hint">Usata per Firebase Auth e per il reset password.</p>
           </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="m-ingresso">Nel condominio dal</label>
+            <input type="date" id="m-ingresso" value="${esc(d?.dataIngresso||'')}">
+            <p class="hint">Facoltativa: da questa data partecipa alle spese senza ripartizione.</p>
+          </div>
+          ${d?.disabled || d?.dataUscita ? `<div class="field">
+            <label for="m-uscita">Uscito il</label>
+            <input type="date" id="m-uscita" value="${esc(d?.dataUscita || (d?.disabledOn||'').slice(0,10))}">
+            <p class="hint">Primo giorno in cui non partecipa più alle spese.</p>
+          </div>` : ''}
         </div>
         <div class="field">
           <label>Condominio di appartenenza ${isSuperAdmin(state.user)?'*':''}</label>
@@ -502,6 +521,12 @@ function bindAzioniCondomini() {
     sel.dataset.prevValue = sel.value;
   });
   // Disabilita utente
+  document.querySelectorAll('[data-subentro-cond]').forEach(btn => {
+    btn.onclick = () => {
+      const cond = state.condomini.find(c => c.id === parseInt(btn.dataset.subentroCond));
+      if (cond) setState({ modal: { type: 'subentro', data: { ...cond } } });
+    };
+  });
   document.querySelectorAll('[data-disable-cond]').forEach(btn => {
     btn.onclick = () => {
       const id = parseInt(btn.dataset.disableCond);
@@ -515,7 +540,7 @@ function bindAzioniCondomini() {
       const id = parseInt(btn.dataset.enableCond);
       if (!confirm('Riabilitare questo utente? Potrà tornare ad accedere al sistema.')) return;
       const condomini = state.condomini.map(c => c.id===id
-        ? {...c, disabled:false, disabledOn:null, disabledNote:null}
+        ? {...c, disabled:false, disabledOn:null, disabledNote:null, dataUscita:null}
         : c);
       save('cm_condomini', condomini);
       setState({condomini});
@@ -564,12 +589,14 @@ function bindSchedaCondomini() {
   if (bConfDis) bConfDis.onclick = () => {
     const id = parseInt(bConfDis.dataset.uid);
     const note = document.getElementById('disable-note')?.value?.trim() || null;
+    const dataUscita = document.getElementById('disable-uscita')?.value || ymdLocale(new Date());
     const condomini = state.condomini.map(c => c.id===id
-      ? {...c, disabled:true, disabledOn: new Date().toISOString(), disabledNote: note}
+      ? {...c, disabled:true, disabledOn: new Date().toISOString(), disabledNote: note, dataUscita}
       : c);
     save('cm_condomini', condomini);
     setState({condomini, modal:null});
   };
+  bindSchedaSubentro();
   // Wizard nuovo utente
   bindWizard();
 }
@@ -585,6 +612,11 @@ function salvaSchedaCondomino(m) {
     const canEditNew = ruolo === 'modifica' || isAdminNew;
     const superAdminNew = false; // promozione a superAdmin solo via select dedicata
     if (!nome || !apt) { alert('Nome e appartamento sono obbligatori'); return; }
+    const dataIngresso = document.getElementById('m-ingresso')?.value || '';
+    const campoUscita = document.getElementById('m-uscita');
+    const dataUscita = campoUscita ? campoUscita.value || '' : undefined;
+    if (dataIngresso && dataUscita && dataUscita <= dataIngresso) { alert('La data di uscita deve venire dopo quella di ingresso.'); return; }
+    const date = { dataIngresso, ...(dataUscita !== undefined ? { dataUscita } : {}) };
     let condomini;
     if (m.data?.id) {
       const username = document.getElementById('m-username')?.value?.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') || '';
@@ -610,7 +642,7 @@ function salvaSchedaCondomino(m) {
         return edificioId;  // nessuna transazione → spostamento libero
       })();
       condomini = state.condomini.map(c=>c.id===m.data.id
-        ? {...c, nome, appartamento:apt, email, username, canEdit:canEditNew, isAdmin:isAdminNew, superAdmin:c.superAdmin||false, edificioId:edificioIdFinale}
+        ? {...c, nome, appartamento:apt, email, username, canEdit:canEditNew, isAdmin:isAdminNew, superAdmin:c.superAdmin||false, edificioId:edificioIdFinale, ...date}
         : c);
       // Se il ruolo dell'utente loggato è cambiato, aggiornare anche state.user
       if (state.user && state.user.id === m.data.id) {
@@ -623,8 +655,111 @@ function salvaSchedaCondomino(m) {
       if (usernameNew && state.condomini.some(c=>c.username===usernameNew)) {
         alert('Username già in uso. Scegli un nome diverso.'); return;
       }
-      condomini = [...state.condomini, {id:newId(),nome,appartamento:apt,email,username:usernameNew,canEdit:canEditNew,isAdmin:isAdminNew,superAdmin:false,edificioId,color:COLORS[nextIdx]}];
+      condomini = [...state.condomini, {id:newId(),nome,appartamento:apt,email,username:usernameNew,canEdit:canEditNew,isAdmin:isAdminNew,superAdmin:false,edificioId,color:COLORS[nextIdx],...date}];
     }
     save('cm_condomini', condomini);
     setState({condomini, modal:null});
+}
+
+// ===========================
+// SUBENTRO (vendita o cambio di inquilino)
+// ===========================
+// In un solo passo: chi esce viene archiviato con la data di uscita, chi entra
+// viene creato nello stesso appartamento con la data di ingresso, e le quote
+// delle spese future non ancora consuntivate passano al nuovo condomino.
+// Le spese senza ripartizione si dividono già per data (js/core/utils.js).
+
+// Spese dell'edificio dalla data del subentro, non consuntivate, in cui chi esce ha una quota.
+function speseDaPassare(condId, data, edificioId) {
+  return state.spese.filter(s => (s.edificioId || state.edificioAttivo) === edificioId && String(s.data || '') >= data
+    && !(parseFloat(s.consuntivo) > 0) && (s.split || []).some(x => x.id === condId && (x.perc || 0) > 0));
+}
+
+function renderModalSubentro(d) {
+  const oggi = ymdLocale(new Date());
+  const n = speseDaPassare(d.id, oggi, d.edificioId || state.edificioAttivo).length;
+  return `
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <h2>🔁 Subentro nell'appartamento</h2>
+        <button class="modal-close" id="modal-close" aria-label="Chiudi">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text2);margin-bottom:1rem">Esce <strong style="color:var(--text)">${esc(d.nome)}</strong> (${esc(d.appartamento || '')}): viene archiviato con i suoi versamenti e il suo storico. Entra il nuovo condomino nello stesso appartamento.</p>
+        <div class="field">
+          <label for="sub-data">Data del subentro *</label>
+          <input type="date" id="sub-data" value="${oggi}">
+          <p class="hint">Dal giorno indicato le spese senza ripartizione si dividono con il nuovo condomino.</p>
+        </div>
+        <div class="field">
+          <label for="sub-nome">Nome del nuovo condomino *</label>
+          <input type="text" id="sub-nome" placeholder="Nome e cognome">
+        </div>
+        <div class="field">
+          <label for="sub-email">Email per l'accesso</label>
+          <input type="email" id="sub-email" placeholder="email@esempio.it">
+          <p class="hint">Con questa email potrà entrare (anche con Google). Puoi aggiungerla dopo da ✏️ Modifica.</p>
+        </div>
+        <div class="field">
+          <label for="sub-ruolo">Ruolo</label>
+          <select id="sub-ruolo">
+            <option value="lettura" selected>Lettura — solo consultazione</option>
+            <option value="modifica">Modifica — può aggiungere e modificare</option>
+          </select>
+        </div>
+        <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="sub-passa" checked style="width:16px;height:16px;margin-top:2px">
+          <span>Passa al nuovo condomino le quote delle spese future non ancora consuntivate${n ? ` (oggi: ${n} ${n === 1 ? 'spesa' : 'spese'})` : ''}. Le spese già consuntivate restano a chi esce.</span>
+        </label>
+        <div id="sub-err" class="alert alert-warning" style="display:none;font-size:13px;margin-top:.75rem"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
+        <button class="btn btn-primary" id="btn-sub-conferma" data-cond="${d.id}">🔁 Conferma subentro</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindSchedaSubentro() {
+  const b = document.getElementById('btn-sub-conferma');
+  if (!b || state.modal?.type !== 'subentro') return;
+  b.onclick = () => {
+    const err = (t) => { const e = document.getElementById('sub-err'); e.textContent = t; e.style.display = 'block'; };
+    const vecchio = state.condomini.find(c => c.id === Number(b.dataset.cond));
+    const data = document.getElementById('sub-data').value;
+    const nome = document.getElementById('sub-nome').value.trim();
+    const email = document.getElementById('sub-email').value.trim();
+    const ruolo = document.getElementById('sub-ruolo').value;
+    if (!vecchio) return err('Condomino non trovato: ricarica la pagina.');
+    if (!data) return err('Indica la data del subentro.');
+    if (!nome) return err('Indica il nome del nuovo condomino.');
+    const { inizio } = periodoCondomino(vecchio);
+    if (inizio && data <= inizio) return err('La data del subentro deve venire dopo l\'ingresso di ' + vecchio.nome + ' (' + dataPdf(inizio) + ').');
+    const edificioId = vecchio.edificioId || state.edificioAttivo;
+    const nuovo = { id: newId(), nome, appartamento: vecchio.appartamento || '', email, username: '', canEdit: ruolo === 'modifica', isAdmin: false, superAdmin: false,
+      edificioId, color: COLORS[state.condomini.length % COLORS.length], dataIngresso: data };
+    const condomini = [...state.condomini.map(c => c.id === vecchio.id
+      ? { ...c, disabled: true, disabledOn: new Date().toISOString(), dataUscita: data, disabledNote: 'Subentro: ' + nome + ' dal ' + dataPdf(data) }
+      : c), nuovo];
+    // Quote delle spese future: la percentuale di chi esce passa a chi entra.
+    let spese = state.spese;
+    const daPassare = document.getElementById('sub-passa').checked ? new Set(speseDaPassare(vecchio.id, data, edificioId).map(s => s.id)) : new Set();
+    if (daPassare.size) {
+      spese = state.spese.map(s => {
+        if (!daPassare.has(s.id)) return s;
+        const quota = s.split.find(x => x.id === vecchio.id).perc || 0;
+        const giaNuovo = s.split.some(x => x.id === nuovo.id);
+        const split = s.split.map(x => x.id === vecchio.id ? { ...x, perc: 0 } : x.id === nuovo.id ? { ...x, perc: (x.perc || 0) + quota } : x);
+        return { ...s, split: giaNuovo ? split : [...split, { id: nuovo.id, perc: quota, locked: false }] };
+      });
+    }
+    save('cm_condomini', condomini);
+    if (daPassare.size) save('cm_spese', spese);
+    setState({ condomini, spese, modal: null });
+    alert('✅ Subentro registrato: ' + vecchio.nome + ' archiviato dal ' + dataPdf(data) + ', ' + nome + ' inserito'
+      + (daPassare.size ? '; quote di ' + daPassare.size + ' spese future passate al nuovo condomino.' : '.')
+      + (email ? '' : '\nRicorda di aggiungere la sua email per l\'accesso.'));
+  };
 }

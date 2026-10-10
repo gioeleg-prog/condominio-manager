@@ -131,7 +131,36 @@ function quotaSuSpesa(s, condId, importo, nAttivi) {
     const e = s.split.find(x => x.id === condId);
     return e ? percEffettiva(s.split, e.perc) / 100 * importo : 0;
   }
+  // Senza ripartizione: parti uguali tra chi faceva parte del condominio alla
+  // data della spesa (subentri: chi è entrato dopo o uscito prima non paga).
+  const partecipanti = condominiAllaData(s.data, s.edificioId || state.edificioAttivo);
+  if (partecipanti.length) return partecipanti.some(c => c.id === condId) ? importo / partecipanti.length : 0;
   return importo / (nAttivi || 1);
+}
+
+// ── Subentri: periodo in cui un condomino fa parte del condominio ─────────
+// Inizio = data di ingresso (vuota = da sempre). Fine = data di uscita; per chi
+// è archiviato senza data di uscita vale la data dell'archiviazione, e se manca
+// anche quella non partecipa (come prima dei subentri). La data di uscita è il
+// primo giorno in cui non partecipa più: a quella data subentra il nuovo.
+function periodoCondomino(c) {
+  const inizio = /^\d{4}-\d{2}-\d{2}/.test(c.dataIngresso || '') ? c.dataIngresso.slice(0, 10) : '';
+  let fine = /^\d{4}-\d{2}-\d{2}/.test(c.dataUscita || '') ? c.dataUscita.slice(0, 10) : '';
+  if (!fine && c.disabled) fine = /^\d{4}-\d{2}-\d{2}/.test(c.disabledOn || '') ? c.disabledOn.slice(0, 10) : '0000-00-00';
+  return { inizio, fine };
+}
+function attivoAllaData(c, data) {
+  const d = /^\d{4}-\d{2}-\d{2}/.test(data || '') ? String(data).slice(0, 10) : ymdLocale(new Date());
+  const { inizio, fine } = periodoCondomino(c);
+  return (!inizio || d >= inizio) && (!fine || d < fine);
+}
+// Ha fatto parte del condominio per almeno un giorno dell'anno.
+function attivoNellAnno(c, anno) {
+  const { inizio, fine } = periodoCondomino(c);
+  return (!inizio || inizio <= anno + '-12-31') && (!fine || fine > anno + '-01-01');
+}
+function condominiAllaData(data, edificioId = state.edificioAttivo) {
+  return state.condomini.filter(c => c.edificioId === edificioId && !c.superAdmin && attivoAllaData(c, data));
 }
 
 // Percentuale da usare nei calcoli: le caselle della ripartizione hanno due
