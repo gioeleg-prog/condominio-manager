@@ -482,3 +482,20 @@ describe('UNIT — ripartizione esatta al 100%', () => {
     assert.strictEqual(app.percEffettiva([{ perc: 50 }, { perc: 30 }], 50), 50);
   });
 });
+
+describe('UNIT — spese ricorrenti come serie', () => {
+  const Y = new Date().getFullYear();
+  const serie = [1, 2, 3, 4].map((m) => ({ id: 70 + m, ricGruppoId: 9, data: `${Y + 1}-0${m}-01`, preventivo: '100', consuntivo: m === 3 ? '100' : '', edificioId: 1, split: [] }));
+  const app = loadApp();
+  app.__set('state', { ...app.__get('state'), spese: [...serie, { id: 99, data: `${Y + 1}-05-01`, preventivo: '5', edificioId: 1 }] });
+  it('successive = stessa serie, dopo questa, non consuntivate', () => {
+    const ids = app.occorrenzeSuccessive(serie[0]).map((s) => s.id).sort();
+    assert.strictEqual(JSON.stringify(ids), '[72,74]'); // la 73 è consuntivata, la 99 è di un'altra serie
+    assert.strictEqual(app.occorrenzeSuccessive(serie[3]).length, 0);
+    assert.strictEqual(app.occorrenzeSuccessive({ id: 1, data: '2026-01-01' }).length, 0);
+  });
+  it('la scheda mostra il riquadro della serie solo se ci sono successive', () => {
+    assert.ok(app.renderBoxSerie(serie[0]).includes('2 occorrenze successive'));
+    assert.strictEqual(app.renderBoxSerie(serie[3]), '');
+  });
+});

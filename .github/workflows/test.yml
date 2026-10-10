@@ -39,6 +39,14 @@ jobs:
           npm ci --prefix functions
           npm install -g firebase-tools@15
 
+      # Vulnerabilità note nelle librerie che vanno in produzione (Cloud Functions):
+      # la CI si ferma solo per gravità alta o critica; le moderate restano visibili
+      # nel log e negli avvisi Dependabot.
+      - name: Vulnerabilità delle librerie di produzione
+        run: |
+          npm audit --omit=dev --audit-level=high --prefix functions
+          npm audit --omit=dev --audit-level=high
+
       - name: Unitari (logica di calcolo)
         run: npm run test:unit
 
