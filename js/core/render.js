@@ -63,6 +63,15 @@ function applyA11y(root) {
     const titolo = el.closest('.card')?.querySelector('h3')?.textContent?.trim();
     el.setAttribute('aria-label', (titolo || 'Tabella') + ' (scorre di lato)');
   });
+  // Link senza indirizzo (voci del menu, "Vedi tutti"): raggiungibili con Tab e
+  // attivabili con Invio (WCAG 2.1.1); la pagina corrente è segnalata ai lettori di schermo.
+  root.querySelectorAll('a:not([href])').forEach(a => {
+    if (a.hasAttribute('tabindex')) return;
+    a.tabIndex = 0;
+    if (!a.getAttribute('role')) a.setAttribute('role', 'link');
+    a.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); a.click(); } });
+  });
+  root.querySelectorAll('.sidebar nav a.active, .bottom-nav .bnav-item.active').forEach(a => a.setAttribute('aria-current', 'page'));
   // Menu laterale su schermi bassi: se scorre in verticale dev'essere raggiungibile da tastiera.
   const nav = root.querySelector('.sidebar nav');
   if (nav && !nav.hasAttribute('tabindex') && nav.scrollHeight > nav.clientHeight) { nav.tabIndex = 0; nav.setAttribute('aria-label', 'Menu (scorre)'); }

@@ -58,6 +58,7 @@ const GUIDA = {
       ['mod', 'Prima di eliminare, l\'app chiede conferma in una finestra: "Annulla" (o il tasto Esc) torna indietro senza toccare nulla.'],
       ['mod', 'Le spese eliminate restano recuperabili dall\'amministratore del servizio.'],
       ['mod', 'Se un\'altra persona ha cambiato la stessa voce mentre l\'avevi aperta, il salvataggio si ferma e ti chiede di ricaricare la pagina: nessuna modifica va persa in silenzio.'],
+      ['mod', 'Se chiudi o ricarichi la pagina mentre un salvataggio è ancora in corso, il browser ti chiede conferma prima di uscire: attendi un istante e la modifica è al sicuro.'],
     ],
   },
   entrate: {

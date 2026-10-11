@@ -64,10 +64,19 @@ function setVersioni(key, docs) {
 // sezione devono partire in ordine, ognuno confrontato con l'esito del precedente.
 const _saveQueue = {};
 
+// Salvataggi non ancora confermati dal server: chiudere o ricaricare la pagina
+// in quel momento li interromperebbe, quindi il browser chiede conferma prima di uscire.
+let _salvataggiInCorso = 0;
+function salvataggiInCorso() { return _salvataggiInCorso; }
+if (typeof window !== 'undefined' && window.addEventListener) {
+  window.addEventListener('beforeunload', (e) => { if (_salvataggiInCorso > 0) { e.preventDefault(); e.returnValue = ''; } });
+}
+
 function fbSaveKey(key, val) {
   if (!window._fb) return Promise.resolve();
+  _salvataggiInCorso++;
   const run = () => fbSaveKeyNow(key, val);
-  const p = (_saveQueue[key] || Promise.resolve()).then(run, run);
+  const p = (_saveQueue[key] || Promise.resolve()).then(run, run).finally(() => { _salvataggiInCorso--; });
   _saveQueue[key] = p;
   return p;
 }

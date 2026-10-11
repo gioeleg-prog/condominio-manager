@@ -9,7 +9,7 @@ qualità valutata sul modello ISO/IEC 25010:2023.
 | Componente (statico, regole) | `test/rules.spec.js` | firestore.rules: 64 casi | emulatore Firestore |
 | Componente (unitario) | `qa/unit.spec.js` | calcoli, ricorrenze, id, CSV, escape | Node, nessun browser |
 | Integrazione | `qa/functions.spec.js` | Cloud Functions + regole, matrice ruoli, isolamento edifici, concorrenza | emulatori auth/firestore/functions |
-| Sistema (E2E) | `qa/out/harness.html` (generato) | app reale nel browser contro gli emulatori | browser + emulatori |
+| Sistema (E2E) | `qa/e2e/*.spec.js` (Playwright) | app reale in Chromium: ruoli, spese, conferme, subentro, tema, ricerca, telefono, accessibilità | Chromium + emulatori |
 
 I test che oggi **falliscono** sono intenzionali: documentano difetti reali
 (vedi report). Quando un difetto viene corretto, il relativo test diventa verde
@@ -21,7 +21,16 @@ e resta come test di regressione.
 npm test                 # regole Firestore (64)
 npm run test:unit        # logica di business
 npm run test:functions   # Cloud Functions su emulatori (avvio/arresto automatico)
+npm run test:e2e         # app nel browser (Playwright): emulatori, dati e pagina di prova automatici
 ```
+
+Prima volta sul computer: `npx playwright install chromium`. In caso di errore il
+rapporto con screenshot e registrazione è in `qa/out/e2e-risultati/`
+(`npx playwright show-trace <file trace.zip>`).
+
+Prima volta sul computer: `npx playwright install chromium`. Se un test nel
+browser fallisce, screenshot e registrazione sono in `qa/out/e2e-risultati/`
+(`npx playwright show-trace <file trace.zip>`).
 
 E2E manuale/assistito:
 
