@@ -173,6 +173,24 @@ test.describe('Spese (modifica i dati)', () => {
   });
 });
 
+test.describe('Avvisi per email (modifica i dati)', () => {
+  test('nuovo avviso: casella email spuntata, conferma con il numero di destinatari, "Riceve le email" nella scheda condomino', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'vita');
+    await page.locator('#btn-nuovo-avviso').click();
+    const casella = page.locator('#av-email');
+    await expect(casella).toBeChecked();
+    await expect(page.locator('label.casella-email')).toContainText('condomini riceveranno');
+    await page.locator('#av-titolo').fill('Prova email E2E');
+    await page.locator('#av-testo').fill('Testo di prova.');
+    await page.locator('#btn-save-avviso').click();
+    await expect(page.locator('.avviso-ok')).toContainText('Email in partenza per');
+    await vaiA(page, 'condomini');
+    await page.locator('.utente-card', { hasText: 'Marta Member' }).getByRole('button', { name: 'Modifica' }).click();
+    await expect(page.locator('#m-email-notifiche')).toBeChecked();
+  });
+});
+
 test.describe('Subentro (modifica i dati)', () => {
   test('chi può modificare ma non amministra non vede il pulsante', async ({ page }) => {
     await accedi(page, 'editor1@qa.test');

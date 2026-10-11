@@ -288,3 +288,8 @@ async function purgeOldClientErrors() {
   old.docs.forEach((d) => batch.delete(d.ref));
   await batch.commit();
 }
+
+// Notifiche email (avvisi, verbali, promemoria rate): vedi notifiche.js.
+const notifiche = require('./notifiche');
+exports.notificaVita = notifiche.notificaVita;
+exports.promemoriaRate = notifiche.promemoriaRate;

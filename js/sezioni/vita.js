@@ -323,6 +323,7 @@ function renderModalAvviso(d) {
             </label>
           </div>
         </div>
+        ${renderCasellaEmail('av-email', isEdit)}
         <div id="av-err" class="alert alert-warning" style="display:none"></div>
       </div>
       <div class="modal-footer">
@@ -385,6 +386,7 @@ function renderModalVerbale(d) {
           ${d?.allegati?.length ? `<div style="margin-top:8px"><div style="font-size:12px;color:var(--text2);margin-bottom:6px">${d.allegati.length===1?'Allegato esistente:':`Allegati esistenti (${d.allegati.length}):`}</div><div class="allegati-list">${(d.allegati||[]).map(f=>renderAllegatoItem(f,false)).join('')}</div></div>` : ''}
         </div>
 
+        ${renderCasellaEmail('vb-email', isEdit)}
         <div id="vb-err" class="alert alert-warning" style="display:none"></div>
       </div>
       <div class="modal-footer">
@@ -659,14 +661,15 @@ function bindSchedaVita() {
       ? (state.bacheca.find(a=>a.id===parseInt(origId))?.edificioId || getUserEdificio(state.user))
       : getUserEdificio(state.user);
 
+    const email = richiestaEmail('av-email');
     let bacheca;
     if (origId) {
       bacheca = state.bacheca.map(a => a.id===parseInt(origId)
-        ? {...a, titolo, testo, scadenza, prioritaria, edificioId: edificioIdAvviso}
+        ? {...a, titolo, testo, scadenza, prioritaria, edificioId: edificioIdAvviso, ...email}
         : a);
     } else {
       const avviso = {
-        id: newId(), titolo, testo, scadenza, prioritaria,
+        id: newId(), titolo, testo, scadenza, prioritaria, ...email,
         edificioId: edificioIdAvviso,
         createdAt: new Date().toISOString(),
         createdBy: state.user?.nome || '',
@@ -675,6 +678,7 @@ function bindSchedaVita() {
     }
     save('cm_bacheca', bacheca);
     setState({bacheca, modal:null});
+    avvisaEmail(email, edificioIdAvviso);
   };
   // Salva verbale (crea/modifica)
   const bSaveVb = document.getElementById('btn-save-verbale');
@@ -695,14 +699,15 @@ function bindSchedaVita() {
     const allegati = [...(existing?.allegati||[]), ...state.pendingFiles];
     const edificioIdVerbale = existing?.edificioId || getUserEdificio(state.user);
 
+    const email = richiestaEmail('vb-email');
     let verbali;
     if (origId) {
       verbali = state.verbali.map(v => v.id===parseInt(origId)
-        ? {...v, titolo, data, tipo, argomenti, decisioni, allegati, edificioId: edificioIdVerbale}
+        ? {...v, titolo, data, tipo, argomenti, decisioni, allegati, edificioId: edificioIdVerbale, ...email}
         : v);
     } else {
       const verbale = {
-        id: newId(), titolo, data, tipo, argomenti, decisioni, allegati,
+        id: newId(), titolo, data, tipo, argomenti, decisioni, allegati, ...email,
         edificioId: edificioIdVerbale,
         createdAt: new Date().toISOString(),
         createdBy: state.user?.nome || '',
@@ -711,6 +716,7 @@ function bindSchedaVita() {
     }
     save('cm_verbali', verbali);
     setState({verbali, modal:null, pendingFiles:[]});
+    avvisaEmail(email, edificioIdVerbale);
   };
   // Salva lavoro (crea/modifica) — lo storico è append-only: la nota nuova
   // si aggiunge, non sostituisce mai quelle già salvate (vedi criticità
@@ -792,4 +798,30 @@ function bindSchedaVita() {
     save('cm_delibere', delibere);
     setState({delibere, modal:null});
   };
+}
+
+// ─── Avviso per email (functions/notifiche.js) ───────────────────────
+// Spuntando la casella, il record riceve un codice nuovo in "notificaEmail":
+// il server spedisce una sola email per codice, in copia nascosta, ai
+// condomini con un'email che non hanno tolto "Riceve le email".
+function destinatariEmail(edificioId) {
+  const oggi = ymdLocale(new Date());
+  return state.condomini.filter(c => (c.edificioId || state.edificioAttivo) === edificioId && !c.disabled
+    && c.emailNotifiche !== false && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email || '') && !(c.dataUscita && c.dataUscita <= oggi)).length;
+}
+function renderCasellaEmail(id, isEdit) {
+  const n = destinatariEmail(getUserEdificio(state.user));
+  return `<label class="casella-email" for="${id}">
+      <input type="checkbox" id="${id}" ${isEdit ? '' : 'checked'} ${n ? '' : 'disabled'}>
+      <span><strong>${isEdit ? 'Invia di nuovo per email' : 'Avvisa i condomini per email'}</strong>
+      <span class="hint" style="display:block;margin-top:2px">${n ? n + (n === 1 ? ' condomino riceverà' : ' condomini riceveranno') + ' un\'email (in copia nascosta).' : 'Nessun condomino ha un\'email per ricevere avvisi.'}</span></span>
+    </label>`;
+}
+function richiestaEmail(id) {
+  return document.getElementById(id)?.checked ? { notificaEmail: new Date().toISOString() + '-' + Math.random().toString(36).slice(2, 7) } : {};
+}
+function avvisaEmail(email, edificioId) {
+  if (!email.notificaEmail) return;
+  const n = destinatariEmail(edificioId);
+  avvisa('✅ Pubblicato. Email in partenza per ' + n + (n === 1 ? ' condomino.' : ' condomini.'));
 }

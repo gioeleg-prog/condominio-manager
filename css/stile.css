@@ -200,3 +200,8 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 @media (prefers-reduced-motion: reduce) { .avviso { animation: none; } .avviso.uscita { transition: none; } }
 /* Telefono: sopra la barra di navigazione in basso. */
 @media (max-width: 768px) { .avvisi { left: 16px; right: 16px; width: auto; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); } }
+
+/* Casella "Avvisa i condomini per email" / "Riceve le email" */
+.casella-email { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin: .25rem 0 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface2); font-size: 14px; cursor: pointer; }
+.casella-email input { width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; }
+.casella-email input:disabled + span { opacity: .7; }
