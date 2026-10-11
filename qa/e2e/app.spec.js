@@ -425,6 +425,33 @@ test.describe('Millesimi (modifica i dati)', () => {
   });
 });
 
+test.describe('Appartamenti in affitto (modifica i dati)', () => {
+  test('di base nessuno; spunto Int. 3: badge in anagrafica ed estratto PDF con la quota da recuperare', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'impostazioni');
+    await expect(page.locator('.affitto-chk:checked')).toHaveCount(0);
+    await page.locator('.affitto-chk[data-apt="int. 3"]').check();
+    await page.locator('#affitti-salva').click();
+    await expect(page.locator('.avviso-ok')).toContainText('1 appartamento in affitto');
+    await vaiA(page, 'condomini');
+    await expect(page.locator('.utente-card', { hasText: 'Marta Member' })).toContainText('In affitto');
+    await expect(page.locator('.utente-card', { hasText: 'Elio Editor' })).not.toContainText('In affitto');
+    const anno = new Date().getFullYear();
+    const affitto = await page.evaluate((a) => { const d = datiEstratto(103, a); return d.affitto && { recuperabile: d.affitto.recuperabile, quoteOrd: d.quoteOrd }; }, anno);
+    expect(affitto).not.toBeNull();
+    expect(affitto.recuperabile).toBe(affitto.quoteOrd);
+    await page.locator('.utente-card', { hasText: 'Marta Member' }).locator('[data-estratto-cond]').click();
+    const [pdf] = await Promise.all([page.waitForEvent('download'), page.locator('#btn-estr-genera').click()]);
+    expect(pdf.suggestedFilename()).toMatch(/^EstrattoConto_/);
+    expect(await axe(page)).toEqual([]);
+  });
+
+  test('un condomino in sola lettura legge la spunta per il proprio estratto', async ({ page }) => {
+    await accedi(page, 'member1@qa.test');
+    await page.waitForFunction(() => typeof appartamentoInAffitto === 'function' && appartamentoInAffitto('Int. 3'));
+  });
+});
+
 test.describe('Subentro (modifica i dati)', () => {
   test('chi può modificare ma non amministra non vede il pulsante', async ({ page }) => {
     await accedi(page, 'editor1@qa.test');

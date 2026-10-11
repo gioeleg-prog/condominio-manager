@@ -247,3 +247,9 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 .mill-categorie { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .5rem; }
 .mill-categorie label { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: 13px; }
 .mill-categorie select { max-width: 140px; }
+
+/* --- APPARTAMENTI IN AFFITTO (js/sezioni/affitti.js) --- */
+.affitti-lista { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 6px; }
+.affitti-lista label { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; }
+.affitti-lista label:hover { background: var(--surface2); }
+.affitti-lista input { width: 16px; height: 16px; flex-shrink: 0; }

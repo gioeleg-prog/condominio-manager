@@ -202,6 +202,7 @@ const GUIDA = {
       ['admin', 'Date di ingresso e uscita', 'In "Modifica", "Nel condominio dal" (e "Uscito il" per gli archiviati). Lascia vuoto se c\'è da sempre.'],
       ['admin', 'Chi riceve le email', 'Nella scheda di ogni condomino, "Riceve le email": togli la spunta per chi non le vuole. Non comparirà più tra i destinatari selezionabili.'],
       ['admin', 'Millesimi', 'Se il condominio li usa, sulla scheda di ogni condomino compaiono i millesimi del suo appartamento. Si modificano solo in Impostazioni → Tabelle millesimali; con un subentro passano da soli al nuovo proprietario.'],
+      ['admin', 'In affitto', 'Sulla scheda di un appartamento affittato compare "🔑 In affitto": si imposta in Impostazioni → Appartamenti in affitto.'],
       ['admin', 'Password dimenticata', '"🔑 Reset PW" imposta una password temporanea da comunicare alla persona.'],
       ['admin', 'Situazione di una persona', '"📊 Bilancio" apre il suo dettaglio; "📄 Estratto conto" scarica in PDF movimenti e saldo, da inviarle.'],
     ],
@@ -227,6 +228,7 @@ const GUIDA = {
       ['super', 'Aggiungere un condominio', 'Sezione "🏢 Gestione condomini".'],
       ['admin', 'Email ai condomini', 'Sezione "📧 Email ai condomini": accendi o spegni i promemoria automatici delle rate (e quanti giorni prima) e consulta lo storico delle email inviate, con chi le ha ricevute.'],
       ['admin', 'Tabelle millesimali', 'Sezione "⚖️ Tabelle millesimali": accendi "Usa i millesimi" con la data da cui valgono, inserisci i millesimi di ogni appartamento (il totale deve fare 1000), aggiungi altre tabelle (Scale, Ascensore…) e scegli quale proporre per ogni categoria. Le spese già inserite non cambiano; per quelle dell\'anno in corso non consuntivate c\'è "Applica…" con l\'anteprima di prima e dopo.'],
+      ['admin', 'Appartamenti in affitto', 'Sezione "🔑 Appartamenti in affitto": di base sono tutti del proprietario; spunta quelli affittati. Nell\'estratto conto del proprietario comparirà "Da recuperare dall\'inquilino": le quote delle spese ordinarie (le straordinarie restano sue). Verso il condominio paga sempre il proprietario.'],
     ],
     sapere: [
       ['super', 'La "⚠️ Zona pericolosa" cancella i dati del condominio attivo: usala solo se sai cosa fai, dopo un backup.'],

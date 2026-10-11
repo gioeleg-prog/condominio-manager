@@ -331,6 +331,17 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
     });
   });
 
+  describe('appartamenti in affitto', () => {
+    const cfg = (uid, extra = {}) => ({ appartamenti: { 'int. 1': true }, aggiornatoDa: uid, aggiornatoIl: now(), ...extra });
+    it('li modifica solo l\'amministratore; li legge tutto il condominio', async () => {
+      await assertSucceeds(admin().doc('buildings/1/impostazioni/affitti').set(cfg('u_admin')));
+      await assertSucceeds(member().doc('buildings/1/impostazioni/affitti').get());
+      await assertFails(ctx('u_m2', { role: 'member', buildingId: '2' }).doc('buildings/1/impostazioni/affitti').get());
+      await assertFails(editor().doc('buildings/1/impostazioni/affitti').set(cfg('u_editor')));
+      await assertFails(admin().doc('buildings/1/impostazioni/affitti').set(cfg('u_admin', { inquilini: [] })));
+    });
+  });
+
   describe('matrice ruoli per collezione', () => {
     const finance = ['expenses', 'payments', 'suppliers'];
     const adminOnly = ['notices', 'minutes', 'works', 'resolutions'];
