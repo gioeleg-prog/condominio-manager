@@ -128,7 +128,7 @@ function esitoInvio(r) {
   return parti.join('; ') + '.' + (r.simulata ? ' (Ambiente di prova: nessuna email reale.)' : '');
 }
 
-function schedaEmail({ titolo, intro, oggetto, messaggio, elenco, pref, extraCampi = '' }) {
+function schedaEmail({ titolo, intro, oggetto, messaggio, elenco, pref, extraCampi = '', scarica = '' }) {
   return `
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal" style="max-width:600px">
@@ -146,6 +146,7 @@ function schedaEmail({ titolo, intro, oggetto, messaggio, elenco, pref, extraCam
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
+        ${scarica ? `<button class="btn btn-secondary" id="btn-em-scarica" title="Lo stesso PDF che verrà allegato">${scarica}</button>` : ''}
         <button class="btn btn-primary" id="btn-em-invia" data-invia-conta="${pref}">📧 Invia</button>
       </div>
     </div>
@@ -164,6 +165,7 @@ function renderModalEmailRendiconto(d) {
     messaggio: `Buongiorno,\nin allegato il ${nomeDoc.toLowerCase()} ${d.anno} del condominio.\n\nUn saluto,\nl'amministratore`,
     elenco: renderSceltaDestinatari('em-rend'),
     pref: 'em-rend',
+    scarica: '📄 Scarica PDF',
   });
 }
 
@@ -176,6 +178,7 @@ function renderModalEmailEstratti(d) {
     messaggio: '',
     elenco: renderSceltaDestinatari('em-estr', { seleziona: c => !d.condId || c.id === d.condId }),
     pref: 'em-estr',
+    scarica: '📄 Scarica i PDF',
   });
 }
 
@@ -210,6 +213,24 @@ function bindSchedeEmail() {
   const b = document.getElementById('btn-em-invia');
   if (!pref || !b) return;
   aggiornaConteggio(pref);
+  // Scarica lo stesso PDF che verrà allegato (rendiconto) o quelli dei selezionati (estratti).
+  const bs = document.getElementById('btn-em-scarica');
+  if (bs) bs.onclick = async () => {
+    const err = document.getElementById('em-err');
+    const d = state.modal.data || {};
+    err.style.display = 'none';
+    try {
+      await caricaLibrerieRendiconto();
+      if (tipo === 'emailRendiconto') { generaRendicontoPDF(d); return; }
+      const ids = leggiDestinatari(pref);
+      if (!ids.length) { err.textContent = 'Seleziona almeno un condomino per scaricare il suo estratto conto.'; err.style.display = 'block'; return; }
+      for (const id of ids) { generaEstrattoPDF(id, d.anno); await new Promise(r => setTimeout(r, 400)); }
+      if (ids.length > 1) avvisa('Scaricati ' + ids.length + ' estratti conto. Se il browser chiede di consentire più download, rispondi sì.');
+    } catch (e) {
+      reportClientError('Scarica PDF da scheda email: ' + (e.message || e), e.stack);
+      err.textContent = 'Il PDF non è stato creato: ' + (e.message || e); err.style.display = 'block';
+    }
+  };
   b.onclick = async () => {
     const err = document.getElementById('em-err');
     const ids = leggiDestinatari(pref);
