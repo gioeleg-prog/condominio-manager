@@ -199,6 +199,7 @@ async function recordLogin(profile) {
 const MAX_VALUE_LEN = 500;
 
 exports.auditTrail = onDocumentWritten('buildings/{buildingId}/{coll}/{docId}', async (event) => {
+  if (event.params.coll === 'invii') return; // storico delle email: lo scrive il server
   const before = event.data?.before?.exists ? event.data.before.data() : null;
   const after = event.data?.after?.exists ? event.data.after.data() : null;
   const actor = after?._deletedBy && after?._deleted ? after._deletedBy : (after?._updatedBy ?? null);
@@ -293,3 +294,4 @@ async function purgeOldClientErrors() {
 const notifiche = require('./notifiche');
 exports.notificaVita = notifiche.notificaVita;
 exports.promemoriaRate = notifiche.promemoriaRate;
+exports.inviaEmail = notifiche.inviaEmail;

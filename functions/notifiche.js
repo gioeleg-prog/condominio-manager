@@ -1,23 +1,26 @@
-// Notifiche email ai condomini, spedite dalla casella Gmail del condominio.
+// Email ai condomini, spedite dalla casella Gmail del condominio.
+// Regola: nessuna email parte senza che chi amministra l'abbia deciso, e ogni
+// invio va solo ai destinatari scelti nell'elenco con le spunte.
 //
-//  • notificaVita: nuovo avviso in bacheca o nuovo verbale. Parte solo se chi
-//    pubblica lascia spuntato "Avvisa i condomini per email": il client scrive
-//    nel record il campo `notificaEmail` (un codice nuovo a ogni richiesta).
-//    Un'email sola, con i destinatari in copia nascosta (nessuno vede gli
-//    indirizzi degli altri).
-//  • promemoriaRate: ogni mattina alle 8, promemoria a ciascun condomino per
-//    le rate previste fra GIORNI_PREAVVISO giorni.
+//  • notificaVita: avviso o verbale pubblicato con "Avvisa per email" acceso.
+//    Il client scrive nel record `notificaEmail` (codice nuovo a ogni richiesta)
+//    e `notificaDestinatari` (id dei condomini scelti). Un'email, in copia nascosta.
+//  • inviaEmail (chiamata dall'app, solo amministratori): rendiconto PDF a più
+//    condomini (copia nascosta), estratti conto personali (uno a ciascuno),
+//    promemoria delle rate (uno a ciascuno, con importo, data e saldo).
+//  • promemoriaRate: ogni mattina alle 8 SOLO per gli edifici che l'hanno
+//    acceso in Impostazioni (buildings/{b}/impostazioni/email), con i giorni
+//    di preavviso scelti. Spento finché nessuno lo accende.
 //
-// Destinatari: condomini dell'edificio non archiviati, con un'email e senza
-// `emailNotifiche: false` (casella "Riceve le email" nella scheda condomino).
-// Ogni invio è registrato in mailLog con un id deterministico, creato PRIMA di
-// spedire: un nuovo tentativo della funzione non spedisce due volte.
-//
-// La password per le app di Gmail è nel Secret Manager (GMAIL_APP_PASSWORD),
-// mai nel codice. Sugli emulatori le email NON partono: vengono solo
-// registrate in mailLog con simulata: true.
+// Mai a chi è archiviato, uscito, senza email valida o con "Riceve le email"
+// tolto (emailNotifiche: false), anche se richiesto. Ogni invio è registrato in
+// buildings/{b}/invii (storico per gli amministratori) con un id creato prima
+// di spedire: un nuovo tentativo della funzione non spedisce due volte.
+// Password per le app di Gmail nel Secret Manager (GMAIL_APP_PASSWORD).
+// Sugli emulatori nessuna email parte: invio solo registrato (simulata: true).
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const nodemailer = require('nodemailer');
@@ -25,8 +28,9 @@ const nodemailer = require('nodemailer');
 const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
 const MITTENTE = 'notifichecondominio@gmail.com';
 const SITO = 'https://neridarimini20.it';
-const GIORNI_PREAVVISO = 3;
 const EMULATORE = process.env.FUNCTIONS_EMULATOR === 'true';
+const MAX_DESTINATARI = 100;
+const MAX_ALLEGATI_BYTE = 7 * 1024 * 1024;
 
 const db = () => getFirestore();
 
@@ -34,8 +38,9 @@ const db = () => getFirestore();
 const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const euro = (n) => '€ ' + Number(n || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dataIt = (s) => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : String(s || ''); };
-// Una riga di oggetto non può contenere a capo (intestazioni dell'email).
+// Una riga di intestazione dell'email non può contenere a capo.
 const unaRiga = (s, max = 140) => String(s ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
+const testoLibero = (s, max = 3000) => String(s ?? '').replace(/\r\n/g, '\n').trim().slice(0, max);
 
 function pagina(nomeEdificio, titolo, corpoHtml) {
   return `<!doctype html><html lang="it"><body style="margin:0;background:#f5f5f5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0a0a0a">
@@ -46,33 +51,50 @@ function pagina(nomeEdificio, titolo, corpoHtml) {
     ${corpoHtml}
     <p style="margin:20px 0 0"><a href="${SITO}" style="display:inline-block;background:#171717;color:#fafafa;text-decoration:none;padding:9px 16px;border-radius:8px;font-size:14px">Apri Condominio Manager</a></p>
   </div>
-  <p style="font-size:12px;color:#636363;line-height:1.5;margin:14px 4px 0">Email automatica di Condominio Manager: non rispondere a questo indirizzo.
-  Per non ricevere più queste email chiedi all'amministratore del condominio di togliere la spunta "Riceve le email" dalla tua scheda.</p>
+  <p style="font-size:12px;color:#636363;line-height:1.5;margin:14px 4px 0">Email di Condominio Manager inviata dall'amministratore: non rispondere a questo indirizzo.
+  Per non ricevere più queste email chiedi all'amministratore di togliere la spunta "Riceve le email" dalla tua scheda.</p>
 </div></body></html>`;
 }
-const paragrafi = (testo) => String(testo || '').split(/\n{2,}/).map((p) => `<p style="font-size:15px;line-height:1.55;margin:0 0 10px;white-space:pre-line">${escHtml(p)}</p>`).join('');
+const paragrafi = (testo) => String(testo || '').split(/\n{2,}/).filter((p) => p.trim())
+  .map((p) => `<p style="font-size:15px;line-height:1.55;margin:0 0 10px;white-space:pre-line">${escHtml(p)}</p>`).join('');
 
-// ─── Destinatari e invio ───────────────────────────────────────────
+// ─── Condomini e destinatari ───────────────────────────────────────
 async function nomeEdificio(buildingId) {
   const s = await db().doc(`buildings/${buildingId}`).get();
   return (s.exists && s.data().nome) || 'Il tuo condominio';
 }
+function emailValida(e) { return /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(String(e || '').trim()); }
+function oggiRoma() { return dataTraGiorni(0); }
 
-function emailValida(e) { return /^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(String(e || '')); }
-
-async function destinatari(buildingId) {
-  const snap = await db().collection(`buildings/${buildingId}/members`).get();
-  const oggi = new Date().toISOString().slice(0, 10);
-  const email = new Set();
-  snap.forEach((d) => {
-    const m = d.data();
-    if (m._deleted || m.disabled || m.emailNotifiche === false) return;
-    if (m.dataUscita && String(m.dataUscita) <= oggi) return;
-    if (emailValida(m.email)) email.add(String(m.email).trim().toLowerCase());
-  });
-  return [...email];
+// Perché un condomino non può ricevere email (null = può).
+function motivoEsclusione(m, oggi = oggiRoma()) {
+  if (!m || m._deleted) return 'non trovato';
+  if (m.disabled || (m.dataUscita && String(m.dataUscita) <= oggi)) return 'archiviato';
+  if (m.emailNotifiche === false) return 'ha tolto "Riceve le email"';
+  if (!emailValida(m.email)) return 'senza email';
+  return null;
 }
 
+async function condomini(buildingId) {
+  const snap = await db().collection(`buildings/${buildingId}/members`).get();
+  const mappa = new Map();
+  snap.forEach((d) => mappa.set(String(d.id), d.data()));
+  return mappa;
+}
+
+// Divide gli id richiesti in destinatari validi ed esclusi (con il motivo).
+function scegli(mappa, ids) {
+  const ok = [], esclusi = [];
+  for (const id of [...new Set((ids || []).map(String))]) {
+    const m = mappa.get(id);
+    const motivo = motivoEsclusione(m);
+    if (motivo) esclusi.push({ id, nome: m?.nome || id, motivo });
+    else ok.push({ id, nome: m.nome || '', email: String(m.email).trim() });
+  }
+  return { ok, esclusi };
+}
+
+// ─── Invio e storico ───────────────────────────────────────────────
 let _trasporto;
 function trasporto() {
   if (!_trasporto) {
@@ -84,32 +106,61 @@ function trasporto() {
   return _trasporto;
 }
 
-// Registra l'invio (id deterministico: se esiste già, non rispedisce) e spedisce.
-async function invia(idLog, { a, ccn, oggetto, html, testo, info }) {
-  const ref = db().collection('mailLog').doc(idLog);
-  const destinatariTot = (a ? [a] : []).concat(ccn || []);
+// Crea la voce di storico (se esiste già: invio già fatto, si salta).
+async function apriStorico(buildingId, idLog, dati) {
+  const ref = db().doc(`buildings/${buildingId}/invii/${idLog}`);
   try {
-    await ref.create({ ...info, oggetto, destinatari: destinatariTot.length, stato: 'in invio', simulata: EMULATORE, creatoIl: FieldValue.serverTimestamp() });
+    await ref.create({ ...dati, buildingId: String(buildingId), stato: 'in invio', simulata: EMULATORE, creatoIl: FieldValue.serverTimestamp() });
+    return ref;
   } catch (e) {
-    if (e.code === 6 || /already exists/i.test(e.message)) return { saltata: true }; // già spedita
+    if (e.code === 6 || /already exists/i.test(e.message)) return null;
     throw e;
   }
-  if (!destinatariTot.length) { await ref.update({ stato: 'nessun destinatario' }); return { inviata: false }; }
-  if (EMULATORE) { await ref.update({ stato: 'simulata', elenco: destinatariTot }); return { inviata: false, simulata: true }; }
+}
+
+async function spedisci({ a, ccn, oggetto, html, testo, allegati }) {
+  if (EMULATORE) return;
+  await trasporto().sendMail({
+    from: `"Condominio Manager" <${MITTENTE}>`,
+    to: a || MITTENTE,
+    bcc: ccn && ccn.length ? ccn : undefined,
+    subject: unaRiga(oggetto, 160), html, text: testo,
+    attachments: (allegati || []).map((x) => ({ filename: x.nome, content: x.contenuto, contentType: 'application/pdf' })),
+  });
+}
+
+// Un'email sola, destinatari in copia nascosta.
+async function inviaCollettiva(buildingId, idLog, { destinatari, esclusi = [], oggetto, html, testo, allegati, info }) {
+  const ref = await apriStorico(buildingId, idLog, { ...info, oggetto, destinatari, esclusi, n: destinatari.length,
+    allegato: allegati?.[0]?.nome || null });
+  if (!ref) return { saltata: true };
+  if (!destinatari.length) { await ref.update({ stato: 'nessun destinatario' }); return { inviati: 0 }; }
   try {
-    await trasporto().sendMail({
-      from: `"Condominio Manager" <${MITTENTE}>`,
-      to: a || MITTENTE,
-      bcc: ccn && ccn.length ? ccn : undefined,
-      subject: oggetto, html, text: testo,
-    });
-    await ref.update({ stato: 'inviata', inviataIl: FieldValue.serverTimestamp() });
-    return { inviata: true };
+    await spedisci({ ccn: destinatari.map((d) => d.email), oggetto, html, testo, allegati });
+    await ref.update({ stato: EMULATORE ? 'simulata' : 'inviata', inviataIl: FieldValue.serverTimestamp() });
+    return { inviati: destinatari.length };
   } catch (e) {
     await ref.update({ stato: 'errore', errore: unaRiga(e.message, 300) });
     throw e;
   }
 }
+
+// Un'email per ciascuno (estratti conto, promemoria): una voce di storico con l'esito di ognuno.
+async function inviaSingole(buildingId, idLog, { messaggi, esclusi = [], oggetto, info }) {
+  const ref = await apriStorico(buildingId, idLog, { ...info, oggetto, n: messaggi.length, esclusi,
+    destinatari: messaggi.map((m) => ({ id: m.id, nome: m.nome, email: m.email })) });
+  if (!ref) return { saltata: true };
+  const errori = [];
+  for (const m of messaggi) {
+    try { await spedisci({ a: m.email, oggetto: m.oggetto, html: m.html, testo: m.testo, allegati: m.allegati }); }
+    catch (e) { errori.push({ id: m.id, nome: m.nome, errore: unaRiga(e.message, 200) }); }
+  }
+  await ref.update({ stato: errori.length ? (errori.length === messaggi.length ? 'errore' : 'in parte') : (EMULATORE ? 'simulata' : 'inviata'),
+    errori, inviataIl: FieldValue.serverTimestamp() });
+  return { inviati: messaggi.length - errori.length, errori };
+}
+
+const idNuovo = (pref) => `${pref}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 // ─── Avvisi e verbali ──────────────────────────────────────────────
 const TIPI = {
@@ -139,50 +190,131 @@ exports.notificaVita = onDocumentWritten({ document: 'buildings/{buildingId}/{co
   const codice = dopo.notificaEmail;
   // Solo una richiesta nuova: stesso codice di prima = semplice modifica del testo.
   if (!codice || typeof codice !== 'string' || codice === prima?.notificaEmail) return;
-  const [ccn, edificio] = await Promise.all([destinatari(buildingId), nomeEdificio(buildingId)]);
+  if (!Array.isArray(dopo.notificaDestinatari)) return; // sempre l'elenco scelto, mai "tutti" implicito
+  const mappa = await condomini(buildingId);
+  const { ok, esclusi } = scegli(mappa, dopo.notificaDestinatari.slice(0, MAX_DESTINATARI));
+  const edificio = await nomeEdificio(buildingId);
   const titolo = unaRiga(dopo.titolo || TIPI[coll].etichetta);
   const { html, testo } = contenuto(coll, dopo);
-  await invia(`vita_${buildingId}_${coll}_${docId}_${unaRiga(codice, 60).replace(/[^\w-]/g, '')}`, {
-    ccn,
+  await inviaCollettiva(buildingId, `vita_${coll}_${docId}_${unaRiga(codice, 60).replace(/[^\w-]/g, '')}`, {
+    destinatari: ok, esclusi,
     oggetto: `${TIPI[coll].etichetta}: ${titolo}`,
     html: pagina(edificio, titolo, html),
     testo: `${edificio}\n\n${titolo}\n\n${testo}\n\nApri Condominio Manager: ${SITO}`,
-    info: { tipo: TIPI[coll].voce, buildingId, recordId: docId },
+    info: { tipo: TIPI[coll].voce, recordId: docId, autoreUid: dopo._updatedBy || null },
   });
 });
 
-// ─── Promemoria rate ───────────────────────────────────────────────
+// ─── Invii dall'app (solo amministratori) ──────────────────────────
+function controllaPermesso(request, buildingId) {
+  const t = request.auth?.token || {};
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Accesso richiesto.');
+  if (t.role === 'superAdmin') return;
+  if (t.role === 'adminEdificio' && String(t.buildingId) === String(buildingId)) return;
+  throw new HttpsError('permission-denied', 'Solo l\'amministratore del condominio può inviare email.');
+}
+
+function leggiAllegato(a) {
+  if (!a || typeof a.base64 !== 'string' || !a.base64) throw new HttpsError('invalid-argument', 'Allegato mancante.');
+  const contenuto = Buffer.from(a.base64, 'base64');
+  if (contenuto.subarray(0, 5).toString() !== '%PDF-') throw new HttpsError('invalid-argument', 'L\'allegato deve essere un PDF.');
+  const nome = unaRiga(a.nome || 'documento.pdf', 120).replace(/[\\/:*?"<>|]/g, '_');
+  return { nome: /\.pdf$/i.test(nome) ? nome : nome + '.pdf', contenuto };
+}
+
+async function inviaDaApp(request) {
+  const d = request.data || {};
+  const buildingId = String(d.buildingId || '');
+  if (!/^\d+$/.test(buildingId)) throw new HttpsError('invalid-argument', 'Condominio non valido.');
+  controllaPermesso(request, buildingId);
+  const mappa = await condomini(buildingId);
+  const edificio = await nomeEdificio(buildingId);
+  const messaggio = testoLibero(d.messaggio);
+  const info = { autoreUid: request.auth.uid };
+
+  if (d.tipo === 'rendiconto') {
+    const ids = Array.isArray(d.destinatari) ? d.destinatari : [];
+    if (!ids.length || ids.length > MAX_DESTINATARI) throw new HttpsError('invalid-argument', 'Scegli da 1 a ' + MAX_DESTINATARI + ' destinatari.');
+    const allegato = leggiAllegato(d.allegato);
+    if (allegato.contenuto.length > MAX_ALLEGATI_BYTE) throw new HttpsError('invalid-argument', 'Il PDF è troppo grande per l\'email.');
+    const { ok, esclusi } = scegli(mappa, ids);
+    const oggetto = unaRiga(d.oggetto || 'Rendiconto del condominio');
+    const r = await inviaCollettiva(buildingId, idNuovo('rend'), {
+      destinatari: ok, esclusi, oggetto, allegati: [allegato],
+      html: pagina(edificio, oggetto, (messaggio ? paragrafi(messaggio) : '') + `<p style="font-size:14px;color:#636363;margin:10px 0 0">In allegato: ${escHtml(allegato.nome)}</p>`),
+      testo: `${edificio}\n\n${oggetto}\n\n${messaggio}\n\nIn allegato: ${allegato.nome}\n\n${SITO}`,
+      info: { ...info, tipo: 'rendiconto' },
+    });
+    return { inviati: r.inviati || 0, esclusi, simulata: EMULATORE };
+  }
+
+  if (d.tipo === 'estratti' || d.tipo === 'promemoria') {
+    const voci = Array.isArray(d.invii) ? d.invii : [];
+    if (!voci.length || voci.length > MAX_DESTINATARI) throw new HttpsError('invalid-argument', 'Scegli da 1 a ' + MAX_DESTINATARI + ' destinatari.');
+    const { ok, esclusi } = scegli(mappa, voci.map((v) => v.id));
+    const perId = new Map(voci.map((v) => [String(v.id), v]));
+    let byte = 0;
+    const messaggi = ok.map((c) => {
+      const v = perId.get(c.id);
+      if (d.tipo === 'estratti') {
+        const allegato = leggiAllegato(v.allegato);
+        byte += allegato.contenuto.length;
+        const oggetto = unaRiga(d.oggetto || `Il tuo estratto conto ${v.anno || ''}`);
+        return { ...c, oggetto, allegati: [allegato],
+          html: pagina(edificio, oggetto, `<p style="font-size:15px;line-height:1.55;margin:0 0 10px">Ciao ${escHtml(c.nome)}, in allegato il tuo estratto conto${v.anno ? ' ' + escHtml(v.anno) : ''}: quote, versamenti e saldo.</p>` + paragrafi(messaggio)),
+          testo: `${edificio}\n\nCiao ${c.nome}, in allegato il tuo estratto conto${v.anno ? ' ' + v.anno : ''}.\n\n${messaggio}\n\n${SITO}` };
+      }
+      const righe = [];
+      if (v.rataImporto) righe.push(`la rata di <strong>${escHtml(euro(v.rataImporto))}</strong>${v.rataData ? ` prevista per il <strong>${escHtml(dataIt(v.rataData))}</strong>` : ''}`);
+      const saldoTxt = typeof v.saldo === 'number' && v.saldo < 0 ? `<p style="font-size:15px;line-height:1.55;margin:0 0 10px">Il tuo saldo attuale è di <strong>${escHtml(euro(v.saldo))}</strong>.</p>` : '';
+      const oggetto = unaRiga(d.oggetto || (v.rataData ? `Promemoria rata del ${dataIt(v.rataData)}` : 'Promemoria versamenti condominio'));
+      return { ...c, oggetto,
+        html: pagina(edificio, 'Promemoria', `<p style="font-size:15px;line-height:1.55;margin:0 0 10px">Ciao ${escHtml(c.nome)}, ti ricordiamo ${righe.length ? righe.join('') : 'i versamenti per il condominio'}.</p>${saldoTxt}${paragrafi(messaggio)}<p style="font-size:14px;color:#636363;margin:0">Se hai già versato, non serve fare nulla: l'amministratore lo registrerà.</p>`),
+        testo: `${edificio}\n\nCiao ${c.nome}, ti ricordiamo ${v.rataImporto ? `la rata di ${euro(v.rataImporto)}${v.rataData ? ' prevista per il ' + dataIt(v.rataData) : ''}` : 'i versamenti per il condominio'}.${typeof v.saldo === 'number' && v.saldo < 0 ? `\nSaldo attuale: ${euro(v.saldo)}.` : ''}\n\n${messaggio}\n\nSe hai già versato, non serve fare nulla.\n\n${SITO}` };
+    });
+    if (byte > MAX_ALLEGATI_BYTE * 2) throw new HttpsError('invalid-argument', 'Troppi PDF in un solo invio: dividi in più volte.');
+    const oggettoStorico = d.tipo === 'estratti' ? `Estratti conto ${voci[0]?.anno || ''}`.trim() : 'Promemoria rate';
+    const r = await inviaSingole(buildingId, idNuovo(d.tipo === 'estratti' ? 'estr' : 'prom'), { messaggi, esclusi, oggetto: oggettoStorico, info: { ...info, tipo: d.tipo } });
+    return { inviati: r.inviati || 0, errori: r.errori || [], esclusi, simulata: EMULATORE };
+  }
+  throw new HttpsError('invalid-argument', 'Tipo di invio sconosciuto.');
+}
+
+exports.inviaEmail = onCall({ secrets: [GMAIL_APP_PASSWORD], timeoutSeconds: 120, memory: '512MiB' }, inviaDaApp);
+
+// ─── Promemoria automatici (spenti finché un amministratore non li accende) ──
 function dataTraGiorni(n) {
-  // Data di Roma (YYYY-MM-DD) fra n giorni.
   const d = new Date(Date.now() + n * 86400000);
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
-async function inviaPromemoriaRate(giorno = dataTraGiorni(GIORNI_PREAVVISO)) {
-  // Edificio per edificio (pochi): basta l'indice automatico su "data".
+async function inviaPromemoriaRate() {
   const edifici = await db().collection('buildings').listDocuments();
-  const rate = [];
-  for (const e of edifici) rate.push(...(await e.collection('payments').where('data', '==', giorno).get()).docs);
   let n = 0;
-  for (const doc of rate) {
-    const r = doc.data();
-    if (r._deleted || r.previsionale !== true) continue;
-    const buildingId = String(r.edificioId);
-    const m = await db().doc(`buildings/${buildingId}/members/${r.condominoId}`).get();
-    const c = m.exists ? m.data() : null;
-    if (!c || c._deleted || c.disabled || c.emailNotifiche === false || !emailValida(c.email)) continue;
-    const edificio = await nomeEdificio(buildingId);
-    const corpo = `<p style="font-size:15px;line-height:1.55;margin:0 0 10px">Ciao ${escHtml(c.nome || '')}, ti ricordiamo la rata di <strong>${escHtml(euro(r.importo))}</strong> prevista per il <strong>${escHtml(dataIt(r.data))}</strong>.</p>`
-      + (r.descrizione ? `<p style="font-size:14px;color:#636363;margin:0 0 10px">${escHtml(r.descrizione)}</p>` : '')
-      + '<p style="font-size:14px;color:#636363;margin:0">Se l\'hai già versata, non serve fare nulla: l\'amministratore la registrerà.</p>';
-    const esito = await invia(`rata_${buildingId}_${doc.id}_${r.data}`, {
-      a: String(c.email).trim(),
-      oggetto: `Promemoria rata del ${dataIt(r.data)}: ${euro(r.importo)}`,
-      html: pagina(edificio, 'Promemoria rata', corpo),
-      testo: `${edificio}\n\nCiao ${c.nome || ''}, ti ricordiamo la rata di ${euro(r.importo)} prevista per il ${dataIt(r.data)}.\nSe l'hai già versata, non serve fare nulla.\n\n${SITO}`,
-      info: { tipo: 'rata', buildingId, recordId: doc.id },
-    });
-    if (!esito.saltata) n++;
+  for (const e of edifici) {
+    const imp = (await e.collection('impostazioni').doc('email').get()).data() || {};
+    if (imp.promemoriaAuto !== true) continue;
+    const giorni = Math.min(15, Math.max(1, parseInt(imp.giorniPreavviso, 10) || 3));
+    const giorno = dataTraGiorni(giorni);
+    const rate = (await e.collection('payments').where('data', '==', giorno).get()).docs
+      .map((d) => ({ id: d.id, ...d.data() })).filter((r) => !r._deleted && r.previsionale === true);
+    if (!rate.length) continue;
+    const mappa = await condomini(e.id);
+    const edificio = await nomeEdificio(e.id);
+    for (const r of rate) {
+      const c = mappa.get(String(r.condominoId));
+      if (motivoEsclusione(c)) continue;
+      const oggetto = `Promemoria rata del ${dataIt(r.data)}: ${euro(r.importo)}`;
+      const esito = await inviaSingole(e.id, `auto_rata_${r.id}_${r.data}`, {
+        oggetto, info: { tipo: 'promemoria-auto', recordId: r.id },
+        messaggi: [{ id: String(r.condominoId), nome: c.nome || '', email: String(c.email).trim(), oggetto,
+          html: pagina(edificio, 'Promemoria rata', `<p style="font-size:15px;line-height:1.55;margin:0 0 10px">Ciao ${escHtml(c.nome || '')}, ti ricordiamo la rata di <strong>${escHtml(euro(r.importo))}</strong> prevista per il <strong>${escHtml(dataIt(r.data))}</strong>.</p>`
+            + (r.descrizione ? `<p style="font-size:14px;color:#636363;margin:0 0 10px">${escHtml(r.descrizione)}</p>` : '')
+            + '<p style="font-size:14px;color:#636363;margin:0">Se l\'hai già versata, non serve fare nulla: l\'amministratore la registrerà.</p>'),
+          testo: `${edificio}\n\nCiao ${c.nome || ''}, ti ricordiamo la rata di ${euro(r.importo)} prevista per il ${dataIt(r.data)}.\nSe l'hai già versata, non serve fare nulla.\n\n${SITO}` }],
+      });
+      if (!esito.saltata) n++;
+    }
   }
   return n;
 }
@@ -191,4 +323,4 @@ exports.promemoriaRate = onSchedule({ schedule: '0 8 * * *', timeZone: 'Europe/R
   await inviaPromemoriaRate();
 });
 
-exports._test = { inviaPromemoriaRate, destinatari, dataTraGiorni, contenuto, unaRiga };
+exports._test = { inviaPromemoriaRate, inviaDaApp, motivoEsclusione, dataTraGiorni, contenuto, unaRiga };

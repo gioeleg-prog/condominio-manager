@@ -23,6 +23,7 @@ function bindModal() {
   bindSchedaCondomini();
   bindSchedaRendiconto();
   bindSchedaEstratto();
+  bindSchedeEmail();
 }
 
 function saveModal() {

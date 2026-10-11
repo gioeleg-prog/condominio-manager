@@ -665,11 +665,11 @@ function bindSchedaVita() {
     let bacheca;
     if (origId) {
       bacheca = state.bacheca.map(a => a.id===parseInt(origId)
-        ? {...a, titolo, testo, scadenza, prioritaria, edificioId: edificioIdAvviso, ...email}
+        ? {...a, titolo, testo, scadenza, prioritaria, edificioId: edificioIdAvviso, ...pulisciRichiestaEmail(email)}
         : a);
     } else {
       const avviso = {
-        id: newId(), titolo, testo, scadenza, prioritaria, ...email,
+        id: newId(), titolo, testo, scadenza, prioritaria, ...pulisciRichiestaEmail(email),
         edificioId: edificioIdAvviso,
         createdAt: new Date().toISOString(),
         createdBy: state.user?.nome || '',
@@ -678,7 +678,7 @@ function bindSchedaVita() {
     }
     save('cm_bacheca', bacheca);
     setState({bacheca, modal:null});
-    avvisaEmail(email, edificioIdAvviso);
+    avvisaEmail(email);
   };
   // Salva verbale (crea/modifica)
   const bSaveVb = document.getElementById('btn-save-verbale');
@@ -703,11 +703,11 @@ function bindSchedaVita() {
     let verbali;
     if (origId) {
       verbali = state.verbali.map(v => v.id===parseInt(origId)
-        ? {...v, titolo, data, tipo, argomenti, decisioni, allegati, edificioId: edificioIdVerbale, ...email}
+        ? {...v, titolo, data, tipo, argomenti, decisioni, allegati, edificioId: edificioIdVerbale, ...pulisciRichiestaEmail(email)}
         : v);
     } else {
       const verbale = {
-        id: newId(), titolo, data, tipo, argomenti, decisioni, allegati, ...email,
+        id: newId(), titolo, data, tipo, argomenti, decisioni, allegati, ...pulisciRichiestaEmail(email),
         edificioId: edificioIdVerbale,
         createdAt: new Date().toISOString(),
         createdBy: state.user?.nome || '',
@@ -716,7 +716,7 @@ function bindSchedaVita() {
     }
     save('cm_verbali', verbali);
     setState({verbali, modal:null, pendingFiles:[]});
-    avvisaEmail(email, edificioIdVerbale);
+    avvisaEmail(email);
   };
   // Salva lavoro (crea/modifica) — lo storico è append-only: la nota nuova
   // si aggiunge, non sostituisce mai quelle già salvate (vedi criticità
@@ -798,30 +798,4 @@ function bindSchedaVita() {
     save('cm_delibere', delibere);
     setState({delibere, modal:null});
   };
-}
-
-// ─── Avviso per email (functions/notifiche.js) ───────────────────────
-// Spuntando la casella, il record riceve un codice nuovo in "notificaEmail":
-// il server spedisce una sola email per codice, in copia nascosta, ai
-// condomini con un'email che non hanno tolto "Riceve le email".
-function destinatariEmail(edificioId) {
-  const oggi = ymdLocale(new Date());
-  return state.condomini.filter(c => (c.edificioId || state.edificioAttivo) === edificioId && !c.disabled
-    && c.emailNotifiche !== false && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email || '') && !(c.dataUscita && c.dataUscita <= oggi)).length;
-}
-function renderCasellaEmail(id, isEdit) {
-  const n = destinatariEmail(getUserEdificio(state.user));
-  return `<label class="casella-email" for="${id}">
-      <input type="checkbox" id="${id}" ${isEdit ? '' : 'checked'} ${n ? '' : 'disabled'}>
-      <span><strong>${isEdit ? 'Invia di nuovo per email' : 'Avvisa i condomini per email'}</strong>
-      <span class="hint" style="display:block;margin-top:2px">${n ? n + (n === 1 ? ' condomino riceverà' : ' condomini riceveranno') + ' un\'email (in copia nascosta).' : 'Nessun condomino ha un\'email per ricevere avvisi.'}</span></span>
-    </label>`;
-}
-function richiestaEmail(id) {
-  return document.getElementById(id)?.checked ? { notificaEmail: new Date().toISOString() + '-' + Math.random().toString(36).slice(2, 7) } : {};
-}
-function avvisaEmail(email, edificioId) {
-  if (!email.notificaEmail) return;
-  const n = destinatariEmail(edificioId);
-  avvisa('✅ Pubblicato. Email in partenza per ' + n + (n === 1 ? ' condomino.' : ' condomini.'));
 }

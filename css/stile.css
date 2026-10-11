@@ -205,3 +205,28 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 .casella-email { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin: .25rem 0 1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface2); font-size: 14px; cursor: pointer; }
 .casella-email input { width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; }
 .casella-email input:disabled + span { opacity: .7; }
+
+/* --- ELENCO DESTINATARI DELLE EMAIL (js/sezioni/email.js) --- */
+.casella-email-box { margin: .25rem 0 1rem; }
+.casella-email-box .casella-email { margin-bottom: .5rem; }
+.scelta-dest { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.scelta-dest-testa { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--surface2); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.scelta-dest-conta { font-size: 13px; font-weight: 600; }
+.scelta-dest-azioni { display: flex; gap: 6px; }
+.scelta-dest-lista { list-style: none; margin: 0; padding: 4px; max-height: 260px; overflow-y: auto; }
+.scelta-dest-lista li label { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: center; padding: 7px 8px; border-radius: var(--radius-xs); cursor: pointer; font-size: 14px; }
+.scelta-dest-lista li label:hover { background: var(--surface2); }
+.scelta-dest-lista input { width: 16px; height: 16px; grid-row: span 2; }
+.scelta-dest-lista .sd-nome { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.scelta-dest-lista .sd-apt { color: var(--text2); font-weight: 400; font-size: 12.5px; margin-left: 4px; }
+.scelta-dest-lista .sd-dett { grid-column: 2; font-size: 12.5px; color: var(--text2); min-width: 0; overflow-wrap: anywhere; }
+.scelta-dest-lista li.escluso label { cursor: not-allowed; opacity: .75; }
+.scelta-dest-lista li.escluso { padding: 0; }
+/* Storico delle email in Impostazioni */
+.storico-email { list-style: none; margin: 0; padding: 0; }
+.storico-email li { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.storico-email li:last-child { border-bottom: none; }
+.storico-email .se-riga { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.storico-email .se-dett { font-size: 12.5px; color: var(--text2); margin-top: 3px; }
+.storico-email details { margin-top: 4px; font-size: 13px; }
+.storico-email summary { cursor: pointer; color: var(--accent); }

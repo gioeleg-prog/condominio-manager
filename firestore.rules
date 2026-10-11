@@ -189,6 +189,26 @@ service cloud.firestore {
         allow delete: if isSuperAdmin();
       }
 
+      // Storico delle email (functions/notifiche.js): lo scrive solo il server,
+      // lo leggono gli amministratori del condominio.
+      match /invii/{docId} {
+        allow read: if canAdmin(buildingId);
+        allow write: if false;
+      }
+
+      // Email automatiche del condominio (promemoria rate): solo gli amministratori.
+      match /impostazioni/{docId} {
+        allow read: if canAdmin(buildingId);
+        allow create, update: if canAdmin(buildingId) && docId == 'email'
+          && request.resource.data.keys().hasOnly(['promemoriaAuto', 'giorniPreavviso', 'aggiornatoDa', 'aggiornatoIl'])
+          && request.resource.data.promemoriaAuto is bool
+          && request.resource.data.giorniPreavviso is int
+          && request.resource.data.giorniPreavviso >= 1 && request.resource.data.giorniPreavviso <= 15
+          && request.resource.data.aggiornatoDa == request.auth.uid
+          && request.resource.data.aggiornatoIl == request.time;
+        allow delete: if false;
+      }
+
       // Dati finanziari: anche 'editor' nel proprio edificio.
       match /{coll}/{docId} {
         allow read: if inBuilding(buildingId)

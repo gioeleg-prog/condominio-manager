@@ -373,6 +373,8 @@ function renderImpostazioni() {
       }).join('')}
     </div>` : ''; })()}
 
+    ${canUserAdmin(state.user) ? renderSezioneEmail() : ''}
+
     <!-- ADMIN OWN PASSWORD + FIREBASE -->
     <div class="section-divider"><h3>🔐 Sicurezza account admin</h3></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem;margin-bottom:1.5rem">
@@ -754,6 +756,7 @@ function renderModalCategoria(d) {
 
 // Condomìni gestiti, categorie, account dell'amministratore, stato del servizio, marchio, svuotamento dati. Chiamata da bindPageActions() (azioni.js).
 function bindAzioniImpostazioni() {
+  bindSezioneEmail();
   // Gestione edifici
   const bNuovoEd = document.getElementById('btn-nuovo-edificio');
   if (bNuovoEd) bNuovoEd.onclick = () => setState({modal:{type:'edificio', data:null}});
