@@ -204,7 +204,8 @@ test.describe('Email ai condomini (modifica i dati)', () => {
     await page.locator('[data-scelta-nessuno="em-prom"]').click();
     await expect(page.locator('#btn-em-invia')).toBeDisabled();
     await page.locator('input[data-dest="em-prom"][value="103"]').check();
-    await expect(page.locator('#btn-em-invia')).toHaveText('📧 Invia a 1');
+    await expect(page.locator('#btn-em-invia')).toHaveText(/^\s*Invia a 1$/);
+    await expect(page.locator('#btn-em-invia svg.ico')).toHaveCount(1);
     await page.locator('#btn-em-invia').click();
     await page.locator('dialog.dialogo [data-dlg="si"]').click();
     await expect(page.locator('.avviso-ok')).toContainText('Email inviata a 1 condomino');
@@ -214,6 +215,9 @@ test.describe('Email ai condomini (modifica i dati)', () => {
     await accedi(page, 'admin1@qa.test');
     await vaiA(page, 'bilancio');
     await page.locator('#btn-rendiconto-pdf').click();
+    const pallino = await page.locator('input[name="rend-tipo"]').first().boundingBox();
+    expect(pallino.width).toBeLessThan(24);
+    await expect(page.locator('#btn-rend-email')).toContainText('Scegli a chi inviare');
     await page.locator('#btn-rend-email').click();
     await expect(page.locator('#em-oggetto')).toHaveValue(/Rendiconto|preventivo/i);
     await page.locator('[data-scelta-nessuno="em-rend"]').click();
@@ -243,6 +247,8 @@ test.describe('Email ai condomini (modifica i dati)', () => {
     await vaiA(page, 'condomini');
     await page.locator('.utente-card', { hasText: 'Marta Member' }).getByRole('button', { name: 'Modifica' }).click();
     await expect(page.locator('#m-email-notifiche')).toBeChecked();
+    await expect(page.locator('label[for="m-username"]')).toHaveText('Nickname (facoltativo)');
+    await expect(page.locator('.modal')).not.toContainText('Username');
   });
 
   test('sola lettura: nessun pulsante per inviare email', async ({ page }) => {

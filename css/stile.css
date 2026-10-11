@@ -230,3 +230,7 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 .storico-email .se-dett { font-size: 12.5px; color: var(--text2); margin-top: 3px; }
 .storico-email details { margin-top: 4px; font-size: 13px; }
 .storico-email summary { cursor: pointer; color: var(--accent); }
+
+/* Pallini e caselle dentro un campo: dimensione propria, mai a tutta larghezza
+   (la regola dei campi di testo li allargava, es. Sintetico/Dettagliato del rendiconto). */
+.field input[type=radio], .field input[type=checkbox] { width: 16px; height: 16px; min-height: 0; padding: 0; margin: 2px 0 0; box-shadow: none; border: none; flex-shrink: 0; }

@@ -190,15 +190,14 @@ function renderModalNuovoUtente() {
       <div class="form-row">
         <div class="field"><label>Appartamento *</label>
           <input type="text" id="wiz-apt" value="${esc(wd.appartamento||'')}" placeholder="Es. Int. 3"></div>
-        <div class="field"><label>Email</label>
-          <input type="email" id="wiz-email" value="${esc(wd.email||'')}" placeholder="marco@example.com"></div>
+        <div class="field"><label for="wiz-email">Email di accesso</label>
+          <input type="email" id="wiz-email" value="${esc(wd.email||'')}" placeholder="nome@esempio.it" autocapitalize="none" autocorrect="off" spellcheck="false"></div>
       </div>
+      <p class="hint" style="margin:-.5rem 0 1rem">Con questa email la persona entra nell'app (anche con "Accedi con Google") e riceve le email del condominio.</p>
       <div class="field">
-        <label>Username di accesso *</label>
-        <input type="text" id="wiz-username" value="${esc(wd.username||'')}"
-          placeholder="Es. mario.rossi · int1 · m.verdi"
-          autocapitalize="none" autocorrect="off" spellcheck="false">
-        <p class="hint">L'utente userà questo per entrare nell'app. Suggerimento: <strong>nome.cognome</strong> o <strong>int1</strong></p>
+        <label for="wiz-username">Nickname (facoltativo)</label>
+        <input type="text" id="wiz-username" value="${esc(wd.username||'')}" maxlength="40" placeholder="Es. Marco del 3° piano">
+        <p class="hint">Come lo chiamate di solito: aiuta a riconoscerlo. Non serve per accedere.</p>
       </div>
       <div class="field">
         <label>Condominio *</label>
@@ -246,7 +245,7 @@ function renderModalNuovoUtente() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem">
           <span style="color:var(--text2)">Nome</span><span>${esc(wd.nome||'')}</span>
           <span style="color:var(--text2)">Appartamento</span><span>${esc(wd.appartamento||'')}</span>
-          <span style="color:var(--text2)">Username</span><span style="font-family:monospace">${esc(wd.username||'(non impostato)')}</span>
+          <span style="color:var(--text2)">Nickname</span><span>${esc(wd.username||'—')}</span>
           <span style="color:var(--text2)">Email</span><span>${esc(wd.email||'—')}</span>
           <span style="color:var(--text2)">Ruolo</span><span><span class="badge ${wd.ruolo==='adminedificio'?'badge-blue':wd.ruolo==='modifica'?'badge-green':'badge-gray'}">${wd.ruolo==='adminedificio'?'Amm. Edificio':wd.ruolo==='modifica'?'Modifica':'Lettura'}</span></span>
           <span style="color:var(--text2)">Condominio</span><span>${(()=>{const e=state.edifici.find(x=>x.id===wd.edificioId); return e?(e.emoji||'🏢')+' '+esc(e.nome):'—';})()}</span>
@@ -293,16 +292,14 @@ function renderModalCond(d) {
         </div>
         <div class="form-row">
           <div class="field">
-            <label>Username di accesso *</label>
-            <input type="text" id="m-username" value="${esc(d?.username||'')}"
-              placeholder="Es. mario.rossi · int1"
-              autocapitalize="none" autocorrect="off" spellcheck="false">
-            <p class="hint">Usato per accedere all'app. Solo lettere, numeri, punti. Deve essere unico.</p>
+            <label for="m-email">Email di accesso</label>
+            <input type="email" id="m-email" value="${esc(d?.email||'')}" placeholder="nome@esempio.it" autocapitalize="none" autocorrect="off" spellcheck="false">
+            <p class="hint">Con questa email entra nell'app (anche con "Accedi con Google"), recupera la password e riceve le email del condominio.</p>
           </div>
           <div class="field">
-            <label>Email</label>
-            <input type="email" id="m-email" value="${esc(d?.email||'')}" placeholder="email@example.com">
-            <p class="hint">Usata per Firebase Auth e per il reset password.</p>
+            <label for="m-username">Nickname (facoltativo)</label>
+            <input type="text" id="m-username" value="${esc(d?.username||'')}" maxlength="40" placeholder="Es. Lucia del 2° piano">
+            <p class="hint">Come lo chiamate di solito: aiuta a riconoscerlo. Non serve per accedere.</p>
           </div>
         </div>
         <div class="form-row">
@@ -406,7 +403,7 @@ function bindWizard() {
       hideErr('wiz-err1');
       if (!nome || !apt) { showErr('wiz-err1','Nome e appartamento sono obbligatori'); return; }
       const edificioSel = parseInt(document.getElementById('wiz-edificio')?.value)||state.edificioAttivo;
-      const usernameSel = (document.getElementById('wiz-username')?.value||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'');
+      const usernameSel = (document.getElementById('wiz-username')?.value || '').trim().replace(/\s+/g, ' ').slice(0, 40); // nickname, testo libero
       state.wizardData = {...wd, nome, appartamento:apt, email, edificioId:edificioSel, username:usernameSel};
       setState({wizardStep: 2});
 
@@ -439,7 +436,7 @@ function bindWizard() {
         isAdmin: isAdminNew,
         color: COLORS[nextIdx],
         edificioId: d.edificioId || state.edificioAttivo,
-        username: (d.username||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,''),
+        username: d.username || '', // nickname, testo libero
         superAdmin: superAdminNew || false,
       };
       const condomini = [...state.condomini, nuovoUtente];
@@ -624,7 +621,7 @@ function salvaSchedaCondomino(m) {
       emailNotifiche: document.getElementById('m-email-notifiche') ? document.getElementById('m-email-notifiche').checked : true };
     let condomini;
     if (m.data?.id) {
-      const username = document.getElementById('m-username')?.value?.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') || '';
+      const username = (document.getElementById('m-username')?.value || '').trim().replace(/\s+/g, ' ').slice(0, 40); // nickname, testo libero
       // ── Blocco spostamento: RIGIDO se ha transazioni ─────────────────
       const condOld      = state.condomini.find(c=>c.id===m.data.id);
       const oldEdId      = condOld?.edificioId || state.edificioAttivo;
@@ -655,11 +652,7 @@ function salvaSchedaCondomino(m) {
       }
     } else {
       const nextIdx = state.condomini.length % COLORS.length;
-      const usernameNew = document.getElementById('m-username')?.value?.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') || '';
-      // Verifica unicità username
-      if (usernameNew && state.condomini.some(c=>c.username===usernameNew)) {
-        avvisa('Username già in uso. Scegli un nome diverso.'); return;
-      }
+      const usernameNew = (document.getElementById('m-username')?.value || '').trim().replace(/\s+/g, ' ').slice(0, 40); // nickname, facoltativo e non univoco
       condomini = [...state.condomini, {id:newId(),nome,appartamento:apt,email,username:usernameNew,canEdit:canEditNew,isAdmin:isAdminNew,superAdmin:false,edificioId,color:COLORS[nextIdx],...date}];
     }
     save('cm_condomini', condomini);

@@ -61,7 +61,7 @@ function aggiornaConteggio(pref) {
   const n = leggiDestinatari(pref).length;
   const el = document.getElementById(pref + '-conta');
   if (el) el.textContent = `${n} di ${tutte} selezionati`;
-  document.querySelectorAll(`[data-invia-conta="${pref}"]`).forEach(b => { b.textContent = `📧 Invia a ${n}`; b.disabled = !n; });
+  document.querySelectorAll(`[data-invia-conta="${pref}"]`).forEach(b => { b.innerHTML = ico('busta') + ` Invia a ${n}`; b.disabled = !n; });
 }
 
 // Un solo gestore per tutta la pagina (gli elenchi vengono ridisegnati spesso).

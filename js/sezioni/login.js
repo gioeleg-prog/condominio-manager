@@ -220,7 +220,7 @@ async function doLogin() {
   window.__pendingGoogleLink = null;
   const loginInput = (document.getElementById('inp-login')?.value || '').trim();
   const pw         = (document.getElementById('inp-pw')?.value   || '').trim();
-  if (!loginInput) { showLoginErr('Inserisci username o email'); return; }
+  if (!loginInput) { showLoginErr('Inserisci la tua email'); return; }
   if (!pw)         { showLoginErr('Inserisci la password'); return; }
 
   const btn = document.getElementById('btn-login');

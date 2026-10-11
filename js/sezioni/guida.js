@@ -99,7 +99,7 @@ const GUIDA = {
       ['Vedere il dettaglio di un condomino', 'Scheda "👥 Per condomino", poi tocca il nome.'],
       ['mod', 'Estratto conto di un condomino', 'Scheda "👥 Per condomino", "📄 Estratto conto" sotto il nome: PDF con saldo iniziale, quote delle spese, versamenti e saldo progressivo, poi le prossime scadenze.'],
       ['mod', 'Preparare il rendiconto da inviare', '"📄 Rendiconto PDF": scegli l\'anno, sintetico (cassa, categorie, riparto) o dettagliato (anche tutte le spese e i versamenti), aggiungi una nota e scarica il PDF da allegare all\'email. Per l\'anno prossimo diventa il bilancio preventivo.'],
-      ['admin', 'Mandare rendiconto o estratti per email', 'Nella scheda del rendiconto o dell\'estratto conto, "📧 Invia per email": scegli i destinatari dall\'elenco, scrivi un messaggio e invia. Il rendiconto parte in un\'unica email in copia nascosta; ogni estratto conto va solo al suo condomino. Con "📄 Scarica PDF" ne tieni una copia identica a quella allegata.'],
+      ['admin', 'Mandare rendiconto o estratti per email', 'Nella scheda del rendiconto o dell\'estratto conto, "📧 Scegli a chi inviare": si apre l\'elenco, scegli i destinatari dall\'elenco, scrivi un messaggio e invia. Il rendiconto parte in un\'unica email in copia nascosta; ogni estratto conto va solo al suo condomino. Con "📄 Scarica PDF" ne tieni una copia identica a quella allegata.'],
     ],
     sapere: [
       '<b>ACTUALS</b> = solo dati reali confermati. <b>ACTUALS + FORECAST</b> = reali più previsioni.',
@@ -194,7 +194,7 @@ const GUIDA = {
       'In fondo gli archiviati: persone che non accedono più, con i dati conservati.',
     ],
     fare: [
-      ['admin', 'Aggiungere una persona', '"+ Aggiungi condomino": nome, appartamento, email e ruolo. Con quell\'email potrà entrare (anche con Google).'],
+      ['admin', 'Aggiungere una persona', '"+ Aggiungi condomino": nome, appartamento, email e ruolo (il nickname è facoltativo, solo per riconoscerlo). Con quell\'email potrà entrare (anche con Google).'],
       ['admin', 'Cambiare dati o ruolo', '"Modifica".'],
       ['admin', 'Vendita o nuovo inquilino', '"🔁 Subentro": indichi la data e il nuovo condomino. Chi esce viene archiviato con quella data di uscita, chi entra prende lo stesso appartamento e, se lasci la spunta, le quote delle spese future non ancora consuntivate.'],
       ['admin', 'Chi ha lasciato il condominio', '"⏸ Archivia" con la data di uscita: non entra più, ma pagamenti e storico restano. "▶ Riattiva" lo riporta.'],
