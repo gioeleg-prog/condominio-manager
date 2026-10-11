@@ -295,6 +295,134 @@ test.describe('Millesimi (modifica i dati)', () => {
     await expect(page.locator('.utente-card', { hasText: 'Anna Admin' })).toContainText('Generale 200');
     expect(await axe(page)).toEqual([]);
   });
+
+  test('seconda tabella per categoria: Ascensore propone la sua tabella e chi ha 0 non paga', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'impostazioni');
+    await page.locator('#mill-aggiungi').click();
+    await page.locator('.mill-nome[data-ti="1"]').fill('Ascensore');
+    const valori = { 'int. 1': '300', 'int. 2': '300', 'int. 3': '200', 'int. 4': '200', 'int. 5': '0', 'int. 7': '0' };
+    for (const [apt, v] of Object.entries(valori)) await page.locator(`.mill-val[data-ti="1"][data-apt="${apt}"]`).fill(v);
+    await expect(page.locator('#mill-tot-1')).toContainText('Totale 1000 / 1000');
+    // L'associazione categoria → tabella compare con almeno due tabelle: salvo e riapro.
+    await page.locator('#mill-salva').click();
+    await expect(page.locator('.avviso-ok')).toContainText('Millesimi salvati');
+    await page.locator('select[data-mill-cat="ascensore"]').selectOption({ label: 'Ascensore' });
+    await page.locator('#mill-salva').click();
+    await attendiSalvataggi(page);
+
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await page.locator('#m-cat').selectOption('ascensore');
+    await expect(page.locator('#split-tabella option:checked')).toHaveText('Ascensore');
+    await expect(page.locator('#split-mill-nota')).toContainText('senza millesimi: Dora Doppia, Ugo Usato');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('30.00');
+    await expect(page.locator('.split-perc-inp[data-cid="105"]')).toHaveValue('0.00');
+    // Pulizie torna alla tabella Generale.
+    await page.locator('#m-cat').selectOption('pulizie');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('20.00');
+  });
+
+  test('data prima dell\'attivazione: torna alle parti uguali; quote toccate a mano non vengono riscritte', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('20.00');
+    await page.locator('#m-data').fill(`${new Date().getFullYear() - 1}-12-15`);
+    await page.locator('#m-data').dispatchEvent('change');
+    await expect(page.locator('#split-mill-nota')).toContainText('parti uguali');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).not.toHaveValue('20.00');
+    // Di nuovo nel periodo dei millesimi: la proposta torna.
+    await page.locator('#m-data').fill(`${new Date().getFullYear()}-06-15`);
+    await page.locator('#m-data').dispatchEvent('change');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('20.00');
+    // Quota modificata a mano (bloccata): cambiare categoria non la riscrive.
+    await page.locator('.split-perc-inp[data-cid="101"]').fill('25');
+    await page.locator('#m-cat').selectOption('ascensore');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('25');
+  });
+
+  test('ripartizione fotografata: cambiare la tabella non modifica le spese già salvate; totale ≠ 1000 chiede conferma', async ({ page }) => {
+    const titolo = 'Millesimi fotografati ' + Date.now();
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await page.locator('#m-titolo').fill(titolo);
+    await page.locator('#m-cat').selectOption('pulizie');
+    await page.locator('#m-prev').fill('1000');
+    await page.locator('#modal-save').click();
+    await attendiSalvataggi(page);
+    const perc = async () => page.evaluate((t) => state.spese.find((s) => s.titolo === t).split.find((x) => x.id === 101).perc, titolo);
+    expect(await perc()).toBe(20);
+
+    await vaiA(page, 'impostazioni');
+    await page.locator('.mill-val[data-ti="0"][data-apt="int. 1"]').fill('300');
+    await expect(page.locator('#mill-tot-0')).toContainText('Totale 1100 / 1000');
+    await page.locator('#mill-salva').click();
+    await expect(page.locator('dialog.dialogo')).toContainText('Il totale non è 1000');
+    await page.locator('dialog.dialogo [data-dlg="si"]').click();
+    await expect(page.locator('.avviso-ok')).toContainText('Millesimi salvati');
+    expect(await perc()).toBe(20);
+    // Ripristino della tabella corretta.
+    await page.locator('.mill-val[data-ti="0"][data-apt="int. 1"]').fill('200');
+    await page.locator('#mill-salva').click();
+    await expect(page.locator('.avviso-ok').last()).toContainText('Millesimi salvati');
+  });
+
+  test('applica all\'anno in corso: anteprima, conferma; consuntivate e anni passati intatti', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    const Y = new Date().getFullYear();
+    const prima = await page.evaluate((Y) => ({
+      consuntivata: JSON.stringify(state.spese.find((s) => s.titolo === 'Luce 1/1').split),
+      annoPrima: JSON.stringify(state.spese.find((s) => s.titolo === 'Cancello mai consuntivato').split),
+    }), Y);
+    await vaiA(page, 'impostazioni');
+    await page.locator('#mill-applica').click();
+    const scheda = page.locator('.modal');
+    await expect(scheda).toContainText('non ancora consuntivate');
+    await expect(scheda.locator('tbody tr').first()).toBeVisible();
+    await expect(scheda).toContainText('Quota prima');
+    expect(await axe(page)).toEqual([]);
+    await page.locator('#btn-mill-conferma').click();
+    await expect(page.locator('.avviso-ok')).toContainText('Millesimi applicati');
+    await attendiSalvataggi(page);
+    const dopo = await page.evaluate((Y) => ({
+      consuntivata: JSON.stringify(state.spese.find((s) => s.titolo === 'Luce 1/1').split),
+      annoPrima: JSON.stringify(state.spese.find((s) => s.titolo === 'Cancello mai consuntivato').split),
+      pulizieNov: state.spese.find((s) => s.titolo === 'Pulizie mensili' && s.data === `${Y}-11-01`).split.find((x) => x.id === 101).perc,
+    }), Y);
+    expect(dopo.consuntivata).toBe(prima.consuntivata);
+    expect(dopo.annoPrima).toBe(prima.annoPrima);
+    expect(dopo.pulizieNov).toBe(20);
+  });
+
+  test('chi ha il ruolo Modifica riceve la stessa proposta (legge i millesimi, non li modifica)', async ({ page }) => {
+    await accedi(page, 'editor1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await expect(page.locator('#split-mill-nota')).toContainText('Proposta dai millesimi');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('20.00');
+    await expect(page.locator('.sidebar [data-page="impostazioni"]')).toHaveCount(0);
+  });
+
+  test('rendiconto PDF con la colonna dei millesimi: si crea senza errori', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'bilancio');
+    await page.locator('#btn-rendiconto-pdf').click();
+    const millesimi = await page.evaluate(() => datiRendiconto(new Date().getFullYear()).millesimi);
+    expect(millesimi).toEqual({ tabella: 'Generale' });
+    const [pdf] = await Promise.all([page.waitForEvent('download'), page.locator('#btn-rend-genera').click()]);
+    expect(pdf.suggestedFilename()).toMatch(/[.]pdf$/);
+  });
+
+  test('eliminare una tabella chiede conferma (Annulla la tiene)', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'impostazioni');
+    await page.locator('[data-mill-togli="1"]').click();
+    await expect(page.locator('dialog.dialogo')).toContainText('Eliminare la tabella "Ascensore"');
+    await page.locator('dialog.dialogo [data-dlg="no"]').click();
+    await expect(page.locator('.mill-nome[data-ti="1"]')).toHaveValue('Ascensore');
+  });
 });
 
 test.describe('Subentro (modifica i dati)', () => {
@@ -316,5 +444,29 @@ test.describe('Subentro (modifica i dati)', () => {
     await vaiA(page, 'condomini');
     await expect(page.locator('.utente-card', { hasText: 'Nuova Proprietaria' })).toContainText('Int. 5');
     await expect(page.getByText(/uscito il/).first()).toBeVisible();
+  });
+});
+
+test.describe('Millesimi: subentro e spegnimento (modifica i dati)', () => {
+  test('dopo il subentro il nuovo proprietario mostra i millesimi dell\'appartamento', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'condomini');
+    await expect(page.locator('.utente-card', { hasText: 'Nuova Proprietaria' })).toContainText('Generale 150');
+  });
+
+  test('spenti di nuovo: le spese nuove tornano alle parti uguali, quelle salvate restano come sono', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    const prima = await page.evaluate(() => JSON.stringify(state.spese.filter((s) => s.tabellaMillesimi).map((s) => s.split)));
+    await vaiA(page, 'impostazioni');
+    await page.locator('#mill-attivo').uncheck();
+    await page.locator('#mill-salva').click();
+    await expect(page.locator('.avviso-ok')).toContainText('non attivi');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await expect(page.locator('#split-millesimi')).toHaveCount(0);
+    await expect(page.locator('#split-mill-nota')).not.toContainText('millesimi');
+    await page.locator('#modal-cancel').click();
+    const dopo = await page.evaluate(() => JSON.stringify(state.spese.filter((s) => s.tabellaMillesimi).map((s) => s.split)));
+    expect(dopo).toBe(prima);
   });
 });
