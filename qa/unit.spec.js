@@ -896,3 +896,40 @@ describe('UNIT — tabelle millesimali', () => {
     assert.strictEqual(base(CFG).datiRendiconto(Y - 1).millesimi, null, 'anno prima dell\'attivazione');
   });
 });
+
+describe('UNIT — appartamenti in affitto', () => {
+  const Y = new Date().getFullYear();
+  const base = (affitti) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [],
+      user: { id: 101, nome: 'Anna', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 }, { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }],
+      spese: [
+        { id: 1, data: `${Y}-03-01`, titolo: 'Pulizie', categoria: 'pulizie', tipoSpesa: 'ordinaria', consuntivo: '600', split: [{ id: 101, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 },
+        { id: 2, data: `${Y}-04-01`, titolo: 'Tetto', categoria: 'tetto', tipoSpesa: 'straordinaria', consuntivo: '2000', split: [{ id: 101, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 },
+        { id: 3, data: `${Y}-12-01`, titolo: 'Luce', categoria: 'luce_comuni', tipoSpesa: 'ordinaria', preventivo: '200', consuntivo: '', split: [{ id: 101, perc: 50 }, { id: 102, perc: 50 }], edificioId: 1 },
+      ],
+      entrate: [{ id: 10, data: `${Y}-02-01`, importo: '500', condominoId: 101, edificioId: 1 }] });
+    if (affitti !== undefined) app.__get('_affitti')[1] = affitti;
+    return app;
+  };
+  it('di base nessun appartamento è in affitto: nessun riquadro nell\'estratto', () => {
+    const app = base(null);
+    assert.strictEqual(app.appartamentoInAffitto('Int. 1'), false);
+    assert.strictEqual(app.datiEstratto(101, Y).affitto, null);
+  });
+  it('in affitto: da recuperare = sole quote ordinarie; straordinarie e saldo del proprietario invariati', () => {
+    const senza = base(null).datiEstratto(101, Y);
+    const d = base({ appartamenti: { 'int. 1': true } }).datiEstratto(101, Y);
+    assert.strictEqual(d.affitto.recuperabile, 300);
+    assert.strictEqual(JSON.stringify(d.affitto.voci.map((v) => v.descrizione)), JSON.stringify(['Pulizie']));
+    assert.strictEqual(d.affitto.previste, 100);
+    assert.strictEqual(d.saldo, senza.saldo, 'verso il condominio paga sempre il proprietario');
+    assert.strictEqual(d.quoteStr, 1000);
+  });
+  it('la spunta vale per l\'appartamento (anche dopo un subentro) e non per gli altri', () => {
+    const app = base({ appartamenti: { 'int. 1': true } });
+    assert.strictEqual(app.appartamentoInAffitto(' int. 1 '), true);
+    assert.strictEqual(app.datiEstratto(102, Y).affitto, null);
+  });
+});

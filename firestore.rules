@@ -198,9 +198,10 @@ service cloud.firestore {
 
       // Impostazioni del condominio, modificabili solo dagli amministratori:
       //  - email: promemoria automatici delle rate (letti solo dagli amministratori);
-      //  - millesimi: tabelle millesimali (lette da tutto il condominio, per l'anagrafica).
+      //  - millesimi: tabelle millesimali (lette da tutto il condominio, per l'anagrafica);
+      //  - affitti: appartamenti in affitto (letti da tutto il condominio, per l'estratto conto).
       match /impostazioni/{docId} {
-        allow read: if canAdmin(buildingId) || (docId == 'millesimi' && inBuilding(buildingId));
+        allow read: if canAdmin(buildingId) || (docId in ['millesimi', 'affitti'] && inBuilding(buildingId));
         allow create, update: if canAdmin(buildingId)
           && request.resource.data.aggiornatoDa == request.auth.uid
           && request.resource.data.aggiornatoIl == request.time
@@ -209,6 +210,9 @@ service cloud.firestore {
                 && request.resource.data.promemoriaAuto is bool
                 && request.resource.data.giorniPreavviso is int
                 && request.resource.data.giorniPreavviso >= 1 && request.resource.data.giorniPreavviso <= 15)
+            || (docId == 'affitti'
+                && request.resource.data.keys().hasOnly(['appartamenti', 'aggiornatoDa', 'aggiornatoIl'])
+                && request.resource.data.appartamenti is map && request.resource.data.appartamenti.size() <= 300)
             || (docId == 'millesimi'
                 && request.resource.data.keys().hasOnly(['attivo', 'dal', 'tabelle', 'categorie', 'aggiornatoDa', 'aggiornatoIl'])
                 && request.resource.data.attivo is bool
