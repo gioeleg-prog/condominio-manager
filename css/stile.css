@@ -145,3 +145,4 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 :root[data-theme="dark"] .cf-zero-warn.ok { border-left-color: var(--green); }
 :root[data-theme="dark"] .cf-zero-warn.warn { border-left-color: var(--amber); }
 :root[data-theme="dark"] .cf-zero-warn.critical { border-left-color: var(--red); }
+.th-sort .sort-icon { opacity: .75; }
