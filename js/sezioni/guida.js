@@ -99,7 +99,7 @@ const GUIDA = {
       ['Vedere il dettaglio di un condomino', 'Scheda "👥 Per condomino", poi tocca il nome.'],
       ['mod', 'Estratto conto di un condomino', 'Scheda "👥 Per condomino", "📄 Estratto conto" sotto il nome: PDF con saldo iniziale, quote delle spese, versamenti e saldo progressivo, poi le prossime scadenze.'],
       ['mod', 'Preparare il rendiconto da inviare', '"📄 Rendiconto PDF": scegli l\'anno, sintetico (cassa, categorie, riparto) o dettagliato (anche tutte le spese e i versamenti), aggiungi una nota e scarica il PDF da allegare all\'email. Per l\'anno prossimo diventa il bilancio preventivo.'],
-      ['admin', 'Mandare rendiconto o estratti per email', 'Nella scheda del rendiconto o dell\'estratto conto, "📧 Invia per email": scegli i destinatari dall\'elenco, scrivi un messaggio e invia. Il rendiconto parte in un\'unica email in copia nascosta; ogni estratto conto va solo al suo condomino.'],
+      ['admin', 'Mandare rendiconto o estratti per email', 'Nella scheda del rendiconto o dell\'estratto conto, "📧 Invia per email": scegli i destinatari dall\'elenco, scrivi un messaggio e invia. Il rendiconto parte in un\'unica email in copia nascosta; ogni estratto conto va solo al suo condomino. Con "📄 Scarica PDF" ne tieni una copia identica a quella allegata.'],
     ],
     sapere: [
       '<b>ACTUALS</b> = solo dati reali confermati. <b>ACTUALS + FORECAST</b> = reali più previsioni.',

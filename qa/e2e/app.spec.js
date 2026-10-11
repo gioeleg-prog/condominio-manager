@@ -219,6 +219,8 @@ test.describe('Email ai condomini (modifica i dati)', () => {
     await page.locator('[data-scelta-nessuno="em-rend"]').click();
     await page.locator('input[data-dest="em-rend"][value="101"]').check();
     await page.locator('input[data-dest="em-rend"][value="103"]').check();
+    const [scaricato] = await Promise.all([page.waitForEvent('download'), page.locator('#btn-em-scarica').click()]);
+    expect(scaricato.suggestedFilename()).toMatch(/^(Rendiconto|Preventivo)_[0-9]{4}_.*[.]pdf$/);
     await page.locator('#btn-em-invia').click();
     await page.locator('dialog.dialogo [data-dlg="si"]').click();
     await expect(page.locator('.avviso-ok')).toContainText('Email inviata a 2 condomini', { timeout: 20_000 });
