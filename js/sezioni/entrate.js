@@ -835,20 +835,20 @@ function bindAzioniEntrate() {
     if (aggiornati) parti.push(aggiornati + ' aggiornati');
     if (daRimuovere.length) parti.push(daRimuovere.length + ' rimossi perché non più necessari');
     if (saltati) parti.push(saltati + ' già pagati, lasciati invariati');
-    alert(parti.length
+    avvisa(parti.length
       ? 'Piano rate ' + annoSel + ': ' + parti.join(', ') + '. Valida i versamenti quando arrivano i pagamenti.'
       : 'Nessuna modifica: il piano era già aggiornato.');
   };
   // Valida entrata previsionale → effettiva
   document.querySelectorAll('[data-valida-entrata]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.validaEntrata);
       const e0 = state.entrate.find(e => e.id === id);
       const oggiStr = ymdLocale(new Date());
       // Una rata pianificata nel futuro e confermata oggi è un pagamento di oggi:
       // con la data pianificata finirebbe nella cassa del mese (o dell'anno) sbagliato.
       const futura = e0 && e0.data > oggiStr;
-      if (!confirm('Confermi il versamento come effettivo? Verrà spostato dagli importi previsionali a quelli reali.'
+      if (!await chiedi('Confermi il versamento come effettivo? Verrà spostato dagli importi previsionali a quelli reali.'
         + (futura ? '\nEra previsto per il ' + e0.data.split('-').reverse().join('/') + ': verrà registrato con la data di oggi. Per un\'altra data usa ✏️ Modifica.' : ''))) return;
       const entrate = state.entrate.map(e => e.id===id ? {...e, previsionale:false, ...(futura ? { data: oggiStr } : {})} : e);
       save('cm_entrate', entrate);
@@ -865,8 +865,8 @@ function bindAzioniEntrate() {
     };
   });
   document.querySelectorAll('[data-del-entrata]').forEach(btn => {
-    btn.onclick = () => {
-      if (!confirm('Eliminare questo versamento?')) return;
+    btn.onclick = async () => {
+      if (!await chiedi('Eliminare questo versamento?')) return;
       const entrate = state.entrate.filter(e=>e.id!==parseInt(btn.dataset.delEntrata));
       save('cm_entrate', entrate);
       setState({entrate});
@@ -933,7 +933,7 @@ function bindSchedaEntrate() {
 function salvaSchedaEntrata(m) {
     const previsionale = document.getElementById('m-previsionale')?.value === '1';
     const errEl = document.getElementById('entrata-err');
-    const showErr = (msg) => { if(errEl){errEl.textContent=msg;errEl.style.display='block';} else alert(msg); };
+    const showErr = (msg) => { if(errEl){errEl.textContent=msg;errEl.style.display='block';} else avvisa(msg); };
 
     if (m.data?.id) {
       // ── MODIFICA / VALIDAZIONE singola ──────────────────────────────────

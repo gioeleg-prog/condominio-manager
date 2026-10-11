@@ -624,7 +624,7 @@ function renderModalSpesa(d) {
 // ripartizione già usata in renderQuotaCell (split % se definito sulla spesa, altrimenti parti
 // uguali tra i condomini attivi dell'edificio DI QUELLA spesa).
 function esportaSpeseCSV(spese, nomeFile) {
-  if (!spese.length) { alert('Nessuna spesa da esportare.'); return; }
+  if (!spese.length) { avvisa('Nessuna spesa da esportare.'); return; }
 
   function quotaCondomino(spesa, condId, condEd) {
     const importoRef = parseFloat(spesa.consuntivo || spesa.preventivo || 0);
@@ -783,7 +783,7 @@ function bindAzioniSpese() {
   };
   // Elimina selezionate
   const bDelSel = document.getElementById('btn-del-sel');
-  if (bDelSel) bDelSel.onclick = () => {
+  if (bDelSel) bDelSel.onclick = async () => {
     const sel = state.speseSelezionate;
     if (!sel || sel.size === 0) return;
     // Mostra dettaglio di cosa si sta eliminando
@@ -791,7 +791,7 @@ function bindAzioniSpese() {
     const msg = 'Eliminare ' + sel.size + ' spese?\n\n' +
       toDelete.slice(0,5).map(s=>'- ' + s.titolo + ' (' + s.data + ')').join('\n') +
       (toDelete.length > 5 ? '\n- ... e altre ' + (toDelete.length-5) : '');
-    if (!confirm(msg)) return;
+    if (!await chiedi(msg)) return;
     const spese = state.spese.filter(s=>!sel.has(s.id));
     save('cm_spese', spese);
     state.speseSelezionate = new Set();
@@ -830,8 +830,8 @@ function bindAzioniSpese() {
     };
   });
   document.querySelectorAll('[data-del-spesa]').forEach(btn => {
-    btn.onclick = () => {
-      if (!confirm('Eliminare questa spesa?')) return;
+    btn.onclick = async () => {
+      if (!await chiedi('Eliminare questa spesa?')) return;
       const spese = state.spese.filter(s=>s.id!==parseInt(btn.dataset.delSpesa));
       save('cm_spese', spese);
       setState({spese});
@@ -891,8 +891,8 @@ function salvaSchedaSpesa(m) {
     const prev = document.getElementById('m-prev')?.value;
     const cons = document.getElementById('m-cons')?.value;
     const data = document.getElementById('m-data')?.value;
-    if (!titolo || !cat || !data) { alert('Compila i campi obbligatori (Titolo, Categoria, Data)'); return; }
-    if (!prev && !cons) { alert('Inserisci almeno un importo (preventivo o consuntivo)'); return; }
+    if (!titolo || !cat || !data) { avvisa('Compila i campi obbligatori (Titolo, Categoria, Data)'); return; }
+    if (!prev && !cons) { avvisa('Inserisci almeno un importo (preventivo o consuntivo)'); return; }
     const existingAllegati = m.data?.allegati||[];
     const allegati = [...existingAllegati, ...state.pendingFiles];
     const split = readSplitFromDOM();
@@ -904,7 +904,7 @@ function salvaSchedaSpesa(m) {
     if (ricorrente && !ricorrenzaFine) {
       const errEl = document.getElementById('m-err');
       if (errEl) { errEl.textContent = 'Inserisci la data di fine per la spesa ricorrente'; errEl.style.display='block'; }
-      else alert('Inserisci la data di fine per la spesa ricorrente');
+      else avvisa('Inserisci la data di fine per la spesa ricorrente');
       return;
     }
     // La fine deve venire dopo la prima spesa, altrimenti non si crea nessuna
@@ -916,7 +916,7 @@ function salvaSchedaSpesa(m) {
       const msg = 'La data di fine della ricorrenza deve essere successiva alla data della spesa';
       const errEl = document.getElementById('m-err');
       if (errEl) { errEl.textContent = msg; errEl.style.display='block'; }
-      else alert(msg);
+      else avvisa(msg);
       return;
     }
     const ricGruppoId = m.data?.ricGruppoId || (ricorrente ? newId() : null);
@@ -943,7 +943,7 @@ function salvaSchedaSpesa(m) {
         const occorrenze = generaOccorrenze(item, ricorrenzaFine).filter(o => !occupate.has(o.data));
         spese = [...spese, ...occorrenze];
         if (occorrenze.length > 0 || daSostituire > 0) {
-          alert('✅ Ricorrenza aggiornata: ' + occorrenze.length + ' occorrenze successive create'
+          avvisa('✅ Ricorrenza aggiornata: ' + occorrenze.length + ' occorrenze successive create'
             + (daSostituire ? ' (sostituite ' + daSostituire + ' ancora da consuntivare)' : '')
             + '. Le righe precedenti e quelle già consuntivate non sono state toccate.');
         }
@@ -995,11 +995,11 @@ function renderBoxSerie(d) {
 function bindSerieSpesa() {
   const b = document.getElementById('btn-serie-elimina');
   if (!b || state.modal?.type !== 'spesa') return;
-  b.onclick = () => {
+  b.onclick = async () => {
     const d = state.modal.data;
     const succ = occorrenzeSuccessive(d);
     if (!succ.length) return;
-    if (!confirm('Eliminare le ' + succ.length + ' occorrenze successive non consuntivate di questa serie? Questa spesa e quelle già consuntivate restano.')) return;
+    if (!await chiedi('Eliminare le ' + succ.length + ' occorrenze successive non consuntivate di questa serie? Questa spesa e quelle già consuntivate restano.')) return;
     const via = new Set(succ.map(s => s.id));
     // La serie ora finisce con questa occorrenza.
     const spese = state.spese.filter(s => !via.has(s.id)).map(s => s.id === d.id ? { ...s, ricorrenzaFine: s.data } : s);

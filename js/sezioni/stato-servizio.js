@@ -52,14 +52,14 @@ async function opsLoad(what) {
       ops.errors = (await fb.getDocs(q)).docs.map(d => ({ id: d.id, ...d.data() }));
     }
   } catch (e) {
-    alert('Caricamento non riuscito: ' + (e.message || e));
+    avvisa('Caricamento non riuscito: ' + (e.message || e));
   }
   ops.loading = ''; setState({});
 }
 
 async function opsClearErrors() {
   const fb = window._fb;
-  if (!ops.errors?.length || !confirm('Cancellare le ' + ops.errors.length + ' segnalazioni mostrate?')) return;
+  if (!ops.errors?.length || !await chiedi('Cancellare le ' + ops.errors.length + ' segnalazioni mostrate?')) return;
   try {
     for (let i = 0; i < ops.errors.length; i += 400) {
       const batch = fb.writeBatch(fb.db);
@@ -67,7 +67,7 @@ async function opsClearErrors() {
       await batch.commit();
     }
     ops.errors = [];
-  } catch (e) { alert('Cancellazione non riuscita: ' + (e.message || e)); }
+  } catch (e) { avvisa('Cancellazione non riuscita: ' + (e.message || e)); }
   setState({});
 }
 

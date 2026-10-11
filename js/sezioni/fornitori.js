@@ -372,9 +372,9 @@ function bindAzioniFornitori() {
   });
   // Disabilita fornitore
   document.querySelectorAll('[data-disable-fornitore]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.disableFornitore);
-      if (!confirm('Disabilitare questo fornitore? Rimarrà nello storico.')) return;
+      if (!await chiedi('Disabilitare questo fornitore? Rimarrà nello storico.')) return;
       const fornitori = state.fornitori.map(f=>f.id===id?{...f,disabled:true}:f);
       save('cm_fornitori', fornitori);
       setState({fornitori});
@@ -391,7 +391,7 @@ function bindAzioniFornitori() {
   });
   // Elimina fornitore
   document.querySelectorAll('[data-del-fornitore]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.delFornitore);
       const f = state.fornitori.find(x=>x.id===id);
       if (!f) return;
@@ -400,7 +400,7 @@ function bindAzioniFornitori() {
       const msg = usato > 0
         ? `"${f.nome}" è associato a ${usato} spese. Eliminandolo le spese perderanno il riferimento. Procedere?`
         : `Eliminare definitivamente "${f.nome}"?`;
-      if (!confirm(msg)) return;
+      if (!await chiedi(msg)) return;
       const fornitori = state.fornitori.filter(x=>x.id!==id);
       save('cm_fornitori', fornitori);
       setState({fornitori});
