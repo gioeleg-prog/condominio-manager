@@ -315,3 +315,74 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     });
   });
 });
+
+// Notifiche email (functions/notifiche.js). Sugli emulatori nessuna email parte:
+// ogni invio è solo registrato in mailLog (simulata: true) con l'elenco dei destinatari.
+describe('INTEGRAZIONE — notifiche email', function () {
+  this.timeout(40000);
+  beforeEach(async () => { await seed(); });
+  const mailLog = async () => (await admin.collection('mailLog').get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+  const avviso = (id, extra = {}) => ({ id, titolo: 'Acqua chiusa', testo: 'Martedì dalle 9 alle 12.', edificioId: 1, ...extra });
+  async function scrivi(u, coll, rec) {
+    const ref = fs.doc(u.db, 'buildings', '1', coll, String(rec.id));
+    const prev = (await fs.getDoc(ref)).data();
+    await fs.setDoc(ref, signed(u, rec, prev));
+  }
+
+  it('nuovo avviso con la casella spuntata: una email in copia nascosta ai condomini attivi del solo edificio', async () => {
+    const a = await as('admin1@qa.test');
+    await admin.doc('buildings/1/members/105').update({ emailNotifiche: false }); // Dora non vuole email
+    await scrivi(a, 'notices', avviso(9001, { notificaEmail: 'c1' }));
+    const [log] = await waitFor(async () => { const l = await mailLog(); return l.length ? l : null; });
+    assert.strictEqual(log.stato, 'simulata');
+    assert.strictEqual(log.tipo, 'avviso');
+    assert.match(log.oggetto, /^Nuovo avviso: Acqua chiusa$/);
+    assert.ok(log.elenco.includes('admin1@qa.test') && log.elenco.includes('member1@qa.test'));
+    assert.ok(!log.elenco.includes('disabled@qa.test'), 'archiviato escluso');
+    assert.ok(!log.elenco.includes('admin2@qa.test') && !log.elenco.includes('member2@qa.test'), 'altro edificio escluso');
+    assert.ok(!log.elenco.includes('dup@qa.test'), 'chi ha tolto "Riceve le email" è escluso');
+  });
+
+  it('senza casella nessuna email; modificare il testo non rispedisce; un nuovo codice sì', async () => {
+    const a = await as('admin1@qa.test');
+    await scrivi(a, 'notices', avviso(9002));
+    await new Promise((r) => setTimeout(r, 2500));
+    assert.strictEqual((await mailLog()).length, 0);
+    await scrivi(a, 'notices', avviso(9002, { notificaEmail: 'c1' }));
+    await waitFor(async () => (await mailLog()).length === 1);
+    await scrivi(a, 'notices', avviso(9002, { notificaEmail: 'c1', testo: 'Corretto: dalle 10.' }));
+    await new Promise((r) => setTimeout(r, 2500));
+    assert.strictEqual((await mailLog()).length, 1, 'stesso codice: nessun nuovo invio');
+    await scrivi(a, 'notices', avviso(9002, { notificaEmail: 'c2' }));
+    assert.ok(await waitFor(async () => (await mailLog()).length === 2), 'codice nuovo: nuovo invio');
+  });
+
+  it('nuovo verbale: oggetto e decisioni', async () => {
+    const a = await as('admin1@qa.test');
+    await scrivi(a, 'minutes', { id: 9003, titolo: 'Assemblea ordinaria', data: '2026-09-30', tipo: 'ordinaria', argomenti: [], decisioni: ['Approvato bilancio'], allegati: [], edificioId: 1, notificaEmail: 'v1' });
+    const [log] = await waitFor(async () => { const l = await mailLog(); return l.length ? l : null; });
+    assert.strictEqual(log.tipo, 'verbale');
+    assert.match(log.oggetto, /^Nuovo verbale: Assemblea ordinaria$/);
+  });
+
+  it('un condomino non può leggere né scrivere il registro delle email', async () => {
+    const m = await as('member1@qa.test');
+    assert.ok(await denied(fs.getDocs(fs.collection(m.db, 'mailLog'))));
+    assert.ok(await denied(fs.setDoc(fs.doc(m.db, 'mailLog', 'x'), { falso: true })));
+  });
+
+  it('promemoria rate: solo la rata prevista fra 3 giorni, al solo interessato, una volta sola', async () => {
+    process.env.FUNCTIONS_EMULATOR = 'true'; // nessuna email reale
+    const fnReq = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'));
+    const { _test } = fnReq('./notifiche');
+    const fra3 = _test.dataTraGiorni(3), fra4 = _test.dataTraGiorni(4);
+    const rata = (id, data, previsionale = true) => admin.doc(`buildings/1/payments/${id}`).set({ id, condominoId: 103, importo: '150', data, previsionale, edificioId: 1, _deleted: false });
+    await Promise.all([rata(7001, fra3), rata(7002, fra4), rata(7003, fra3, false)]);
+    assert.strictEqual(await _test.inviaPromemoriaRate(), 1);
+    assert.strictEqual(await _test.inviaPromemoriaRate(), 0, 'seconda esecuzione: già inviato');
+    const log = (await mailLog()).filter((l) => l.tipo === 'rata');
+    assert.strictEqual(log.length, 1);
+    assert.deepStrictEqual(log[0].elenco, ['member1@qa.test']);
+    assert.match(log[0].oggetto, /€ 150,00/);
+  });
+});

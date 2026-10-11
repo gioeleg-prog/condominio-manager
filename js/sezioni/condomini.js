@@ -341,6 +341,10 @@ function renderModalCond(d) {
           </select>
           <p class="hint">Amm. Edificio può gestire utenti e dati del suo condominio.</p>
         </div>
+        <label class="casella-email" for="m-email-notifiche">
+          <input type="checkbox" id="m-email-notifiche" ${d?.emailNotifiche === false ? '' : 'checked'}>
+          <span><strong>Riceve le email</strong><span class="hint" style="display:block;margin-top:2px">Avvisi, verbali e promemoria delle rate all'indirizzo qui sopra.</span></span>
+        </label>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
@@ -616,7 +620,8 @@ function salvaSchedaCondomino(m) {
     const campoUscita = document.getElementById('m-uscita');
     const dataUscita = campoUscita ? campoUscita.value || '' : undefined;
     if (dataIngresso && dataUscita && dataUscita <= dataIngresso) { avvisa('La data di uscita deve venire dopo quella di ingresso.'); return; }
-    const date = { dataIngresso, ...(dataUscita !== undefined ? { dataUscita } : {}) };
+    const date = { dataIngresso, ...(dataUscita !== undefined ? { dataUscita } : {}),
+      emailNotifiche: document.getElementById('m-email-notifiche') ? document.getElementById('m-email-notifiche').checked : true };
     let condomini;
     if (m.data?.id) {
       const username = document.getElementById('m-username')?.value?.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') || '';

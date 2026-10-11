@@ -78,6 +78,7 @@ const GUIDA = {
       ['lettura', 'Controllare la tua posizione', 'Cerca il tuo nome: vedi quanto hai versato e quanto resta.'],
     ],
     sapere: [
+      'Promemoria: tre giorni prima di una rata prevista, il condomino riceve un\'email con importo e data (se nella sua scheda c\'è "Riceve le email").',
       'I versamenti <b>previsionali</b> entrano nelle previsioni ma non nel saldo reale, finché non li validi.',
       '<b>Copertura</b> = quanto è stato versato rispetto a quanto dovuto.',
     ],
@@ -175,10 +176,12 @@ const GUIDA = {
       ['admin', 'Pubblicare', 'Nella scheda giusta usa "+ Nuovo avviso / verbale / lavoro / delibera".'],
       ['admin', 'Aggiornare un lavoro', 'La matita sul lavoro: cambia stato o percentuale e aggiungi una nota allo storico.'],
       ['admin', 'Collegare le cose', 'Un lavoro può citare la delibera che lo ha deciso, una delibera il suo verbale.'],
+      ['admin', 'Avvisare per email', 'Pubblicando un avviso o un verbale, la casella "Avvisa i condomini per email" è già spuntata: parte un\'email a tutti i condomini con un indirizzo, in copia nascosta. Toglila se non serve; per rispedire dopo una modifica spunta "Invia di nuovo per email".'],
       ['noadmin', 'Proporre un avviso', 'Puoi leggere tutto; per pubblicare rivolgiti all\'amministratore.'],
     ],
     sapere: [
       'Un avviso con scadenza serve per comunicazioni a tempo (es. lavori in cortile fino al…).',
+      'Le email arrivano da notifichecondominio@gmail.com: se non le trovi, guarda nella posta indesiderata e segna l\'indirizzo come attendibile.',
     ],
   },
   condomini: {
@@ -194,6 +197,7 @@ const GUIDA = {
       ['admin', 'Vendita o nuovo inquilino', '"🔁 Subentro": indichi la data e il nuovo condomino. Chi esce viene archiviato con quella data di uscita, chi entra prende lo stesso appartamento e, se lasci la spunta, le quote delle spese future non ancora consuntivate.'],
       ['admin', 'Chi ha lasciato il condominio', '"⏸ Archivia" con la data di uscita: non entra più, ma pagamenti e storico restano. "▶ Riattiva" lo riporta.'],
       ['admin', 'Date di ingresso e uscita', 'In "Modifica", "Nel condominio dal" (e "Uscito il" per gli archiviati). Lascia vuoto se c\'è da sempre.'],
+      ['admin', 'Email automatiche', 'Nella scheda di ogni condomino, "Riceve le email" decide se riceve avvisi, verbali e promemoria delle rate. Togli la spunta per chi non le vuole.'],
       ['admin', 'Password dimenticata', '"🔑 Reset PW" imposta una password temporanea da comunicare alla persona.'],
       ['admin', 'Situazione di una persona', '"📊 Bilancio" apre il suo dettaglio; "📄 Estratto conto" scarica in PDF movimenti e saldo, da inviarle.'],
     ],

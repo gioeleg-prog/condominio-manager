@@ -8,3 +8,6 @@ scripts/seed-prod-superadmin.js
 scripts/fix-amos-editor-role.js
 qa/out/
 qa/assessment-report.html
+
+# Segreti finti per gli emulatori (scripts/secret-emulatore.js)
+functions/.secret.local
