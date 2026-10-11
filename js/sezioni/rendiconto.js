@@ -143,6 +143,7 @@ function renderModalRendiconto(d) {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
+        ${canUserAdmin(state.user) ? '<button class="btn btn-secondary" id="btn-rend-email">📧 Invia per email</button>' : ''}
         <button class="btn btn-primary" id="btn-rend-genera">📄 Scarica PDF</button>
       </div>
     </div>
@@ -152,6 +153,13 @@ function renderModalRendiconto(d) {
 function bindSchedaRendiconto() {
   const b = document.getElementById('btn-rend-genera');
   if (!b || state.modal?.type !== 'rendiconto') return;
+  const be = document.getElementById('btn-rend-email');
+  if (be) be.onclick = () => setState({ modal: { type: 'emailRendiconto', data: {
+    anno: parseInt(document.getElementById('rend-anno').value, 10),
+    tipo: document.querySelector('input[name="rend-tipo"]:checked')?.value || 'sintetico',
+    riparto: document.getElementById('rend-riparto').checked,
+    note: document.getElementById('rend-note').value.trim(),
+  } } });
   b.onclick = async () => {
     const opts = {
       anno: parseInt(document.getElementById('rend-anno').value, 10),
@@ -174,7 +182,8 @@ function bindSchedaRendiconto() {
 }
 
 // ── Documento ────────────────────────────────────────────────────────────
-function generaRendicontoPDF(opts) {
+// conFile: invece di scaricare, restituisce { nome, base64 } da allegare a un'email (js/sezioni/email.js).
+function generaRendicontoPDF(opts, conFile = false) {
   const d = datiRendiconto(opts.anno);
   const dettagliato = opts.tipo === 'dettagliato';
   const { jsPDF } = window.jspdf;
@@ -350,7 +359,9 @@ function generaRendicontoPDF(opts) {
     doc.text(`Pagina ${i} di ${pagine}`, W - M, H - 8, { align: 'right' });
   }
   const pulito = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  doc.save(`${d.preventivo ? 'Preventivo' : 'Rendiconto'}_${d.anno}_${pulito(ed.nome)}_${dettagliato ? 'dettagliato' : 'sintetico'}.pdf`);
+  const nomeFile = `${d.preventivo ? 'Preventivo' : 'Rendiconto'}_${d.anno}_${pulito(ed.nome)}_${dettagliato ? 'dettagliato' : 'sintetico'}.pdf`;
+  if (conFile) return { nome: nomeFile, base64: doc.output('datauristring').split(',')[1] };
+  doc.save(nomeFile);
 }
 
 // ===========================================================================
@@ -447,6 +458,7 @@ function renderModalEstratto(d) {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
+        ${canUserAdmin(state.user) ? '<button class="btn btn-secondary" id="btn-estr-email">📧 Invia per email</button>' : ''}
         <button class="btn btn-primary" id="btn-estr-genera">📄 Scarica PDF</button>
       </div>
     </div>
@@ -456,6 +468,11 @@ function renderModalEstratto(d) {
 function bindSchedaEstratto() {
   const b = document.getElementById('btn-estr-genera');
   if (!b || state.modal?.type !== 'estratto') return;
+  const be = document.getElementById('btn-estr-email');
+  if (be) be.onclick = () => setState({ modal: { type: 'emailEstratti', data: {
+    anno: parseInt(document.getElementById('estr-anno').value, 10),
+    condId: Number(document.getElementById('estr-cond').value),
+  } } });
   b.onclick = async () => {
     const condId = canUserEdit(state.user) ? Number(document.getElementById('estr-cond').value) : state.user.id;
     const anno = parseInt(document.getElementById('estr-anno').value, 10);
@@ -473,7 +490,7 @@ function bindSchedaEstratto() {
   };
 }
 
-function generaEstrattoPDF(condId, anno) {
+function generaEstrattoPDF(condId, anno, conFile = false) {
   const d = datiEstratto(condId, anno);
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -573,5 +590,7 @@ function generaEstrattoPDF(condId, anno) {
     doc.text(`Pagina ${i} di ${pagine}`, W - M, H - 8, { align: 'right' });
   }
   const pulito = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  doc.save(`EstrattoConto_${d.anno}_${pulito(d.condomino.nome)}.pdf`);
+  const nomeFile = `EstrattoConto_${d.anno}_${pulito(d.condomino.nome)}.pdf`;
+  if (conFile) return { nome: nomeFile, base64: doc.output('datauristring').split(',')[1] };
+  doc.save(nomeFile);
 }

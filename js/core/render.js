@@ -350,6 +350,9 @@ function renderModal() {
   if (m.type === 'admin-reset-pw') return renderModalAdminResetPw(m.data);
   if (m.type === 'rendiconto') return renderModalRendiconto(m.data);
   if (m.type === 'estratto') return renderModalEstratto(m.data);
+  if (m.type === 'emailRendiconto') return renderModalEmailRendiconto(m.data);
+  if (m.type === 'emailEstratti') return renderModalEmailEstratti(m.data);
+  if (m.type === 'emailPromemoria') return renderModalEmailPromemoria(m.data);
   if (m.type === 'subentro') return renderModalSubentro(m.data);
   return '';
 }

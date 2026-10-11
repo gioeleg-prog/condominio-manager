@@ -84,7 +84,10 @@ function renderEntrate() {
   <div>
     <div class="page-header">
       <div><div class="page-title">Entrate / Quote ${btnGuida()}</div><div class="page-sub">${items.length} versamenti</div></div>
-      ${canEdit?`<button class="btn btn-primary" id="btn-add-entrata">+ Registra versamento</button>`:''}
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      ${canUserAdmin(state.user)?`<button class="btn btn-secondary" id="btn-email-promemoria">📧 Invia promemoria</button>`:''}
+      ${canEdit?`<button class="btn btn-primary" style="width:auto" id="btn-add-entrata">+ Registra versamento</button>`:''}
+      </div>
     </div>
 
     <div class="spese-filters">
@@ -740,6 +743,8 @@ function bindAzioniEntrate() {
   // Entrate filters
   const se = document.getElementById('search-entrate');
   if (se) se.oninput = e => setState({searchQ: e.target.value});
+  const bProm = document.getElementById('btn-email-promemoria');
+  if (bProm) bProm.onclick = () => setState({ modal: { type: 'emailPromemoria', data: {} } });
   const bAddEntrata = document.getElementById('btn-add-entrata');
   if (bAddEntrata) bAddEntrata.onclick = () => setState({modal:{type:'entrata',data:null}});
   // Delete entrate

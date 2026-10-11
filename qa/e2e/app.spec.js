@@ -173,21 +173,80 @@ test.describe('Spese (modifica i dati)', () => {
   });
 });
 
-test.describe('Avvisi per email (modifica i dati)', () => {
-  test('nuovo avviso: casella email spuntata, conferma con il numero di destinatari, "Riceve le email" nella scheda condomino', async ({ page }) => {
+test.describe('Email ai condomini (modifica i dati)', () => {
+  test('nuovo avviso: casella spenta; accesa mostra l\'elenco con le spunte; Nessuno = nessuna email', async ({ page }) => {
     await accedi(page, 'admin1@qa.test');
     await vaiA(page, 'vita');
     await page.locator('#btn-nuovo-avviso').click();
     const casella = page.locator('#av-email');
-    await expect(casella).toBeChecked();
-    await expect(page.locator('label.casella-email')).toContainText('condomini riceveranno');
+    await expect(casella).not.toBeChecked();
+    await expect(page.locator('#av-email-dest')).toBeHidden();
+    await casella.check();
+    await expect(page.locator('#av-email-dest')).toBeVisible();
+    await expect(page.locator('#av-email-dest-conta')).toContainText('selezionati');
+    await page.locator('[data-scelta-nessuno="av-email-dest"]').click();
+    await expect(page.locator('#av-email-dest-conta')).toContainText('0 di');
+    await page.locator('input[data-dest="av-email-dest"][value="103"]').check();
     await page.locator('#av-titolo').fill('Prova email E2E');
     await page.locator('#av-testo').fill('Testo di prova.');
     await page.locator('#btn-save-avviso').click();
-    await expect(page.locator('.avviso-ok')).toContainText('Email in partenza per');
+    await expect(page.locator('.avviso-ok')).toContainText('Email in partenza per 1 condomino');
+  });
+
+  test('promemoria da Entrate: elenco con prossima rata e saldo, conferma, esito', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'entrate');
+    await page.locator('#btn-email-promemoria').click();
+    await expect(page.locator('.scelta-dest')).toContainText('saldo');
+    expect(await axe(page)).toEqual([]);
+    await tema(page, true);
+    expect(await axe(page)).toEqual([]);
+    await page.locator('[data-scelta-nessuno="em-prom"]').click();
+    await expect(page.locator('#btn-em-invia')).toBeDisabled();
+    await page.locator('input[data-dest="em-prom"][value="103"]').check();
+    await expect(page.locator('#btn-em-invia')).toHaveText('📧 Invia a 1');
+    await page.locator('#btn-em-invia').click();
+    await page.locator('dialog.dialogo [data-dlg="si"]').click();
+    await expect(page.locator('.avviso-ok')).toContainText('Email inviata a 1 condomino');
+  });
+
+  test('rendiconto dal Bilancio: PDF creato nel browser e inviato ai selezionati', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'bilancio');
+    await page.locator('#btn-rendiconto-pdf').click();
+    await page.locator('#btn-rend-email').click();
+    await expect(page.locator('#em-oggetto')).toHaveValue(/Rendiconto|preventivo/i);
+    await page.locator('[data-scelta-nessuno="em-rend"]').click();
+    await page.locator('input[data-dest="em-rend"][value="101"]').check();
+    await page.locator('input[data-dest="em-rend"][value="103"]').check();
+    await page.locator('#btn-em-invia').click();
+    await page.locator('dialog.dialogo [data-dlg="si"]').click();
+    await expect(page.locator('.avviso-ok')).toContainText('Email inviata a 2 condomini', { timeout: 20_000 });
+  });
+
+  test('Impostazioni: promemoria automatici spenti di base, si accendono; storico degli invii', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'impostazioni');
+    await expect(page.locator('#imp-prom-auto')).not.toBeChecked();
+    await page.locator('#imp-prom-auto').check();
+    await page.locator('#imp-prom-giorni').selectOption('5');
+    await page.locator('#btn-imp-email-salva').click();
+    await expect(page.locator('.avviso-ok')).toContainText('5 giorni prima');
+    await expect(page.locator('#email-storico .storico-email li').first()).toBeVisible();
+    await expect(page.locator('#email-storico')).toContainText('Rendiconto');
+  });
+
+  test('chi ha "Riceve le email" nella scheda condomino; un condomino non vede i pulsanti di invio', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
     await vaiA(page, 'condomini');
     await page.locator('.utente-card', { hasText: 'Marta Member' }).getByRole('button', { name: 'Modifica' }).click();
     await expect(page.locator('#m-email-notifiche')).toBeChecked();
+  });
+
+  test('sola lettura: nessun pulsante per inviare email', async ({ page }) => {
+    await accedi(page, 'member1@qa.test');
+    await vaiA(page, 'entrate');
+    await expect(page.locator('#btn-email-promemoria')).toHaveCount(0);
   });
 });
 

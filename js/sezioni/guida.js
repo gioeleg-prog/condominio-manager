@@ -75,10 +75,11 @@ const GUIDA = {
       ['mod', 'Programmare rate future', 'Nella stessa scheda scegli "🔮 Previsionale / Rate" e indica le rate.'],
       ['mod', 'Confermare una rata pagata', 'Tocca "✅ Valida" sulla riga: diventa un versamento effettivo. Se era prevista per una data futura viene registrata con la data di oggi; per un\'altra data usa la matita.'],
       ['mod', 'Usare il piano rate', '"➕ Crea versamenti previsionali" crea le rate proposte per tutti; "Rimuovili" le toglie.'],
+      ['admin', 'Ricordare le rate', '"📧 Invia promemoria": ogni condomino scelto riceve un\'email personale con la sua prossima rata e, se è in ritardo, il saldo. Sono già spuntati quelli con una rata nei prossimi 15 giorni o con saldo negativo.'],
       ['lettura', 'Controllare la tua posizione', 'Cerca il tuo nome: vedi quanto hai versato e quanto resta.'],
     ],
     sapere: [
-      'Promemoria: tre giorni prima di una rata prevista, il condomino riceve un\'email con importo e data (se nella sua scheda c\'è "Riceve le email").',
+      'Le email partono solo quando decide l\'amministratore. I promemoria automatici delle rate sono spenti finché non vengono accesi in Impostazioni.',
       'I versamenti <b>previsionali</b> entrano nelle previsioni ma non nel saldo reale, finché non li validi.',
       '<b>Copertura</b> = quanto è stato versato rispetto a quanto dovuto.',
     ],
@@ -98,6 +99,7 @@ const GUIDA = {
       ['Vedere il dettaglio di un condomino', 'Scheda "👥 Per condomino", poi tocca il nome.'],
       ['mod', 'Estratto conto di un condomino', 'Scheda "👥 Per condomino", "📄 Estratto conto" sotto il nome: PDF con saldo iniziale, quote delle spese, versamenti e saldo progressivo, poi le prossime scadenze.'],
       ['mod', 'Preparare il rendiconto da inviare', '"📄 Rendiconto PDF": scegli l\'anno, sintetico (cassa, categorie, riparto) o dettagliato (anche tutte le spese e i versamenti), aggiungi una nota e scarica il PDF da allegare all\'email. Per l\'anno prossimo diventa il bilancio preventivo.'],
+      ['admin', 'Mandare rendiconto o estratti per email', 'Nella scheda del rendiconto o dell\'estratto conto, "📧 Invia per email": scegli i destinatari dall\'elenco, scrivi un messaggio e invia. Il rendiconto parte in un\'unica email in copia nascosta; ogni estratto conto va solo al suo condomino.'],
     ],
     sapere: [
       '<b>ACTUALS</b> = solo dati reali confermati. <b>ACTUALS + FORECAST</b> = reali più previsioni.',
@@ -176,7 +178,7 @@ const GUIDA = {
       ['admin', 'Pubblicare', 'Nella scheda giusta usa "+ Nuovo avviso / verbale / lavoro / delibera".'],
       ['admin', 'Aggiornare un lavoro', 'La matita sul lavoro: cambia stato o percentuale e aggiungi una nota allo storico.'],
       ['admin', 'Collegare le cose', 'Un lavoro può citare la delibera che lo ha deciso, una delibera il suo verbale.'],
-      ['admin', 'Avvisare per email', 'Pubblicando un avviso o un verbale, la casella "Avvisa i condomini per email" è già spuntata: parte un\'email a tutti i condomini con un indirizzo, in copia nascosta. Toglila se non serve; per rispedire dopo una modifica spunta "Invia di nuovo per email".'],
+      ['admin', 'Avvisare per email', 'Pubblicando un avviso o un verbale, spunta "Avvisa i condomini per email" solo per le comunicazioni importanti: compare l\'elenco dei condomini, tutti spuntati; togli chi non serve (o "Nessuno" e scegli). L\'email parte in copia nascosta. Per rispedire dopo una modifica usa "Invia di nuovo per email".'],
       ['noadmin', 'Proporre un avviso', 'Puoi leggere tutto; per pubblicare rivolgiti all\'amministratore.'],
     ],
     sapere: [
@@ -197,7 +199,7 @@ const GUIDA = {
       ['admin', 'Vendita o nuovo inquilino', '"🔁 Subentro": indichi la data e il nuovo condomino. Chi esce viene archiviato con quella data di uscita, chi entra prende lo stesso appartamento e, se lasci la spunta, le quote delle spese future non ancora consuntivate.'],
       ['admin', 'Chi ha lasciato il condominio', '"⏸ Archivia" con la data di uscita: non entra più, ma pagamenti e storico restano. "▶ Riattiva" lo riporta.'],
       ['admin', 'Date di ingresso e uscita', 'In "Modifica", "Nel condominio dal" (e "Uscito il" per gli archiviati). Lascia vuoto se c\'è da sempre.'],
-      ['admin', 'Email automatiche', 'Nella scheda di ogni condomino, "Riceve le email" decide se riceve avvisi, verbali e promemoria delle rate. Togli la spunta per chi non le vuole.'],
+      ['admin', 'Chi riceve le email', 'Nella scheda di ogni condomino, "Riceve le email": togli la spunta per chi non le vuole. Non comparirà più tra i destinatari selezionabili.'],
       ['admin', 'Password dimenticata', '"🔑 Reset PW" imposta una password temporanea da comunicare alla persona.'],
       ['admin', 'Situazione di una persona', '"📊 Bilancio" apre il suo dettaglio; "📄 Estratto conto" scarica in PDF movimenti e saldo, da inviarle.'],
     ],
@@ -221,6 +223,7 @@ const GUIDA = {
       ['admin', 'Disabilitare un utente', '⏸ sulla riga; "▶ Riabilita" lo riattiva.'],
       ['super', 'Aggiungere o modificare categorie', 'Nella sezione Categorie; "↩ Ripristina categorie default" torna a quelle iniziali.'],
       ['super', 'Aggiungere un condominio', 'Sezione "🏢 Gestione condomini".'],
+      ['admin', 'Email ai condomini', 'Sezione "📧 Email ai condomini": accendi o spegni i promemoria automatici delle rate (e quanti giorni prima) e consulta lo storico delle email inviate, con chi le ha ricevute.'],
     ],
     sapere: [
       ['super', 'La "⚠️ Zona pericolosa" cancella i dati del condominio attivo: usala solo se sai cosa fai, dopo un backup.'],

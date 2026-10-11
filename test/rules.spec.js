@@ -291,6 +291,28 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
     await assertSucceeds(superA().doc('buildings/3').set({ id: 3, nome: 'Nuovo' }));
   });
 
+  describe('email: storico invii e impostazioni', () => {
+    it('storico invii: lo leggono solo gli amministratori del condominio, nessuno lo scrive', async () => {
+      await seedDoc('buildings/1/invii/x', { tipo: 'avviso', buildingId: '1' });
+      await assertSucceeds(admin().doc('buildings/1/invii/x').get());
+      await assertSucceeds(superA().collection('buildings/1/invii').get());
+      await assertFails(editor().doc('buildings/1/invii/x').get());
+      await assertFails(member().collection('buildings/1/invii').get());
+      await assertFails(ctx('u_admin2', { role: 'adminEdificio', buildingId: '2' }).doc('buildings/1/invii/x').get());
+      await assertFails(admin().doc('buildings/1/invii/y').set({ tipo: 'falso' }));
+    });
+    it('impostazioni email: l\'amministratore accende i promemoria con 1–15 giorni; nessun altro campo, nessun altro ruolo', async () => {
+      const ok = (uid, extra = {}) => ({ promemoriaAuto: true, giorniPreavviso: 3, aggiornatoDa: uid, aggiornatoIl: now(), ...extra });
+      await assertSucceeds(admin().doc('buildings/1/impostazioni/email').set(ok('u_admin')));
+      await assertSucceeds(admin().doc('buildings/1/impostazioni/email').get());
+      await assertFails(admin().doc('buildings/1/impostazioni/email').set(ok('u_admin', { giorniPreavviso: 40 })));
+      await assertFails(admin().doc('buildings/1/impostazioni/email').set(ok('u_admin', { altro: 1 })));
+      await assertFails(admin().doc('buildings/1/impostazioni/altro').set(ok('u_admin')));
+      await assertFails(editor().doc('buildings/1/impostazioni/email').set(ok('u_editor')));
+      await assertFails(member().doc('buildings/1/impostazioni/email').get());
+    });
+  });
+
   describe('matrice ruoli per collezione', () => {
     const finance = ['expenses', 'payments', 'suppliers'];
     const adminOnly = ['notices', 'minutes', 'works', 'resolutions'];
