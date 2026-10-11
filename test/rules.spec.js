@@ -313,6 +313,24 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
     });
   });
 
+  describe('millesimi: configurazione del condominio', () => {
+    const cfg = (uid, extra = {}) => ({ attivo: true, dal: '2026-01-01', tabelle: [{ id: 'generale', nome: 'Generale', valori: { 'int. 1': 500, 'int. 2': 500 } }], categorie: {}, aggiornatoDa: uid, aggiornatoIl: now(), ...extra });
+    it('solo l\'amministratore li modifica; tutto il condominio li legge, un altro condominio no', async () => {
+      await assertSucceeds(admin().doc('buildings/1/impostazioni/millesimi').set(cfg('u_admin')));
+      await assertSucceeds(member().doc('buildings/1/impostazioni/millesimi').get());
+      await assertSucceeds(editor().doc('buildings/1/impostazioni/millesimi').get());
+      await assertFails(ctx('u_m2', { role: 'member', buildingId: '2' }).doc('buildings/1/impostazioni/millesimi').get());
+      await assertFails(editor().doc('buildings/1/impostazioni/millesimi').set(cfg('u_editor')));
+      await assertFails(member().doc('buildings/1/impostazioni/millesimi').set(cfg('u_member')));
+    });
+    it('forma controllata: niente campi estranei, tipi giusti, firma dell\'autore', async () => {
+      await assertFails(admin().doc('buildings/1/impostazioni/millesimi').set(cfg('u_admin', { altro: 1 })));
+      await assertFails(admin().doc('buildings/1/impostazioni/millesimi').set(cfg('u_admin', { attivo: 'si' })));
+      await assertFails(admin().doc('buildings/1/impostazioni/millesimi').set(cfg('u_editor')));
+      await assertFails(admin().doc('buildings/1/impostazioni/millesimi').delete());
+    });
+  });
+
   describe('matrice ruoli per collezione', () => {
     const finance = ['expenses', 'payments', 'suppliers'];
     const adminOnly = ['notices', 'minutes', 'works', 'resolutions'];

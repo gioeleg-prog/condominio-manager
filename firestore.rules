@@ -196,16 +196,25 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // Email automatiche del condominio (promemoria rate): solo gli amministratori.
+      // Impostazioni del condominio, modificabili solo dagli amministratori:
+      //  - email: promemoria automatici delle rate (letti solo dagli amministratori);
+      //  - millesimi: tabelle millesimali (lette da tutto il condominio, per l'anagrafica).
       match /impostazioni/{docId} {
-        allow read: if canAdmin(buildingId);
-        allow create, update: if canAdmin(buildingId) && docId == 'email'
-          && request.resource.data.keys().hasOnly(['promemoriaAuto', 'giorniPreavviso', 'aggiornatoDa', 'aggiornatoIl'])
-          && request.resource.data.promemoriaAuto is bool
-          && request.resource.data.giorniPreavviso is int
-          && request.resource.data.giorniPreavviso >= 1 && request.resource.data.giorniPreavviso <= 15
+        allow read: if canAdmin(buildingId) || (docId == 'millesimi' && inBuilding(buildingId));
+        allow create, update: if canAdmin(buildingId)
           && request.resource.data.aggiornatoDa == request.auth.uid
-          && request.resource.data.aggiornatoIl == request.time;
+          && request.resource.data.aggiornatoIl == request.time
+          && ((docId == 'email'
+                && request.resource.data.keys().hasOnly(['promemoriaAuto', 'giorniPreavviso', 'aggiornatoDa', 'aggiornatoIl'])
+                && request.resource.data.promemoriaAuto is bool
+                && request.resource.data.giorniPreavviso is int
+                && request.resource.data.giorniPreavviso >= 1 && request.resource.data.giorniPreavviso <= 15)
+            || (docId == 'millesimi'
+                && request.resource.data.keys().hasOnly(['attivo', 'dal', 'tabelle', 'categorie', 'aggiornatoDa', 'aggiornatoIl'])
+                && request.resource.data.attivo is bool
+                && request.resource.data.dal is string && request.resource.data.dal.size() <= 10
+                && request.resource.data.tabelle is list && request.resource.data.tabelle.size() <= 20
+                && request.resource.data.categorie is map));
         allow delete: if false;
       }
 

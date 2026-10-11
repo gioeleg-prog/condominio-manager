@@ -258,6 +258,45 @@ test.describe('Email ai condomini (modifica i dati)', () => {
   });
 });
 
+test.describe('Millesimi (modifica i dati)', () => {
+  test('spenti di base: la spesa nuova si divide in parti uguali e non c\'è il pulsante Millesimi', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await expect(page.locator('#split-millesimi')).toHaveCount(0);
+    await expect(page.locator('#split-tabella')).toHaveCount(0);
+  });
+
+  test('accesi in Impostazioni con la tabella: la spesa nuova propone i millesimi, modificabili; in anagrafica in sola lettura', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'impostazioni');
+    await expect(page.locator('#mill-attivo')).not.toBeChecked();
+    await page.locator('#mill-attivo').check();
+    await page.locator('#mill-dal').fill(`${new Date().getFullYear()}-01-01`);
+    const valori = { 'int. 1': '200', 'int. 2': '200', 'int. 3': '150', 'int. 4': '150', 'int. 5': '150', 'int. 7': '150' };
+    for (const [apt, v] of Object.entries(valori)) await page.locator(`.mill-val[data-ti="0"][data-apt="${apt}"]`).fill(v);
+    await expect(page.locator('#mill-tot-0')).toContainText('Totale 1000 / 1000');
+    await page.locator('#mill-salva').click();
+    await expect(page.locator('.avviso-ok')).toContainText('Millesimi salvati');
+
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await expect(page.locator('#split-mill-nota')).toContainText('Proposta dai millesimi');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('20.00');
+    await expect(page.locator('.split-perc-inp[data-cid="103"]')).toHaveValue('15.00');
+    // "Parti uguali" resta disponibile e il pulsante Millesimi ripropone la tabella.
+    await page.locator('#split-equal').click();
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).not.toHaveValue('20.00');
+    await page.locator('#split-millesimi').click();
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('20.00');
+    await page.locator('#modal-cancel').click();
+
+    await vaiA(page, 'condomini');
+    await expect(page.locator('.utente-card', { hasText: 'Anna Admin' })).toContainText('Generale 200');
+    expect(await axe(page)).toEqual([]);
+  });
+});
+
 test.describe('Subentro (modifica i dati)', () => {
   test('chi può modificare ma non amministra non vede il pulsante', async ({ page }) => {
     await accedi(page, 'editor1@qa.test');

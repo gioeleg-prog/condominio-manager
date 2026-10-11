@@ -806,3 +806,93 @@ describe('UNIT — icone dei pulsanti e finestre dell\'app', () => {
     assert.deepStrictEqual(usi, []);
   });
 });
+
+describe('UNIT — tabelle millesimali', () => {
+  const Y = new Date().getFullYear();
+  const base = (cfg) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [],
+      user: { id: 101, nome: 'Anna', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [
+        { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 },
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+        { id: 103, nome: 'Carlo', appartamento: 'Piano terra', edificioId: 1 },
+      ],
+      spese: [
+        { id: 1, data: `${Y - 1}-05-01`, categoria: 'pulizie', preventivo: '300', consuntivo: '', split: [{ id: 101, perc: 33.34 }, { id: 102, perc: 33.33 }, { id: 103, perc: 33.33 }], edificioId: 1 },
+        { id: 2, data: `${Y}-02-01`, categoria: 'pulizie', preventivo: '300', consuntivo: '300', split: [{ id: 101, perc: 33.34 }, { id: 102, perc: 33.33 }, { id: 103, perc: 33.33 }], edificioId: 1 },
+        { id: 3, data: `${Y}-11-01`, categoria: 'ascensore', preventivo: '1000', consuntivo: '', split: [{ id: 101, perc: 33.34 }, { id: 102, perc: 33.33 }, { id: 103, perc: 33.33 }], edificioId: 1 },
+      ],
+      entrate: [] });
+    if (cfg) app.__get('_millesimi')[1] = cfg;
+    return app;
+  };
+  const CFG = { attivo: true, dal: `${Y}-01-01`, categorie: { ascensore: 'asc' }, tabelle: [
+    { id: 'generale', nome: 'Generale', valori: { 'int. 1': 400, 'int. 2': 350, 'piano terra': 250 } },
+    { id: 'asc', nome: 'Ascensore', valori: { 'int. 1': 600, 'int. 2': 400, 'piano terra': 0 } },
+  ] };
+
+  it('percentuali da pesi: proporzionali e sempre 100,00 esatto', () => {
+    const app = base();
+    const p = app.percDaPesi([1, 1, 1]);
+    assert.strictEqual(Math.round(p.reduce((a, b) => a + b, 0) * 100), 10000);
+    assert.strictEqual(JSON.stringify(app.percDaPesi([400, 350, 250])), JSON.stringify([40, 35, 25]));
+    assert.strictEqual(JSON.stringify(app.percDaPesi([0, 0])), JSON.stringify([0, 0]));
+  });
+
+  it('condominio senza millesimi: nessuna proposta e nessun calcolo diverso', () => {
+    const app = base(null);
+    assert.strictEqual(app.millesimiAttiviAlla(`${Y}-06-01`), false);
+    assert.strictEqual(app.millesimiDi({ appartamento: 'Int. 1', edificioId: 1 }).length, 0);
+    const s = { data: `${Y}-06-01`, split: [], edificioId: 1 };
+    assert.strictEqual(app.quotaSuSpesa(s, 101, 300, 3), 100);
+  });
+
+  it('proposta per la tabella della categoria; chi ha 0 non paga; nome dell\'appartamento senza maiuscole', () => {
+    const app = base(CFG);
+    assert.strictEqual(app.tabellaPerCategoria('ascensore'), 'asc');
+    assert.strictEqual(app.tabellaPerCategoria('pulizie'), 'generale');
+    const g = app.propostaMillesimi('generale', `${Y}-06-01`);
+    assert.strictEqual(JSON.stringify(g.split.map((x) => x.perc)), JSON.stringify([40, 35, 25]));
+    const a = app.propostaMillesimi('asc', `${Y}-06-01`);
+    assert.strictEqual(JSON.stringify(a.split.map((x) => x.perc)), JSON.stringify([60, 40, 0]));
+    assert.strictEqual(JSON.stringify(a.senza), JSON.stringify(['Carlo']));
+  });
+
+  it('valgono solo dalla data di attivazione', () => {
+    const app = base(CFG);
+    assert.strictEqual(app.millesimiAttiviAlla(`${Y - 1}-12-31`), false);
+    assert.strictEqual(app.millesimiAttiviAlla(`${Y}-01-01`), true);
+    assert.strictEqual(app.millesimiAttiviAlla(`${Y}-06-01`, 2), false, 'altro condominio');
+  });
+
+  it('subentro: il nuovo proprietario eredita i millesimi dell\'appartamento', () => {
+    const app = base(CFG);
+    const st = app.__get('state');
+    app.__set('state', { ...st, condomini: [
+      { ...st.condomini[0], disabled: true, dataUscita: `${Y}-07-01` },
+      st.condomini[1], st.condomini[2],
+      { id: 104, nome: 'Dora', appartamento: 'Int. 1', edificioId: 1, dataIngresso: `${Y}-07-01` },
+    ] });
+    const p = app.propostaMillesimi('generale', `${Y}-08-01`);
+    assert.strictEqual(p.split.find((x) => x.id === 104).perc, 40);
+    assert.ok(!p.split.some((x) => x.id === 101));
+  });
+
+  it('applica all\'anno in corso: solo spese non consuntivate del ' + Y + ', mai anni passati', () => {
+    const app = base(CFG);
+    const { nuove, righe } = app.calcolaApplicazioneMillesimi();
+    assert.strictEqual(JSON.stringify(nuove.map((s) => s.id)), JSON.stringify([3]));
+    assert.strictEqual(nuove[0].tabellaMillesimi, 'asc');
+    const anna = righe.find((r) => r.nome === 'Anna');
+    assert.ok(Math.abs(anna.prima - 333.4) < 0.01 && Math.abs(anna.dopo - 600) < 0.01);
+  });
+
+  it('rendiconto: colonna millesimi solo se in uso nell\'anno', () => {
+    assert.strictEqual(base(null).datiRendiconto(Y).millesimi, null);
+    const d = base(CFG).datiRendiconto(Y);
+    assert.strictEqual(d.millesimi.tabella, 'Generale');
+    assert.strictEqual(d.riparto.find((r) => r.nome === 'Anna').millesimi, 400);
+    assert.strictEqual(base(CFG).datiRendiconto(Y - 1).millesimi, null, 'anno prima dell\'attivazione');
+  });
+});
