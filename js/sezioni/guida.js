@@ -23,6 +23,7 @@ const GUIDA = {
       ['Andare a una sezione', 'Tocca una voce del menu, oppure "Vedi tutti" sotto ogni riquadro.'],
       ['Cercare qualcosa', 'Campo "🔍 Cerca nel sito" nella barra laterale (dal telefono 🔍 in alto): trova spese, versamenti, fornitori, avvisi e verbali.'],
       ['Modalità scura', 'Interruttore sole/luna accanto a "Guida", in cima a ogni pagina: spostalo per passare dal tema chiaro a quello scuro. Finché non lo tocchi, l\'app segue l\'impostazione del telefono o del computer.'],
+      ['Averla come app sul telefono', 'iPhone: apri il sito con Safari, tocca Condividi (il quadrato con la freccia) e poi "Aggiungi alla schermata Home". Android: apri il sito con Chrome, menu ⋮ e poi "Installa app" (o "Aggiungi a schermata Home"). Da quel momento si apre dall\'icona, a tutto schermo.'],
     ],
     sapere: [
       '<b>Previsionale</b>: importo stimato, non ancora pagato. <b>Definitiva</b>: spesa con l\'importo reale.',
