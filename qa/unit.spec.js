@@ -777,3 +777,32 @@ describe('UNIT — subentro solo per amministratori', () => {
     });
   }
 });
+
+describe('UNIT — icone dei pulsanti e finestre dell\'app', () => {
+  const app = loadApp();
+  it('emoji dei pulsanti → icona: matita per modificare, cestino per eliminare', () => {
+    assert.strictEqual(JSON.stringify(app.iconaPerEmoji('✏', '✏️')), JSON.stringify(['matita', 'Modifica']));
+    assert.strictEqual(JSON.stringify(app.iconaPerEmoji('🗑', '🗑')), JSON.stringify(['cestino', 'Elimina', 'ico-elimina']));
+    assert.strictEqual(app.iconaPerEmoji('🔁', '🔁 Subentro')[0], 'scambio');
+    assert.strictEqual(app.iconaPerEmoji('📊', '📊 Esporta Excel')[0], 'foglio');
+    assert.strictEqual(app.iconaPerEmoji('⏸', '⏸ Archivia')[0], 'archivio');
+    assert.strictEqual(app.iconaPerEmoji('🏠', '🏠'), null);
+  });
+  it('icona SVG nascosta ai lettori di schermo', () => {
+    assert.match(app.ico('cestino', 'ico-elimina'), /^<svg class="ico ico-elimina"[^>]*aria-hidden="true"/);
+  });
+  it('tipo di avviso dal messaggio e emoji iniziale tolta', () => {
+    assert.strictEqual(app._tipoMessaggio('✅ Subentro registrato'), 'ok');
+    assert.strictEqual(app._tipoMessaggio('⚠️ Salvataggio non riuscito: rete'), 'errore');
+    assert.strictEqual(app._tipoMessaggio('⚠️ Attenzione al saldo'), 'attenzione');
+    assert.strictEqual(app._tipoMessaggio('Nessuna spesa da esportare.'), 'info');
+    assert.strictEqual(app.__get('_togliEmoji')('⚠️ Testo'), 'Testo');
+  });
+  it('nessuna finestrella del browser rimasta nel codice dell\'app', () => {
+    const fs = require('fs'), path = require('path');
+    const { appScripts } = require('./load-app');
+    const usi = appScripts().filter((f) => !/dialoghi\.js$/.test(f))
+      .filter((f) => /(^|[^a-zA-Z_.$-])(alert|confirm|prompt)\(/m.test(fs.readFileSync(path.join(__dirname, '..', f), 'utf8')));
+    assert.deepStrictEqual(usi, []);
+  });
+});

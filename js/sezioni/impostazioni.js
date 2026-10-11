@@ -78,22 +78,22 @@ async function cambiaEdificio(id, closeModal) {
 window.avviaMigrazioneClick = async function() {
   const stats = getMigrationStats();
   const firstEd = state.edifici.find(e=>e.id===stats.firstEdId) || state.edifici[0];
-  if (!firstEd) { alert('Nessun edificio trovato.'); return; }
-  if (stats.totale === 0) { alert('Nessun record da migrare — tutto e gia associato.'); return; }
+  if (!firstEd) { avvisa('Nessun edificio trovato.'); return; }
+  if (stats.totale === 0) { avvisa('Nessun record da migrare — tutto e gia associato.'); return; }
   const msg = 'Associare ' + stats.totale + ' record a "' + firstEd.nome + '"?' +
     (stats.condSenza  > 0 ? '\n- ' + stats.condSenza  + ' condomini'  : '') +
     (stats.speseSenza > 0 ? '\n- ' + stats.speseSenza + ' spese'      : '') +
     (stats.entSenza   > 0 ? '\n- ' + stats.entSenza   + ' versamenti' : '') +
     (stats.fornSenza  > 0 ? '\n- ' + stats.fornSenza  + ' fornitori'  : '') +
     '\n\nQuesta operazione salva su Firebase.';
-  if (!confirm(msg)) return;
+  if (!await chiedi(msg)) return;
   const okEl = document.getElementById('migra-ok');
   try {
     const res = await eseguiMigrazioneEdificioId(firstEd.id);
     if (okEl) { okEl.textContent = 'Migrati ' + res.migrati + ' record a "' + firstEd.nome + '"'; okEl.style.display='block'; }
     setTimeout(() => setState({page:'impostazioni'}), 2000);
   } catch(err) {
-    alert('Errore: ' + err.message);
+    avvisa('Errore: ' + err.message);
   }
 };
 
@@ -122,7 +122,7 @@ window.esportaDati = function() {
   a.download = 'backup-condominio-' + ymdLocale(new Date()) + '.json';
   a.click();
   URL.revokeObjectURL(url);
-  alert('Backup scaricato! Conserva il file JSON in un posto sicuro.');
+  avvisa('Backup scaricato! Conserva il file JSON in un posto sicuro.');
 };
 
 window.importaDati = function(file) {
@@ -131,8 +131,8 @@ window.importaDati = function(file) {
   reader.onload = async (e) => {
     try {
       const backup = JSON.parse(e.target.result);
-      if (!backup.data) { alert('File backup non valido.'); return; }
-      if (!confirm('Importare il backup del ' + (backup.timestamp||'data sconosciuta') + '?\n\nQuesta operazione SOVRASCRIVE tutti i dati attuali.')) return;
+      if (!backup.data) { avvisa('File backup non valido.'); return; }
+      if (!await chiedi('Importare il backup del ' + (backup.timestamp||'data sconosciuta') + '?\n\nQuesta operazione SOVRASCRIVE tutti i dati attuali.')) return;
       const d = backup.data;
       // Salva su Firebase
       // Solo le chiavi presenti nel file: un backup v2 (prima di bacheca/
@@ -143,9 +143,9 @@ window.importaDati = function(file) {
         save(key, d[key]);
       });
       setState({page:'dashboard'});
-      alert('✅ Dati ripristinati con successo!');
+      avvisa('✅ Dati ripristinati con successo!');
     } catch(err) {
-      alert('Errore durante il ripristino: ' + err.message);
+      avvisa('Errore durante il ripristino: ' + err.message);
     }
   };
   reader.readAsText(file);
@@ -777,7 +777,7 @@ function bindAzioniImpostazioni() {
     btn.onclick = () => cambiaEdificio(parseInt(btn.dataset.selEdificio), true);
   });
   document.querySelectorAll('[data-del-edificio]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.delEdificio);
       const ed = state.edifici.find(e=>e.id===id);
       if (!ed) return;
@@ -786,7 +786,7 @@ function bindAzioniImpostazioni() {
       const speseAssoc  = state.spese.filter(s=>s.edificioId===id).length;
       const entAssoc    = state.entrate.filter(e=>e.edificioId===id).length;
       if (condAssoc>0 || speseAssoc>0 || entAssoc>0) {
-        alert(`⚠️ Impossibile eliminare "${ed.nome}".
+        avvisa(`⚠️ Impossibile eliminare "${ed.nome}".
 
 Ha ancora:
 • ${condAssoc} condomini
@@ -796,7 +796,7 @@ Ha ancora:
 Sposta o elimina prima tutti i dati associati.`);
         return;
       }
-      if (!confirm(`Eliminare "${ed.nome}"? Non ha dati associati, è sicuro.`)) return;
+      if (!await chiedi(`Eliminare "${ed.nome}"? Non ha dati associati, è sicuro.`)) return;
       const edifici = state.edifici.filter(e=>e.id!==id);
       save('cm_edifici', edifici);
       const nuovoAttivo = edifici[0]?.id || 1;
@@ -820,7 +820,7 @@ Sposta o elimina prima tutti i dati associati.`);
   });
   // Delete categoria
   document.querySelectorAll('[data-del-cat]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = btn.dataset.delCat;
       const cat = getCategorie().find(c=>c.id===id);
       if (!cat) return;
@@ -828,7 +828,7 @@ Sposta o elimina prima tutti i dati associati.`);
       const msg = usata > 0
         ? `La categoria "${cat.label}" è usata in ${usata} spese.\nEliminandola le spese manterranno l'ID ma non mostreranno il nome.\nProcedere?`
         : `Eliminare la categoria "${cat.label}"? L'operazione è irreversibile.`;
-      if (!confirm(msg)) return;
+      if (!await chiedi(msg)) return;
       const cats = getCategorie().filter(c=>c.id!==id);
       saveCategorie(cats);
       setState({}); // re-render
@@ -858,15 +858,15 @@ Sposta o elimina prima tutti i dati associati.`);
       // login con Google porterebbe a un profilo diverso da quello atteso.
       const gEmail = res.user.providerData.find(p => p.providerId === 'google.com')?.email || '';
       if (gEmail.toLowerCase() !== (auth.currentUser.email || '').toLowerCase()) {
-        alert('⚠️ Attenzione: hai collegato ' + gEmail + ', diverso dalla tua email ' + auth.currentUser.email + '. L\'accesso con Google potrebbe non riconoscerti. Scollega da Firebase Console se non voluto.');
+        avvisa('⚠️ Attenzione: hai collegato ' + gEmail + ', diverso dalla tua email ' + auth.currentUser.email + '. L\'accesso con Google potrebbe non riconoscerti. Scollega da Firebase Console se non voluto.');
       }
-      alert('✅ Account Google collegato. Da ora puoi accedere con “Accedi con Google”.');
+      avvisa('✅ Account Google collegato. Da ora puoi accedere con “Accedi con Google”.');
       setState({});
     } catch (e) {
       bLinkG.disabled = false;
       const code = e.code || '';
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
-      alert(code === 'auth/credential-already-in-use'
+      avvisa(code === 'auth/credential-already-in-use'
         ? 'Questo account Google è già collegato a un altro profilo.'
         : (code === 'auth/provider-already-linked' ? 'Hai già collegato un account Google.' : ('Collegamento non riuscito: ' + (e.message || e))));
     }
@@ -882,20 +882,20 @@ Sposta o elimina prima tutti i dati associati.`);
     setState({});
   };
   const bResetCats = document.getElementById('btn-reset-cats');
-  if (bResetCats) bResetCats.onclick = () => {
-    if (!confirm('Ripristinare le categorie predefinite? Le categorie personalizzate verranno eliminate.')) return;
+  if (bResetCats) bResetCats.onclick = async () => {
+    if (!await chiedi('Ripristinare le categorie predefinite? Le categorie personalizzate verranno eliminate.')) return;
     saveCategorie(CATEGORIE_DEFAULT);
     setState({});
   };
   const bReset = document.getElementById('btn-reset');
-  if (bReset) bReset.onclick = () => {
+  if (bReset) bReset.onclick = async () => {
     if (!isSuperAdmin(state.user)) return;
     // QA: prima il reset azzerava i dati di TUTTI i condomini e sostituiva i
     // condomini registrati con 6 profili di esempio. Ora svuota solo i dati
     // operativi dell'edificio attivo; condomini e account restano.
     const edId = state.edificioAttivo;
     const edNome = (state.edifici.find(e => e.id === edId) || {nome: 'questo condominio'}).nome;
-    if (!confirm(
+    if (!await chiedi(
       '⚠️ Svuotare i dati di "' + edNome + '"?\n\n' +
       'Verranno CANCELLATI per questo condominio:\n' +
       '• spese, versamenti e fornitori\n' +
@@ -905,9 +905,9 @@ Sposta o elimina prima tutti i dati associati.`);
     )) return;
 
     // Seconda conferma — digita RESET
-    const conferma = prompt('SECONDA CONFERMA\n\nDigita la parola RESET per svuotare i dati di "' + edNome + '".');
+    const conferma = await chiediTesto('SECONDA CONFERMA\n\nDigita la parola RESET per svuotare i dati di "' + edNome + '".');
     if ((conferma||'').trim().toUpperCase() !== 'RESET') {
-      alert('Operazione annullata: parola di conferma errata.');
+      avvisa('Operazione annullata: parola di conferma errata.');
       return;
     }
 
@@ -918,7 +918,7 @@ Sposta o elimina prima tutti i dati associati.`);
       save(key, patch[prop]);
     });
     setState(patch);
-    alert('✅ Dati di "' + edNome + '" svuotati.');
+    avvisa('✅ Dati di "' + edNome + '" svuotati.');
   };
 }
 
@@ -929,15 +929,15 @@ function bindSchedaImpostazioni() {
   if (bMigra) bMigra.onclick = async () => {
     const stats = getMigrationStats();
     const firstEd = state.edifici.find(e=>e.id===stats.firstEdId) || state.edifici[0];
-    if (!firstEd) { alert('Nessun edificio trovato.'); return; }
-    if (stats.totale === 0) { alert('Nessun record da migrare — tutto e gia associato a un condominio.'); return; }
+    if (!firstEd) { avvisa('Nessun edificio trovato.'); return; }
+    if (stats.totale === 0) { avvisa('Nessun record da migrare — tutto e gia associato a un condominio.'); return; }
     const msg1 = 'Stai per associare ' + stats.totale + ' record a "' + firstEd.nome + '".' +
       (stats.condSenza  > 0 ? '\n- ' + stats.condSenza  + ' condomini'  : '') +
       (stats.speseSenza > 0 ? '\n- ' + stats.speseSenza + ' spese'      : '') +
       (stats.entSenza   > 0 ? '\n- ' + stats.entSenza   + ' versamenti' : '') +
       (stats.fornSenza  > 0 ? '\n- ' + stats.fornSenza  + ' fornitori'  : '') +
       '\n\nQuesta operazione salva su Firebase. Procedi?';
-    if (!confirm(msg1)) return;
+    if (!await chiedi(msg1)) return;
     bMigra.disabled = true;
     bMigra.textContent = 'Migrazione in corso...';
     bMigra.style.opacity = '0.7';
@@ -948,7 +948,7 @@ function bindSchedaImpostazioni() {
       bMigra.textContent = 'Migrazione completata';
       setTimeout(() => setState({page:'impostazioni'}), 2000);
     } catch(err) {
-      alert('Errore: ' + err.message);
+      avvisa('Errore: ' + err.message);
       bMigra.disabled = false;
       bMigra.textContent = 'Riprova migrazione';
       bMigra.style.opacity = '1';

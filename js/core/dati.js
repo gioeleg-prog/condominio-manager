@@ -196,7 +196,7 @@ async function fbSaveKeyNow(key, val) {
     const msg = /permission|insufficient/i.test(e.code || e.message || '')
       ? 'Non hai i permessi per questa modifica, oppure l’app è stata aggiornata: ricarica la pagina.'
       : (e.message || e);
-    alert('⚠️ Salvataggio non riuscito: ' + msg + '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.');
+    avvisa('⚠️ Salvataggio non riuscito: ' + msg + '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.');
   }
 }
 

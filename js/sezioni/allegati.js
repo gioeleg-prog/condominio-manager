@@ -93,7 +93,7 @@ async function downloadAllegato(v) {
   let isTemp = false;
   if (!href && v.storagePath) {
     try { href = await fetchAllegatoBlobUrl(v); isTemp = true; }
-    catch (err) { alert('Impossibile scaricare l\'allegato: ' + (err.message || err)); return; }
+    catch (err) { avvisa('Impossibile scaricare l\'allegato: ' + (err.message || err)); return; }
   }
   const a = document.createElement('a');
   a.href = href;
@@ -133,7 +133,7 @@ async function handleFilesDrop(files) {
   const MAX = 5 * 1024 * 1024; // 5MB per file (rispecchia il limite di storage.rules)
   const added = [];
   for (const file of Array.from(files)) {
-    if (file.size > MAX) { alert(`Il file "${file.name}" supera il limite di 5MB.`); continue; }
+    if (file.size > MAX) { avvisa(`Il file "${file.name}" supera il limite di 5MB.`); continue; }
     const id = newId();
     try {
       const { storage, ref, uploadBytes } = window._fb;
@@ -151,7 +151,7 @@ async function handleFilesDrop(files) {
       const motivo = err.code === 'storage/unauthorized'
         ? 'tipo di file non ammesso (si accettano PDF, immagini, documenti Office/OpenDocument, testo e CSV) oppure permessi insufficienti.'
         : (err.message || err);
-      alert(`Impossibile allegare "${file.name}": ` + motivo);
+      avvisa(`Impossibile allegare "${file.name}": ` + motivo);
     }
   }
   state.pendingFiles = [...state.pendingFiles, ...added];
@@ -230,7 +230,7 @@ function bindAllegatiInTable(sources) {
           setState({viewer:{nome:found.nome,mime:found.mime,size:found.size,blobUrl}});
         } catch (err) {
           setState({viewer:null});
-          alert('Impossibile aprire l\'allegato: ' + (err.message || err));
+          avvisa('Impossibile aprire l\'allegato: ' + (err.message || err));
         }
       } else {
         setState({viewer:{nome:found.nome,mime:found.mime,data64:found.data64,size:found.size}});
@@ -246,7 +246,7 @@ function bindAllegatiInTable(sources) {
   });
   document.querySelectorAll('[data-del-allegato]').forEach(btn => {
     btn.onclick = async () => {
-      if (!confirm('Eliminare questo allegato?')) return;
+      if (!await chiedi('Eliminare questo allegato?')) return;
       const {id} = JSON.parse(btn.dataset.delAllegato);
       const { found: toDelete, src } = findIn(id);
       if (!toDelete || !src) return;
@@ -259,7 +259,7 @@ function bindAllegatiInTable(sources) {
           // errore (permessi, rete): ci si ferma, altrimenti il record perderebbe
           // il collegamento a un file che invece esiste ancora.
           if (err.code !== 'storage/object-not-found') {
-            alert('Impossibile eliminare l’allegato: ' + (err.code === 'storage/unauthorized'
+            avvisa('Impossibile eliminare l’allegato: ' + (err.code === 'storage/unauthorized'
               ? 'non hai i permessi per eliminarlo.' : (err.message || err)));
             return;
           }

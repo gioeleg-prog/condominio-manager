@@ -146,3 +146,57 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 :root[data-theme="dark"] .cf-zero-warn.warn { border-left-color: var(--amber); }
 :root[data-theme="dark"] .cf-zero-warn.critical { border-left-color: var(--red); }
 .th-sort .sort-icon { opacity: .75; }
+
+/* --- ICONE DEI PULSANTI (js/core/icone-pulsanti.js) --- */
+.ico { width: 16px; height: 16px; flex-shrink: 0; vertical-align: -3px; }
+.btn .ico { vertical-align: 0; }
+.btn-icona { padding: 0 !important; width: 32px; min-width: 32px; height: 32px; min-height: 32px; }
+.btn:not(.btn-sm).btn-icona { width: 36px; min-width: 36px; height: 36px; }
+.allegato-btn.btn-icona { display: inline-flex; align-items: center; justify-content: center; border-radius: var(--radius-xs); }
+/* Eliminare: cestino rosso su pulsante neutro, fondo rosso tenue al passaggio. */
+.btn-elimina, .btn-elimina.btn-danger, .allegato-btn.danger { color: var(--red); }
+.btn-danger.btn-icona { background: var(--surface); border: 1px solid var(--border); }
+.btn-danger.btn-icona:hover, .allegato-btn.danger:hover { background: var(--red-light); border-color: var(--red-border); color: var(--red); }
+.btn-secondary.btn-icona { color: var(--text); }
+.btn-secondary.btn-icona:hover { background: var(--surface2); }
+
+/* --- FINESTRE DI CONFERMA (js/core/dialoghi.js) --- */
+.dialogo { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); padding: 0; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); margin: auto; }
+.dialogo::backdrop { background: rgba(0,0,0,.5); backdrop-filter: blur(3px); }
+.dialogo-form { padding: 1.25rem 1.25rem 1rem; display: flex; flex-direction: column; gap: .75rem; }
+.dialogo-testa { display: flex; align-items: center; gap: .6rem; }
+.dialogo-testa h2 { font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
+.dialogo-icona { display: inline-flex; width: 32px; height: 32px; border-radius: 999px; align-items: center; justify-content: center; flex-shrink: 0; }
+.dialogo-icona .ico { width: 18px; height: 18px; vertical-align: 0; }
+.dialogo-info { background: var(--accent-light); color: var(--accent); }
+.dialogo-ok { background: var(--green-light); color: var(--green); }
+.dialogo-attenzione { background: var(--amber-light); color: var(--amber); }
+.dialogo-pericolo .dialogo-icona, .dialogo-errore { background: var(--red-light); color: var(--red); }
+.dialogo-testo { font-size: 14px; line-height: 1.55; color: var(--text2); white-space: pre-line; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
+.dialogo-campo { width: 100%; min-height: 38px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 15px; }
+.dialogo-piede { display: flex; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; margin-top: .25rem; }
+.dialogo-piede .btn { width: auto; }
+.btn-pericolo { background: var(--red); color: #fff; border: 1px solid var(--red); box-shadow: var(--shadow); }
+:root[data-theme="dark"] .btn-pericolo { color: #1A0F0E; }
+.btn-pericolo:hover { opacity: .9; }
+@media (max-width: 480px) { .dialogo-piede .btn { flex: 1; } }
+
+/* --- AVVISI IN BASSO (js/core/dialoghi.js) --- */
+.avvisi { position: fixed; z-index: 3000; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+.avviso { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; padding: 12px 12px 12px 14px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg); font-size: 14px; line-height: 1.45; animation: avviso-entra .18s ease-out; }
+.avviso.uscita { opacity: 0; transform: translateY(6px); transition: opacity .18s, transform .18s; }
+.avviso-testo { flex: 1; min-width: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.avviso-icona { display: inline-flex; margin-top: 1px; }
+.avviso-icona .ico { width: 18px; height: 18px; vertical-align: 0; }
+.avviso-ok .avviso-icona { color: var(--green); }
+.avviso-errore .avviso-icona { color: var(--red); }
+.avviso-attenzione .avviso-icona { color: var(--amber); }
+.avviso-info .avviso-icona { color: var(--accent); }
+.avviso-errore { border-left: 3px solid var(--red); }
+.avviso-attenzione { border-left: 3px solid var(--amber); }
+.avviso-chiudi { background: none; border: none; color: var(--text2); cursor: pointer; padding: 2px; border-radius: var(--radius-xs); display: inline-flex; }
+.avviso-chiudi:hover { background: var(--surface2); color: var(--text); }
+@keyframes avviso-entra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .avviso { animation: none; } .avviso.uscita { transition: none; } }
+/* Telefono: sopra la barra di navigazione in basso. */
+@media (max-width: 768px) { .avvisi { left: 16px; right: 16px; width: auto; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); } }

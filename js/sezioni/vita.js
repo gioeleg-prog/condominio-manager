@@ -547,11 +547,11 @@ function bindAzioniVita() {
   });
   // Elimina avviso bacheca
   document.querySelectorAll('[data-del-avviso]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.delAvviso);
       const a = state.bacheca.find(x=>x.id===id);
       if (!a) return;
-      if (!confirm(`Eliminare l'avviso "${a.titolo}"?`)) return;
+      if (!await chiedi(`Eliminare l'avviso "${a.titolo}"?`)) return;
       const bacheca = state.bacheca.filter(x=>x.id!==id);
       save('cm_bacheca', bacheca);
       setState({bacheca});
@@ -577,7 +577,7 @@ function bindAzioniVita() {
       const id = parseInt(btn.dataset.delVerbale);
       const v = state.verbali.find(x=>x.id===id);
       if (!v) return;
-      if (!confirm(`Eliminare il verbale "${v.titolo}"? Verranno eliminati anche gli eventuali allegati.`)) return;
+      if (!await chiedi(`Eliminare il verbale "${v.titolo}"? Verranno eliminati anche gli eventuali allegati.`)) return;
       for (const a of (v.allegati||[])) {
         if (a.storagePath) {
           try {
@@ -604,11 +604,11 @@ function bindAzioniVita() {
   });
   // Elimina lavoro
   document.querySelectorAll('[data-del-lavoro]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.delLavoro);
       const l = state.lavori.find(x=>x.id===id);
       if (!l) return;
-      if (!confirm(`Eliminare il lavoro "${l.titolo}"?`)) return;
+      if (!await chiedi(`Eliminare il lavoro "${l.titolo}"?`)) return;
       const lavori = state.lavori.filter(x=>x.id!==id);
       save('cm_lavori', lavori);
       setState({lavori});
@@ -627,11 +627,11 @@ function bindAzioniVita() {
   });
   // Elimina delibera
   document.querySelectorAll('[data-del-delibera]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.delDelibera);
       const d = state.delibere.find(x=>x.id===id);
       if (!d) return;
-      if (!confirm(`Eliminare la delibera "${d.descrizioneSintetica}"?`)) return;
+      if (!await chiedi(`Eliminare la delibera "${d.descrizioneSintetica}"?`)) return;
       const delibere = state.delibere.filter(x=>x.id!==id);
       save('cm_delibere', delibere);
       setState({delibere});

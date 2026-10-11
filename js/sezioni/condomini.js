@@ -482,13 +482,13 @@ function bindAzioniCondomini() {
       const isAdminNew    = ruolo === 'adminedificio' || ruolo === 'superadmin';
       const canEditNew    = ruolo === 'modifica' || isAdminNew;
       const superAdminNew = ruolo === 'superadmin';
-      if (superAdminNew && !confirm('Stai promuovendo questo utente a Super Admin globale. Potrà vedere e gestire TUTTI i condomini. Confermi?')) {
+      if (superAdminNew && !await chiedi('Stai promuovendo questo utente a Super Admin globale. Potrà vedere e gestire TUTTI i condomini. Confermi?')) {
         sel.value = sel.dataset.prevValue || 'lettura';
         return;
       }
       const target = state.condomini.find(c => c.id === id);
       if (!target?.uid) {
-        alert('Questo utente non ha ancora effettuato il primo login: il ruolo server-side verrà assegnato automaticamente al suo primo accesso.');
+        avvisa('Questo utente non ha ancora effettuato il primo login: il ruolo server-side verrà assegnato automaticamente al suo primo accesso.');
         sel.value = sel.dataset.prevValue || 'lettura';
         return;
       }
@@ -507,7 +507,7 @@ function bindAzioniCondomini() {
         });
         console.log('setUserRole OK:', resp.data);
       } catch (err) {
-        alert('Impossibile assegnare il ruolo: ' + (err.message || err));
+        avvisa('Impossibile assegnare il ruolo: ' + (err.message || err));
         sel.value = sel.dataset.prevValue || 'lettura';
         return; // NIENTE scrittura locale se la function fallisce
       }
@@ -536,9 +536,9 @@ function bindAzioniCondomini() {
   });
   // Riabilita utente
   document.querySelectorAll('[data-enable-cond]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.enableCond);
-      if (!confirm('Riabilitare questo utente? Potrà tornare ad accedere al sistema.')) return;
+      if (!await chiedi('Riabilitare questo utente? Potrà tornare ad accedere al sistema.')) return;
       const condomini = state.condomini.map(c => c.id===id
         ? {...c, disabled:false, disabledOn:null, disabledNote:null, dataUscita:null}
         : c);
@@ -548,7 +548,7 @@ function bindAzioniCondomini() {
   });
   // Elimina utente definitivamente
   document.querySelectorAll('[data-delete-cond]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.deleteCond);
       const cond = state.condomini.find(c=>c.id===id);
       if (!cond) return;
@@ -557,7 +557,7 @@ function bindAzioniCondomini() {
       const msg = hasData
         ? `⚠️ Attenzione: "${cond.nome}" ha versamenti o spese collegate.\n\nEliminando l'utente questi dati perderanno il riferimento (rimarranno nello storico senza nome).\n\nProcedere comunque con l'eliminazione definitiva?`
         : `Eliminare definitivamente "${cond.nome}"? Questa operazione è irreversibile.`;
-      if (!confirm(msg)) return;
+      if (!await chiedi(msg)) return;
       const condomini = state.condomini.filter(c=>c.id!==id);
       save('cm_condomini', condomini);
       setState({condomini});
@@ -611,11 +611,11 @@ function salvaSchedaCondomino(m) {
     const isAdminNew = ruolo === 'adminedificio';
     const canEditNew = ruolo === 'modifica' || isAdminNew;
     const superAdminNew = false; // promozione a superAdmin solo via select dedicata
-    if (!nome || !apt) { alert('Nome e appartamento sono obbligatori'); return; }
+    if (!nome || !apt) { avvisa('Nome e appartamento sono obbligatori'); return; }
     const dataIngresso = document.getElementById('m-ingresso')?.value || '';
     const campoUscita = document.getElementById('m-uscita');
     const dataUscita = campoUscita ? campoUscita.value || '' : undefined;
-    if (dataIngresso && dataUscita && dataUscita <= dataIngresso) { alert('La data di uscita deve venire dopo quella di ingresso.'); return; }
+    if (dataIngresso && dataUscita && dataUscita <= dataIngresso) { avvisa('La data di uscita deve venire dopo quella di ingresso.'); return; }
     const date = { dataIngresso, ...(dataUscita !== undefined ? { dataUscita } : {}) };
     let condomini;
     if (m.data?.id) {
@@ -632,7 +632,7 @@ function salvaSchedaCondomino(m) {
         if (hasDati) {
           const nEnt = state.entrate.filter(e=>e.condominoId===m.data.id).length;
           const nSp  = state.spese.filter(s=>s.split?.some(x=>x.id===m.data.id)).length;
-          alert(
+          avvisa(
             `⛔ Impossibile spostare "${condOld?.nome}" in un altro condominio.\n\n` +
             `Ha transazioni associate:\n• ${nEnt} versamenti\n• ${nSp} spese\n\n` +
             `Crea un profilo separato per questo utente nel nuovo condominio.`
@@ -653,7 +653,7 @@ function salvaSchedaCondomino(m) {
       const usernameNew = document.getElementById('m-username')?.value?.trim().toLowerCase().replace(/[^a-z0-9._-]/g,'') || '';
       // Verifica unicità username
       if (usernameNew && state.condomini.some(c=>c.username===usernameNew)) {
-        alert('Username già in uso. Scegli un nome diverso.'); return;
+        avvisa('Username già in uso. Scegli un nome diverso.'); return;
       }
       condomini = [...state.condomini, {id:newId(),nome,appartamento:apt,email,username:usernameNew,canEdit:canEditNew,isAdmin:isAdminNew,superAdmin:false,edificioId,color:COLORS[nextIdx],...date}];
     }
@@ -762,7 +762,7 @@ function bindSchedaSubentro() {
     save('cm_condomini', condomini);
     if (daPassare.size) save('cm_spese', spese);
     setState({ condomini, spese, modal: null });
-    alert('✅ Subentro registrato: ' + vecchio.nome + ' archiviato dal ' + dataPdf(data) + ', ' + nome + ' inserito'
+    avvisa('✅ Subentro registrato: ' + vecchio.nome + ' archiviato dal ' + dataPdf(data) + ', ' + nome + ' inserito'
       + (daPassare.size ? '; quote di ' + daPassare.size + ' spese future passate al nuovo condomino.' : '.')
       + (email ? '' : '\nRicorda di aggiungere la sua email per l\'accesso.'));
   };

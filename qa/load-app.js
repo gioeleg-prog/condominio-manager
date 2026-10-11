@@ -43,6 +43,11 @@ function loadApp({ file = 'index.html', now } = {}) {
   }
   // `let state`/`const` top-level non diventano proprietà del contesto:
   // si espongono con un piccolo accessor.
+  // Finestre e avvisi dell'app (js/core/dialoghi.js): senza browser, gli avvisi
+  // finiscono in __alerts e ogni conferma risponde sì, come prima con alert/confirm.
+  sandbox.avvisa = (m) => sandbox.__alerts.push(m);
+  sandbox.chiedi = async () => sandbox.confirm();
+  sandbox.chiediTesto = async () => null;
   vm.runInContext(`globalThis.__get = (n) => eval(n); globalThis.__set = (n, v) => eval(n + ' = v');`, sandbox);
   return sandbox;
 }
