@@ -430,6 +430,20 @@ function renderModalSpesa(d) {
   } else {
     splitData = _condSplit.map((c,i)=>({id:c.id, perc: partiUguali(_condSplit.length)[i], locked:false}));
   }
+  // Millesimi (solo se il condominio li ha accesi): spesa nuova = proposta dalla
+  // tabella della categoria; per le altre c'è il pulsante "Millesimi".
+  const _millOn = typeof configMillesimi === 'function' && !!configMillesimi()?.attivo && tabelleMillesimi().length > 0;
+  const _spesaNuova = !(d?.split && d.split.length);
+  const _dataSpesa = d?.data || ymdLocale(new Date());
+  const _tabMill = _millOn ? (d?.tabellaMillesimi || tabellaPerCategoria(d?.categoria || '')) : '';
+  let _notaMill = '';
+  if (_millOn && _spesaNuova && millesimiAttiviAlla(_dataSpesa)) {
+    const p = propostaMillesimi(_tabMill, _dataSpesa);
+    if (p) {
+      splitData = _righeSplit.map(c => p.split.find(s => s.id === c.id) || { id: c.id, perc: 0, locked: false });
+      _notaMill = 'Proposta dai millesimi, tabella "' + p.tabella.nome + '"' + (p.senza.length ? ' · senza millesimi: ' + p.senza.join(', ') : '') + '. Puoi modificarla.';
+    }
+  }
   const importoRef = parseFloat(d?.consuntivo||d?.preventivo||0);
 
   function splitRow(c, sd) {
@@ -556,9 +570,11 @@ function renderModalSpesa(d) {
           <div class="split-header" style="padding:.75rem 1rem;background:var(--surface2);border-bottom:1px solid var(--border)">
             <div>
               <div style="font-weight:600;font-size:14px">⚖️ Suddivisione spesa</div>
-              <div style="font-size:12px;color:var(--text2)">Modifica % o € per ogni condomino</div>
+              <div style="font-size:12px;color:var(--text2)" id="split-mill-nota">${_notaMill ? esc(_notaMill) : 'Modifica % o € per ogni condomino'}</div>
             </div>
             <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+              ${_millOn ? `<select id="split-tabella" class="spese-filter-sel" style="flex:0 0 auto;min-width:0" aria-label="Tabella millesimale" data-nuova="${_spesaNuova ? '1' : '0'}" ${_notaMill ? 'data-applicata="1"' : ''}>${tabelleMillesimi().map(t => `<option value="${esc(t.id)}" ${t.id === _tabMill ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select>
+              <button class="btn btn-secondary btn-sm" id="split-millesimi" title="Ripartisce secondo la tabella scelta">⚖️ Millesimi</button>` : ''}
               <button class="btn btn-secondary btn-sm" id="split-equal">↔ Parti uguali</button>
               <button class="btn btn-secondary btn-sm" id="split-reset-lock">🔓 Sblocca tutti</button>
             </div>
@@ -896,6 +912,9 @@ function salvaSchedaSpesa(m) {
     const existingAllegati = m.data?.allegati||[];
     const allegati = [...existingAllegati, ...state.pendingFiles];
     const split = readSplitFromDOM();
+    // Tabella millesimale usata (solo informativa: la ripartizione resta quella salvata qui sopra).
+    const selMill = document.getElementById('split-tabella');
+    const tabellaMillesimi = selMill && selMill.dataset.applicata === '1' ? selMill.value : (m.data?.tabellaMillesimi || '');
     const fornitoreId = parseInt(document.getElementById('m-fornitore')?.value)||null;
     const ricorrente = document.getElementById('m-ricorrente')?.checked || false;
     const frequenza  = document.getElementById('m-freq')?.value || 'mensile';
@@ -920,7 +939,7 @@ function salvaSchedaSpesa(m) {
       return;
     }
     const ricGruppoId = m.data?.ricGruppoId || (ricorrente ? newId() : null);
-    const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId };
+    const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId, ...(tabellaMillesimi ? { tabellaMillesimi } : {}) };
     let spese;
     if (m.data?.id) {
       // Modifica spesa esistente

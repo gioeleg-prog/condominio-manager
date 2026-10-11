@@ -49,6 +49,7 @@ const GUIDA = {
       ['mod', 'Spesa che si ripete', 'Spunta "🔁 Spesa ricorrente", scegli la frequenza e la data di fine: le spese future vengono create da sole. Se poi cambi frequenza o data di fine, cambiano solo le righe successive non ancora consuntivate.'],
       ['mod', 'Modificare o fermare una serie', 'Nella scheda di una spesa ricorrente, il riquadro "🔁 Serie" applica le modifiche anche alle occorrenze successive non consuntivate, oppure le elimina con "Elimina le … successive".'],
       ['mod', 'Decidere chi paga quanto', 'Nella ripartizione assegna le percentuali; "↔ Parti uguali" divide in modo uguale, 🔒 blocca una quota. Il totale deve fare 100%. Chi nel frattempo è stato archiviato resta con la sua quota ("non più attivo"); con un "🔁 Subentro" le quote future passano al nuovo condomino.'],
+      ['mod', 'Ripartire per millesimi', 'Solo se il condominio li ha accesi: una spesa nuova propone già la ripartizione dalla tabella della sua categoria (es. Ascensore). Scegli un\'altra tabella e premi "⚖️ Millesimi", oppure modifica le quote a mano; "↔ Parti uguali" resta sempre disponibile.'],
       ['mod', 'Eliminare', 'il cestino rosso sulla riga, oppure seleziona più righe e "Elimina selezionate".'],
       ['lettura', 'Chiedere una modifica', 'Puoi consultare spese e allegati; per correzioni rivolgiti all\'amministratore.'],
     ],
@@ -200,6 +201,7 @@ const GUIDA = {
       ['admin', 'Chi ha lasciato il condominio', '"⏸ Archivia" con la data di uscita: non entra più, ma pagamenti e storico restano. "▶ Riattiva" lo riporta.'],
       ['admin', 'Date di ingresso e uscita', 'In "Modifica", "Nel condominio dal" (e "Uscito il" per gli archiviati). Lascia vuoto se c\'è da sempre.'],
       ['admin', 'Chi riceve le email', 'Nella scheda di ogni condomino, "Riceve le email": togli la spunta per chi non le vuole. Non comparirà più tra i destinatari selezionabili.'],
+      ['admin', 'Millesimi', 'Se il condominio li usa, sulla scheda di ogni condomino compaiono i millesimi del suo appartamento. Si modificano solo in Impostazioni → Tabelle millesimali; con un subentro passano da soli al nuovo proprietario.'],
       ['admin', 'Password dimenticata', '"🔑 Reset PW" imposta una password temporanea da comunicare alla persona.'],
       ['admin', 'Situazione di una persona', '"📊 Bilancio" apre il suo dettaglio; "📄 Estratto conto" scarica in PDF movimenti e saldo, da inviarle.'],
     ],
@@ -224,6 +226,7 @@ const GUIDA = {
       ['super', 'Aggiungere o modificare categorie', 'Nella sezione Categorie; "↩ Ripristina categorie default" torna a quelle iniziali.'],
       ['super', 'Aggiungere un condominio', 'Sezione "🏢 Gestione condomini".'],
       ['admin', 'Email ai condomini', 'Sezione "📧 Email ai condomini": accendi o spegni i promemoria automatici delle rate (e quanti giorni prima) e consulta lo storico delle email inviate, con chi le ha ricevute.'],
+      ['admin', 'Tabelle millesimali', 'Sezione "⚖️ Tabelle millesimali": accendi "Usa i millesimi" con la data da cui valgono, inserisci i millesimi di ogni appartamento (il totale deve fare 1000), aggiungi altre tabelle (Scale, Ascensore…) e scegli quale proporre per ogni categoria. Le spese già inserite non cambiano; per quelle dell\'anno in corso non consuntivate c\'è "Applica…" con l\'anteprima di prima e dopo.'],
     ],
     sapere: [
       ['super', 'La "⚠️ Zona pericolosa" cancella i dati del condominio attivo: usala solo se sai cosa fai, dopo un backup.'],

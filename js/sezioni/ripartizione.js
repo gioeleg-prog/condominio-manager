@@ -220,6 +220,44 @@ function bindSplit() {
   const btnEqual = document.getElementById('split-equal');
   if (btnEqual) btnEqual.onclick = equalSplit;
 
+  // ── millesimi (solo condomini che li hanno accesi: js/sezioni/millesimi.js) ──
+  function applicaMillesimi(silenzioso) {
+    const sel = document.getElementById('split-tabella');
+    if (!sel) return;
+    const data = document.getElementById('m-data')?.value || ymdLocale(new Date());
+    const p = propostaMillesimi(sel.value, data);
+    const nota = document.getElementById('split-mill-nota');
+    if (!p) { if (!silenzioso) avvisa('⚠️ La tabella "' + (sel.selectedOptions[0]?.textContent || '') + '" non ha millesimi per chi abita nel condominio a quella data.'); return; }
+    const ref = getRef();
+    const pMap = {}, eMap = {};
+    document.querySelectorAll('.split-perc-inp').forEach(inp => {
+      const s = p.split.find(x => String(x.id) === inp.dataset.cid);
+      pMap[inp.dataset.cid] = s ? s.perc : 0;
+      eMap[inp.dataset.cid] = ref > 0 ? (s ? s.perc : 0) / 100 * ref : 0;
+    });
+    document.querySelectorAll('.split-lock-btn').forEach(b => { b.dataset.locked = '0'; b.textContent = '🔓'; b.classList.remove('locked'); });
+    setPercInputs(pMap);
+    if (ref > 0) setEuroInputs(eMap);
+    updateTotals();
+    sel.dataset.applicata = '1';
+    if (nota) nota.textContent = 'Proposta dai millesimi, tabella "' + p.tabella.nome + '"' + (p.senza.length ? ' · senza millesimi: ' + p.senza.join(', ') : '') + '. Puoi modificarla.';
+  }
+  const btnMill = document.getElementById('split-millesimi');
+  if (btnMill) btnMill.onclick = () => applicaMillesimi(false);
+  const selTab = document.getElementById('split-tabella');
+  // Spesa nuova: se nessuna quota è stata toccata, la proposta segue categoria e data.
+  const nonToccata = () => ![...document.querySelectorAll('.split-lock-btn')].some(b => b.dataset.locked === '1');
+  if (selTab && selTab.dataset.nuova === '1') {
+    document.getElementById('m-cat')?.addEventListener('change', (e) => {
+      if (!nonToccata()) return;
+      selTab.value = tabellaPerCategoria(e.target.value);
+      applicaMillesimi(true);
+    });
+    document.getElementById('m-data')?.addEventListener('change', () => {
+      if (nonToccata() && millesimiAttiviAlla(document.getElementById('m-data').value)) applicaMillesimi(true);
+    });
+  }
+
   const btnResetLock = document.getElementById('split-reset-lock');
   if (btnResetLock) btnResetLock.onclick = () => {
     document.querySelectorAll('.split-lock-btn').forEach(b => {

@@ -234,3 +234,16 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 /* Pallini e caselle dentro un campo: dimensione propria, mai a tutta larghezza
    (la regola dei campi di testo li allargava, es. Sintetico/Dettagliato del rendiconto). */
 .field input[type=radio], .field input[type=checkbox] { width: 16px; height: 16px; min-height: 0; padding: 0; margin: 2px 0 0; box-shadow: none; border: none; flex-shrink: 0; }
+
+/* --- TABELLE MILLESIMALI (js/sezioni/millesimi.js) --- */
+.mill-tab { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .75rem; margin-bottom: .75rem; background: var(--surface); }
+.mill-tab-testa { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .5rem; }
+.mill-nome { flex: 1 1 180px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-weight: 600; }
+.mill-righe { width: 100%; border-collapse: collapse; font-size: 14px; }
+.mill-righe td { padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.mill-righe tr:last-child td { border-bottom: none; }
+.mill-righe td:last-child { width: 130px; }
+.mill-val { width: 100%; min-height: 34px; padding: 6px 8px; text-align: right; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-variant-numeric: tabular-nums; }
+.mill-categorie { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .5rem; }
+.mill-categorie label { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: 13px; }
+.mill-categorie select { max-width: 140px; }

@@ -66,6 +66,10 @@ function datiRendiconto(anno) {
       return { nome: c.nome, appartamento: c.appartamento || '', archiviato: !!c.disabled, riporto, ord, str: stra, dovuto: ord + stra, versato, saldo: riporto + versato - ord - stra };
     })
     .sort((a, b) => String(a.appartamento).localeCompare(String(b.appartamento), 'it', { numeric: true }) || a.nome.localeCompare(b.nome));
+  // Millesimi della prima tabella (di solito la generale): solo per i condomini che li usano in quell'anno.
+  const tabGen = typeof millesimiInUsoNellAnno === 'function' && millesimiInUsoNellAnno(anno) ? tabelleMillesimi()[0] : null;
+  d.millesimi = tabGen ? { tabella: tabGen.nome } : null;
+  if (tabGen) d.riparto.forEach(r => { r.millesimi = parseFloat(tabGen.valori?.[chiaveApt(r.appartamento)]) || 0; });
   // Registri per il dettaglio.
   const nomeCond = (id) => (state.condomini.find(c => c.id === id) || {}).nome || '—';
   const nomeForn = (id) => (state.fornitori.find(f => f.id === id) || {}).nome || '';
@@ -292,17 +296,25 @@ function generaRendicontoPDF(opts, conFile = false) {
       ? 'Quota di ciascuno sulle spese previste e rate già pianificate. Riporto = situazione reale di ciascuno a oggi. Saldo = riporto + rate - quota prevista.'
       : 'Quota di ciascuno sulle spese consuntivate, secondo la ripartizione di ogni spesa. Saldo = riporto dagli anni precedenti + versato - quota; negativo = da versare.');
     const tot = (k) => d.riparto.reduce((a, r) => a + r[k], 0);
+    // Con i millesimi attivi: colonna "Millesimi" dopo il nome (tabella generale).
+    const mill = !!d.millesimi;
+    const fmtM = (v) => (Number(v) || 0).toLocaleString('it-IT', { maximumFractionDigits: 3 });
+    const iSaldo = mill ? 7 : 6;
+    const colonne = { 0: { cellWidth: mill ? 38 : 44 } };
+    for (let i = 1; i < iSaldo; i++) colonne[i] = num;
+    colonne[iSaldo] = { ...num, fontStyle: 'bold' };
     tab({ ...stile, startY: y,
-      head: [['Condomino', 'Riporto', 'Quota ord.', 'Quota straord.', 'Totale quota', d.preventivo ? 'Rate previste' : 'Versato', 'Saldo']],
-      body: d.riparto.map(r => [r.nome + (r.appartamento ? '\n' + r.appartamento : '') + (r.archiviato ? ' · non più attivo' : ''), euroPdf(r.riporto), euroPdf(r.ord), euroPdf(r.str), euroPdf(r.dovuto), euroPdf(r.versato), euroPdf(r.saldo)]),
-      foot: [['Totale', euroPdf(tot('riporto')), euroPdf(tot('ord')), euroPdf(tot('str')), euroPdf(tot('dovuto')), euroPdf(tot('versato')), euroPdf(tot('saldo'))]],
-      styles: { ...stile.styles, fontSize: 8 },
-      columnStyles: { 0: { cellWidth: 44 }, 1: num, 2: num, 3: num, 4: num, 5: num, 6: { ...num, fontStyle: 'bold' } },
+      head: [['Condomino', ...(mill ? ['Millesimi'] : []), 'Riporto', 'Quota ord.', 'Quota straord.', 'Totale quota', d.preventivo ? 'Rate previste' : 'Versato', 'Saldo']],
+      body: d.riparto.map(r => [r.nome + (r.appartamento ? '\n' + r.appartamento : '') + (r.archiviato ? ' · non più attivo' : ''), ...(mill ? [fmtM(r.millesimi)] : []), euroPdf(r.riporto), euroPdf(r.ord), euroPdf(r.str), euroPdf(r.dovuto), euroPdf(r.versato), euroPdf(r.saldo)]),
+      foot: [['Totale', ...(mill ? [fmtM(tot('millesimi'))] : []), euroPdf(tot('riporto')), euroPdf(tot('ord')), euroPdf(tot('str')), euroPdf(tot('dovuto')), euroPdf(tot('versato')), euroPdf(tot('saldo'))]],
+      styles: { ...stile.styles, fontSize: mill ? 7.5 : 8 },
+      columnStyles: colonne,
       didParseCell: (h) => {
         if (h.section === 'foot' && h.column.index >= 1) h.cell.styles.halign = 'right';
-        if (h.section === 'body' && h.column.index === 6) { const v = d.riparto[h.row.index]?.saldo || 0; h.cell.styles.textColor = v < -0.005 ? [185, 28, 28] : v > 0.005 ? [22, 101, 52] : INK; }
+        if (h.section === 'body' && h.column.index === iSaldo) { const v = d.riparto[h.row.index]?.saldo || 0; h.cell.styles.textColor = v < -0.005 ? [185, 28, 28] : v > 0.005 ? [22, 101, 52] : INK; }
       },
     });
+    if (mill) { doc.setFont('helvetica', 'normal').setFontSize(7.5).setTextColor(...GRIGIO).text('Millesimi della tabella "' + d.millesimi.tabella + '". Le quote seguono la ripartizione salvata in ogni spesa.', M, doc.lastAutoTable.finalY + 4); }
     dopo();
   }
 

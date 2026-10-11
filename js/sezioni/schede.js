@@ -24,6 +24,7 @@ function bindModal() {
   bindSchedaRendiconto();
   bindSchedaEstratto();
   bindSchedeEmail();
+  bindSchedaMillesimi();
 }
 
 function saveModal() {
