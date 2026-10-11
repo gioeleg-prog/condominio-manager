@@ -761,8 +761,8 @@ function bindSchedaSubentro() {
     save('cm_condomini', condomini);
     if (daPassare.size) save('cm_spese', spese);
     setState({ condomini, spese, modal: null });
-    avvisa('✅ Subentro registrato: ' + vecchio.nome + ' archiviato dal ' + dataPdf(data) + ', ' + nome + ' inserito'
-      + (daPassare.size ? '; quote di ' + daPassare.size + ' spese future passate al nuovo condomino.' : '.')
-      + (email ? '' : '\nRicorda di aggiungere la sua email per l\'accesso.'));
+    avvisa('✅ Subentro registrato: ' + nome + ' dal ' + dataPdf(data)
+      + (daPassare.size ? ', con le quote di ' + daPassare.size + ' spese future.' : '.'));
+    if (!email) avvisa('Ricorda di aggiungere l\'email di ' + nome + ' per l\'accesso.');
   };
 }

@@ -254,7 +254,15 @@ function bindSplit() {
       applicaMillesimi(true);
     });
     document.getElementById('m-data')?.addEventListener('change', () => {
-      if (nonToccata() && millesimiAttiviAlla(document.getElementById('m-data').value)) applicaMillesimi(true);
+      if (!nonToccata()) return;
+      if (millesimiAttiviAlla(document.getElementById('m-data').value)) applicaMillesimi(true);
+      else if (selTab.dataset.applicata === '1') {
+        // Data prima dell'attivazione: come per i condomini senza millesimi, parti uguali.
+        equalSplit();
+        selTab.dataset.applicata = '0';
+        const nota = document.getElementById('split-mill-nota');
+        if (nota) nota.textContent = 'Data precedente all\'attivazione dei millesimi: parti uguali. Modifica % o € per ogni condomino.';
+      }
     });
   }
 
