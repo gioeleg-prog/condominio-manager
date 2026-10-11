@@ -143,7 +143,7 @@ function renderModalRendiconto(d) {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
-        ${canUserAdmin(state.user) ? '<button class="btn btn-secondary" id="btn-rend-email">📧 Invia per email</button>' : ''}
+        ${canUserAdmin(state.user) ? '<button class="btn btn-secondary" id="btn-rend-email" title="Apre la lista dei condomini: scegli a chi inviare, niente parte subito">📧 Scegli a chi inviare</button>' : ''}
         <button class="btn btn-primary" id="btn-rend-genera">📄 Scarica PDF</button>
       </div>
     </div>
@@ -458,7 +458,7 @@ function renderModalEstratto(d) {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
-        ${canUserAdmin(state.user) ? '<button class="btn btn-secondary" id="btn-estr-email">📧 Invia per email</button>' : ''}
+        ${canUserAdmin(state.user) ? '<button class="btn btn-secondary" id="btn-estr-email" title="Apre la lista dei condomini: scegli a chi inviare, niente parte subito">📧 Scegli a chi inviare</button>' : ''}
         <button class="btn btn-primary" id="btn-estr-genera">📄 Scarica PDF</button>
       </div>
     </div>

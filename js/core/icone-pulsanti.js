@@ -24,6 +24,7 @@ const ICONE = {
   grafico: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
   scarica: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
   occhio: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+  busta: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
   graffetta: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
   ok: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
   errore: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
@@ -51,10 +52,11 @@ function iconaPerEmoji(emoji, testo) {
     case '⬇': return ['scarica', 'Scarica'];
     case '👁': return ['occhio', 'Apri'];
     case '📎': return ['graffetta', 'Allegati'];
+    case '📧': return ['busta', 'Email'];
     default: return null;
   }
 }
-const EMOJI_ICONA = /^\s*(✏|🗑|✕|📄|🔁|⏸|▶|🔑|📊|⬇|👁|📎)️?\s?/u;
+const EMOJI_ICONA = /^\s*(✏|🗑|✕|📄|🔁|⏸|▶|🔑|📊|⬇|👁|📎|📧)️?\s?/u;
 
 function applicaIcone(radice) {
   if (!radice || !radice.querySelectorAll) return;
