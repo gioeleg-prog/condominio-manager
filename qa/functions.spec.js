@@ -322,6 +322,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
   this.timeout(40000);
   beforeEach(async () => { await seed(); });
   const invii = async (b = '1') => (await admin.collection(`buildings/${b}/invii`).get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+  // L'invio è registrato prima "in invio" e subito dopo con l'esito: si aspetta l'esito.
   const emails = (v) => (v.destinatari || []).map((d) => d.email);
   const TUTTI = [101, 102, 103, 104, 105, 106, 107];
   const avviso = (id, extra = {}) => ({ id, titolo: 'Acqua chiusa', testo: 'Martedì dalle 9 alle 12.', edificioId: 1, ...extra });
@@ -336,7 +337,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
     const a = await as('admin1@qa.test');
     await admin.doc('buildings/1/members/105').update({ emailNotifiche: false });
     await scrivi(a, 'notices', avviso(9001, { notificaEmail: 'c1', notificaDestinatari: [101, 103, 105, 106] }));
-    const [v] = await waitFor(async () => { const l = await invii(); return l.length ? l : null; });
+    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; });
     assert.strictEqual(v.stato, 'simulata');
     assert.strictEqual(v.tipo, 'avviso');
     assert.match(v.oggetto, /^Nuovo avviso: Acqua chiusa$/);
@@ -362,7 +363,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
   it('verbale: oggetto e destinatari scelti', async () => {
     const a = await as('admin1@qa.test');
     await scrivi(a, 'minutes', { id: 9003, titolo: 'Assemblea ordinaria', data: '2026-09-30', tipo: 'ordinaria', argomenti: [], decisioni: ['Approvato bilancio'], allegati: [], edificioId: 1, notificaEmail: 'v1', notificaDestinatari: [102] });
-    const [v] = await waitFor(async () => { const l = await invii(); return l.length ? l : null; });
+    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; });
     assert.strictEqual(v.tipo, 'verbale');
     assert.deepStrictEqual(emails(v), ['editor1@qa.test']);
   });
@@ -416,5 +417,78 @@ describe('INTEGRAZIONE — email ai condomini', function () {
     const v = (await invii()).filter((x) => x.tipo === 'promemoria-auto');
     assert.strictEqual(v.length, 1);
     assert.deepStrictEqual(emails(v[0]), ['member1@qa.test']);
+  });
+});
+
+// Avvisi automatici al Super Admin (functions/controllo.js), sugli emulatori: email solo simulate.
+describe('INTEGRAZIONE — avvisi automatici al Super Admin', function () {
+  this.timeout(40000);
+  let _test;
+  before(() => {
+    process.env.FUNCTIONS_EMULATOR = 'true'; // nessuna email reale
+    _test = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'))('./controllo')._test;
+  });
+  beforeEach(async () => { await seed(); });
+  const avvisi = async () => (await admin.collection('serviceAlerts').get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+  const backupOk = (oreFa = 4) => admin.doc('appSettings/backupStatus').set({ ok: true, at: new Date(Date.now() - oreFa * 3600000), docs: 50, error: null });
+  const errori = (n, oreFa = 1) => Promise.all(Array.from({ length: n }, (_, i) =>
+    admin.collection('clientErrors').add({ message: i % 3 ? 'TypeError: x is undefined' : 'Salvataggio rifiutato', uid: 'u', at: new Date(Date.now() - oreFa * 3600000) })));
+
+  it('tutto a posto: nessuna email, esito salvato per la schermata', async () => {
+    await backupOk();
+    await errori(4, 30); // errori vecchi: non contano
+    const r = await _test.eseguiControllo();
+    assert.strictEqual(r.ok, true, r.problemi.join('; '));
+    assert.strictEqual(r.email, 'non necessaria');
+    assert.strictEqual((await avvisi()).length, 0);
+    const s = (await admin.doc('appSettings/controlloServizio').get()).data();
+    assert.strictEqual(s.ok, true);
+  });
+
+  it('backup fallito, errori in aumento, email non partita: una sola email al giorno al Super Admin', async () => {
+    await admin.doc('appSettings/backupStatus').set({ ok: false, at: new Date(), error: 'quota superata' });
+    await errori(12);
+    await admin.doc('buildings/1/invii/x1').set({ tipo: 'avviso', oggetto: 'Nuovo avviso: Acqua', stato: 'errore', errore: 'Invalid login', creatoIl: new Date() });
+    await admin.doc('buildings/1/invii/x2').set({ tipo: 'avviso', oggetto: 'Ok', stato: 'inviata', creatoIl: new Date() });
+    const r = await _test.eseguiControllo();
+    assert.deepStrictEqual(r.problemi, ['Backup notturno non riuscito', "12 errori dell'app nelle ultime 24 ore", '1 email ai condomini non partita']);
+    assert.strictEqual(r.email, 'simulata');
+    const [a] = await avvisi();
+    assert.deepStrictEqual(a.destinatari, ['superadmin@qa.test']);
+    assert.match(a.oggetto, /3 problemi da controllare/);
+    assert.ok(a.problemi[0].righe[0].includes('quota superata'));
+    assert.ok(a.problemi[2].righe[0].includes('Invalid login'));
+    // il documento leggibile dall'app ha solo i titoli
+    const s = (await admin.doc('appSettings/controlloServizio').get()).data();
+    assert.ok(!JSON.stringify(s).includes('quota superata'));
+    const r2 = await _test.eseguiControllo();
+    assert.strictEqual(r2.email, 'già inviata oggi');
+    assert.strictEqual((await avvisi()).length, 1);
+  });
+
+  it('backup troppo vecchio e pochi errori stabili', async () => {
+    await backupOk(40);
+    for (let g = 1; g <= 7; g++) await errori(3, g * 24 + 2); // 3 al giorno nella settimana prima
+    await errori(6); // oggi 6: sotto 10 e meno del triplo della media
+    const r = await _test.eseguiControllo();
+    assert.deepStrictEqual(r.problemi, ['Backup notturno non eseguito']);
+  });
+
+  it('email di prova: solo il Super Admin, parte anche se è tutto a posto', async () => {
+    await backupOk();
+    const m = await (await as('admin1@qa.test')).call('provaAvvisi');
+    assert.strictEqual(m.code, 'functions/permission-denied');
+    const s = await (await as('superadmin@qa.test')).call('provaAvvisi');
+    assert.ok(s.ok, s.message);
+    assert.strictEqual(s.data.email, 'simulata');
+    assert.strictEqual(s.data.destinatari, 1);
+    const [a] = await avvisi();
+    assert.strictEqual(a.prova, true);
+    assert.match(a.oggetto, /^\[Prova\]/);
+  });
+
+  it("i dettagli degli avvisi non sono leggibili dall'app, nemmeno dal Super Admin", async () => {
+    await admin.doc('serviceAlerts/x').set({ oggetto: 'x' });
+    assert.ok(await denied(fs.getDoc(fs.doc((await as('superadmin@qa.test')).db, 'serviceAlerts/x'))));
   });
 });

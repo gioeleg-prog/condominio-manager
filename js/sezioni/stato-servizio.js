@@ -34,7 +34,7 @@ window.addEventListener('error', (e) => reportClientError(e.message, e.error?.st
 window.addEventListener('unhandledrejection', (e) => reportClientError('Promise: ' + (e.reason?.message || e.reason), e.reason?.stack));
 
 // Dati del pannello, caricati solo su richiesta del superAdmin.
-const ops = { backup: undefined, audit: null, errors: null, loading: '', auditFilter: 'all' };
+const ops = { backup: undefined, avvisi: undefined, audit: null, errors: null, loading: '', auditFilter: 'all' };
 
 async function opsLoad(what) {
   const fb = window._fb;
@@ -44,6 +44,9 @@ async function opsLoad(what) {
     if (what === 'backup') {
       const s = await fb.getDoc(fb.doc(fb.db, 'appSettings', 'backupStatus'));
       ops.backup = s.exists() ? s.data() : null;
+    } else if (what === 'avvisi') {
+      const s = await fb.getDoc(fb.doc(fb.db, 'appSettings', 'controlloServizio'));
+      ops.avvisi = s.exists() ? s.data() : null;
     } else if (what === 'audit') {
       const q = fb.query(fb.collection(fb.db, 'auditEvents'), fb.orderBy('at', 'desc'), fb.limit(200));
       ops.audit = (await fb.getDocs(q)).docs.map(d => d.data());
@@ -53,6 +56,25 @@ async function opsLoad(what) {
     }
   } catch (e) {
     avvisa('Caricamento non riuscito: ' + (e.message || e));
+  }
+  ops.loading = ''; setState({});
+}
+
+// Controllo subito ed email di prova al Super Admin (functions/controllo.js).
+async function opsProvaAvvisi() {
+  const fb = window._fb;
+  if (!fb || !isSuperAdmin(state.user)) return;
+  ops.loading = 'prova'; setState({});
+  try {
+    const r = (await fb.httpsCallable(fb.functionsInstance, 'provaAvvisi')({})).data || {};
+    const esito = r.email === 'inviata' || r.email === 'simulata'
+      ? `✅ Email di prova inviata a ${r.destinatari} ${r.destinatari === 1 ? 'indirizzo' : 'indirizzi'}.`
+      : r.email === 'nessun destinatario' ? '⚠️ Nessun indirizzo a cui scrivere: manca l\'email del Super Admin.'
+      : '⚠️ Email di prova non partita. Controlla la casella notifichecondominio@ e la password per le app.';
+    avvisa(esito + (r.problemi?.length ? ' Problemi trovati: ' + r.problemi.join('; ') + '.' : ' Nessun problema trovato.') + (r.simulata ? ' (Ambiente di prova: nessuna email reale.)' : ''));
+    await opsLoad('avvisi');
+  } catch (e) {
+    avvisa('Prova non riuscita: ' + (e.message || e));
   }
   ops.loading = ''; setState({});
 }
@@ -108,6 +130,16 @@ function renderOpsSection() {
     : b.ok ? `<div class="alert alert-success" style="font-size:13px">✅ Ultimo backup: <strong>${esc(opsWhen(b.at))}</strong> — ${esc(b.docs)} documenti, ${esc(b.sizeKB)} KB (<code>${esc(b.file)}</code>). Si conservano 30 giorni di copie.</div>`
     : `<div class="alert alert-danger" style="font-size:13px">⚠️ Ultimo backup NON riuscito (${esc(opsWhen(b.at))}): ${esc(b.error)}</div>`;
 
+  // Avvisi automatici
+  const a = ops.avvisi;
+  const EMAIL_AVVISI = { 'inviata': 'email inviata', 'simulata': 'email simulata (ambiente di prova)', 'già inviata oggi': 'email già inviata oggi',
+    'nessun destinatario': 'nessun indirizzo a cui scrivere', 'errore': 'email NON partita' };
+  const avvisiHtml = `<p class="hint">Ogni mattina alle 7:30 un controllo verifica il backup notturno, gli errori dell'app e le email ai condomini non partite. Se trova un problema ti scrive, al massimo una volta al giorno.</p>`
+    + (a === undefined ? '' : a === null ? `<div class="alert alert-warning" style="font-size:13px">Nessun controllo eseguito finora (il primo parte domattina alle 7:30).</div>`
+    : a.ok ? `<div class="alert alert-success" style="font-size:13px">✅ Ultimo controllo${a.prova ? ' (prova)' : ''}: <strong>${esc(opsWhen(a.at))}</strong> — nessun problema${EMAIL_AVVISI[a.email] ? ', ' + esc(EMAIL_AVVISI[a.email]) : ''}.</div>`
+    : `<div class="alert alert-${a.email === 'errore' ? 'danger' : 'warning'}" style="font-size:13px">⚠️ Ultimo controllo${a.prova ? ' (prova)' : ''}: <strong>${esc(opsWhen(a.at))}</strong> — ${esc((a.problemi || []).join('; '))}${EMAIL_AVVISI[a.email] ? ' · ' + esc(EMAIL_AVVISI[a.email]) : ''}.</div>`);
+  const provaBtn = `<button class="btn btn-secondary btn-sm" id="ops-prova-avvisi" ${ops.loading ? 'disabled' : ''}>${ops.loading === 'prova' ? 'Invio…' : '📧 Invia email di prova'}</button>`;
+
   // Registro modifiche
   let auditHtml = `<p class="hint">Chi ha creato, modificato o cancellato cosa, con i valori prima e dopo. Ultime 200 operazioni.</p>`;
   if (ops.audit) {
@@ -150,6 +182,7 @@ function renderOpsSection() {
   return `
     <div class="section-divider"><h3>🩺 Stato del servizio</h3></div>
     <div class="card" style="margin-bottom:1rem"><div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem"><h4 style="margin:0">💾 Backup automatico</h4>${btn('backup', ops.backup === undefined ? 'Mostra esito' : 'Aggiorna')}</div>${backupHtml}</div>
+    <div class="card" style="margin-bottom:1rem"><div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem"><h4 style="margin:0">🔔 Avvisi automatici</h4><div style="display:flex;gap:.5rem;flex-wrap:wrap">${provaBtn}${btn('avvisi', ops.avvisi === undefined ? 'Mostra esito' : 'Aggiorna')}</div></div>${avvisiHtml}</div>
     <div class="card" style="margin-bottom:1rem"><div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem"><h4 style="margin:0">📜 Registro modifiche</h4>${btn('audit', ops.audit ? 'Aggiorna' : 'Mostra registro')}</div>${auditHtml}</div>
     <div class="card" style="margin-bottom:1.5rem"><div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem"><h4 style="margin:0">🐞 Errori segnalati</h4>${btn('errors', ops.errors ? 'Aggiorna' : 'Mostra errori')}</div>${errHtml}</div>`;
 }
@@ -160,4 +193,6 @@ function bindOpsSection() {
   if (f) f.onchange = () => { ops.auditFilter = f.value; setState({}); };
   const c = document.getElementById('ops-clear-errors');
   if (c) c.onclick = opsClearErrors;
+  const p = document.getElementById('ops-prova-avvisi');
+  if (p) p.onclick = opsProvaAvvisi;
 }
