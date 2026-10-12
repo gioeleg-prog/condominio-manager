@@ -128,7 +128,6 @@ function renderBilancio() {
   // Mesi da oggi: per un anno futuro si contano anche i mesi che mancano alla fine dell'anno corrente.
   const mesiDaOggiA = (m) => (anno - oggi.getFullYear()) * 12 + m - meseCurr;
   const runwayMesi = saldoInizioSim <= 0 ? 0 : meseZero !== null ? Math.max(1, mesiDaOggiA(meseZero)) : 99;
-  const maxCF = Math.max(...cfMensile.map(cf=>Math.max(cf.totUscite, cf.totIncassi, 1)), 1);
 
   // Categorie breakdown
   const catBreak = getCategorie().filter(c=>c.tipo!=='entrata').map(c=>{
@@ -249,40 +248,8 @@ function renderBilancio() {
       📋 Nessun riporto da anni precedenti · Il saldo parte da €0,00
     </div>`}
 
-    <!-- GRAFICO: barre sovrapposte actual + forecast -->
-    <div class="cf-chart">
-      <div class="cf-chart-title">Andamento mensile ${anno}</div>
-      <div class="cf-chart-sub">🟢 Actual · 🟣 Forecast previsionali · 🔴 Uscite consuntivate</div>
-      <div class="cf-bars" tabindex="0" role="region" aria-label="Grafico flusso di cassa">
-        ${cfCumul.map(cf=>{
-          const hIA = Math.round(cf.incassi/maxCF*100);
-          const hIP = Math.round(cf.incPrevis/maxCF*100);
-          const hCA = Math.round(cf.cons/maxCF*100);
-          const hCP = Math.round(cf.prevForecast/maxCF*100);
-          const sm  = cf.totIncassi - cf.totUscite;
-          return `<div class="cf-col">
-            <div class="cf-col-saldo" style="color:${sm>=0?'var(--purple)':'var(--red)'}">${sm>=0?'+':''}${Math.round(sm/1000)}k</div>
-            <div class="cf-col-bars">
-              <div style="display:flex;flex-direction:column;align-items:center">
-                <div class="cf-bar" style="height:${hIP}px;background:var(--purple);opacity:.7;width:14px" title="Entrate prev. ${fmt(cf.incPrevis)}"></div>
-                <div class="cf-bar" style="height:${hIA}px;background:var(--green);opacity:.85;width:14px" title="Entrate reali ${fmt(cf.incassi)}"></div>
-              </div>
-              <div style="display:flex;flex-direction:column;align-items:center">
-                <div class="cf-bar" style="height:${hCP}px;background:var(--purple-border);opacity:.7;width:14px" title="Uscite prev. ${fmt(cf.prevForecast)}"></div>
-                <div class="cf-bar" style="height:${hCA}px;background:var(--red);opacity:.85;width:14px" title="Uscite reali ${fmt(cf.cons)}"></div>
-              </div>
-            </div>
-            <div class="cf-col-label" style="font-weight:${cf.isCurrent?700:400};color:${cf.isCurrent?'var(--accent)':'var(--text2)'}">${cf.mese}</div>
-          </div>`;
-        }).join('')}
-      </div>
-      <div class="cf-legend">
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--green)"></div>Entrate reali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--purple)"></div>Entrate previsionali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--red)"></div>Uscite reali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--purple-border)"></div>Uscite da consuntivare</div>
-      </div>
-    </div>`;
+    <!-- GRAFICO: entrate e uscite mese per mese, reali e previste -->
+    ${graficoCassaMensile(cfCumul, { titolo: 'Andamento mensile ' + anno, sottotitolo: 'Tocca o passa su un mese per i valori; le parti più tenui sono previsioni.' })}`;
   }
 
   // ── TAB: FORECAST ─────────────────────────────────────────────────────────
@@ -692,6 +659,7 @@ function renderBilancio() {
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
         ${canUserEdit(state.user) ? `<button class="btn btn-primary btn-sm" id="btn-rendiconto-pdf" title="Rendiconto annuale da scaricare e inviare">📄 Rendiconto PDF</button>` : ''}
         <button class="btn btn-secondary btn-sm" data-page="confronto" title="Confronta più anni">📈 Confronta anni</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.print()" title="Stampa questa pagina o salvala in PDF">🖨 Stampa</button>
         <select style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;" id="anno-bilancio">
           ${anni.map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
         </select>
