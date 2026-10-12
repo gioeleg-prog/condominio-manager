@@ -160,7 +160,7 @@ const GUIDA = {
     fare: [
       ['mod', 'Aggiungere un fornitore', '"+ Nuovo fornitore": servono almeno nome e categoria.'],
       ['mod', 'Collegarlo a una spesa', 'Nella scheda della spesa scegli il fornitore nel campo "Fornitore".'],
-      ['mod', 'Non usarlo più', '⏸ lo sposta tra i non attivi senza perdere lo storico; "▶ Riattiva" lo riporta.'],
+      ['mod', 'Non usarlo più', 'Il pulsante con l\'omino barrato (Disabilita) lo sposta tra i non attivi senza perdere lo storico; "▶ Riattiva" lo riporta.'],
     ],
     sapere: [
       ['mod', 'Le "Note interne" servono per promemoria su prezzi, orari, accordi.'],
@@ -222,7 +222,7 @@ const GUIDA = {
       ['super', 'Backup manuale: "💾 Scarica backup JSON" salva una copia dei dati sul tuo computer.'],
     ],
     fare: [
-      ['admin', 'Disabilitare un utente', '⏸ sulla riga; "▶ Riabilita" lo riattiva.'],
+      ['admin', 'Disabilitare un utente', 'Il pulsante con l\'omino barrato sulla riga; "Riabilita" (omino con la spunta) lo riattiva.'],
       ['super', 'Aggiungere o modificare categorie', 'Nella sezione Categorie; "↩ Ripristina categorie default" torna a quelle iniziali.'],
       ['super', 'Aggiungere un condominio', 'Sezione "🏢 Gestione condomini".'],
       ['admin', 'Email ai condomini', 'Sezione "📧 Email ai condomini": accendi o spegni i promemoria automatici delle rate (e quanti giorni prima) e consulta lo storico delle email inviate, con chi le ha ricevute.'],
