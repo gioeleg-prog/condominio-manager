@@ -53,6 +53,29 @@ test.describe('Conti su più anni', () => {
   });
 });
 
+test.describe('Stampa', () => {
+  test('Bilancio e Confronto: in stampa solo il contenuto, tema chiaro e data di stampa', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await tema(page, 'scuro');
+    for (const p of ['bilancio', 'confronto']) {
+      await vaiA(page, p);
+      await expect(page.getByRole('button', { name: 'Stampa' })).toBeVisible();
+      await page.evaluate(() => window.dispatchEvent(new Event('beforeprint')));
+      await page.emulateMedia({ media: 'print' });
+      expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('light');
+      for (const sel of ['.sidebar', '.bottom-nav', '.btn-guida', '.tema-switch']) await expect(page.locator(sel).first()).toBeHidden();
+      await expect(page.locator('.page button:visible')).toHaveCount(0);
+      await expect(page.locator('.page-title')).toBeVisible();
+      expect(await page.locator('.page-sub').first().evaluate((e) => getComputedStyle(e, '::after').content)).toMatch(/Stampato il/);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+      if (process.env.STAMPA_PDF) await page.pdf({ path: `qa/out/stampa-${p}.pdf`, format: 'A4' });
+      await page.emulateMedia({ media: 'screen' });
+      await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+      expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark');
+    }
+  });
+});
+
 test.describe('Aspetto e navigazione', () => {
   test('tastiera: il menu si raggiunge con Tab e si apre una pagina con Invio', async ({ page }) => {
     await accedi(page, 'admin1@qa.test');

@@ -30,6 +30,7 @@ const ICONE = {
   ok: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
   errore: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
   attenzione: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  stampante: '<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
   info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
 };
 
@@ -54,10 +55,11 @@ function iconaPerEmoji(emoji, testo) {
     case '👁': return ['occhio', 'Apri'];
     case '📎': return ['graffetta', 'Allegati'];
     case '📧': return ['busta', 'Email'];
+    case '🖨': return ['stampante', 'Stampa'];
     default: return null;
   }
 }
-const EMOJI_ICONA = /^\s*(✏|🗑|✕|📄|🔁|⏸|▶|🔑|📊|⬇|👁|📎|📧)️?\s?/u;
+const EMOJI_ICONA = /^\s*(✏|🗑|✕|📄|🔁|⏸|▶|🔑|📊|⬇|👁|📎|📧|🖨)️?\s?/u;
 
 function applicaIcone(radice) {
   if (!radice || !radice.querySelectorAll) return;
