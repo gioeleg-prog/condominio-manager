@@ -492,3 +492,50 @@ describe('INTEGRAZIONE — avvisi automatici al Super Admin', function () {
     assert.ok(await denied(fs.getDoc(fs.doc((await as('superadmin@qa.test')).db, 'serviceAlerts/x'))));
   });
 });
+
+// Copia del backup su Google Drive (functions/drive.js): regole di conservazione e
+// comportamento senza autorizzazione. Il caricamento vero si prova in produzione.
+describe('UNITÀ — copia del backup su Google Drive', function () {
+  const drive = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'))('./drive');
+  const nome = (d) => `condominio-${d}.json.gz`;
+  const giorni = (da, n) => Array.from({ length: n }, (_, i) => new Date(Date.parse(da + 'T12:00:00Z') + i * 86400000).toISOString().slice(0, 10));
+
+  it('tiene 14 giorni, il primo di ogni mese per 12 mesi, il primo di ogni anno per sempre', () => {
+    const tutti = giorni('2024-06-15', 900).map(nome); // fino a fine 2026
+    const oggi = '2026-12-01';
+    const via = new Set(drive.tieniDaCancellare(tutti.concat(['altro.txt']), oggi));
+    const resta = tutti.filter((n) => !via.has(n));
+    assert.ok(!via.has('altro.txt'), 'mai toccare file che non sono backup');
+    for (const d of giorni('2026-11-18', 14)) assert.ok(resta.includes(nome(d)), 'giorno ' + d);
+    for (const m of ['2026-01', '2026-06', '2026-11', '2026-12']) assert.ok(resta.some((n) => n.includes(m + '-01')), 'mese ' + m);
+    assert.ok(resta.includes(nome('2024-06-15')) && resta.includes(nome('2025-01-01')), 'primo di ogni anno');
+    assert.ok(!resta.includes(nome('2025-11-01')), 'mese oltre i 12 mesi tolto (solo il primo dell\'anno resta)');
+    assert.ok(via.has(nome('2026-10-15')), 'giorno qualsiasi vecchio tolto');
+    assert.ok(resta.length < 40, 'troppi file: ' + resta.length);
+  });
+
+  it('senza autorizzazione: copia saltata e segnalata, nessuna chiamata a Google', async () => {
+    for (const v of [undefined, '', 'non-configurato', '{"client_id":"x"}']) {
+      const r = await drive.copiaSuDrive(v, '{}', '2026-10-13');
+      assert.deepStrictEqual([r.ok, r.configurata], [false, false]);
+    }
+  });
+});
+
+describe('INTEGRAZIONE — il controllo delle 7:30 segnala la copia su Drive', function () {
+  this.timeout(20000);
+  let _test;
+  before(() => { process.env.FUNCTIONS_EMULATOR = 'true'; _test = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'))('./controllo')._test; });
+  beforeEach(async () => { await seed(); });
+  it('non attiva e non riuscita sono problemi; riuscita no', async () => {
+    const stato = (drive) => admin.doc('appSettings/backupStatus').set({ ok: true, at: new Date(), docs: 50, drive });
+    await stato({ ok: false, configurata: false });
+    assert.strictEqual((await _test.controllaBackup(Date.now())).titolo, 'Copia del backup su Google Drive non attiva');
+    await stato({ ok: false, configurata: true, error: 'HTTP 401 invalid_grant' });
+    const p = await _test.controllaBackup(Date.now());
+    assert.strictEqual(p.titolo, 'Copia del backup su Google Drive non riuscita');
+    assert.match(p.righe[0], /invalid_grant/);
+    await stato({ ok: true, configurata: true, file: 'condominio-2026-10-13.json.gz' });
+    assert.strictEqual(await _test.controllaBackup(Date.now()), null);
+  });
+});

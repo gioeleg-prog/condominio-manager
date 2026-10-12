@@ -3,12 +3,14 @@
 // cosa contiene il file e chiede --confirm.
 //
 // Uso:
-//   node scripts/restore-backup.js --project=<id> --file=<percorso locale .json>              (anteprima)
+//   node scripts/restore-backup.js --project=<id> --file=<percorso locale .json o .json.gz>   (anteprima)
 //   node scripts/restore-backup.js --project=<id> --file=<percorso locale .json> --confirm    (ripristino)
 //
-// Il file si scarica dalla console Firebase → Storage → backups/.
+// Il file si scarica dalla console Firebase → Storage → backups/ (.json), oppure dal
+// Google Drive di notifichecondominio@ → cartella "Backup Condominio" (.json.gz).
 // Sovrascrive i documenti presenti nel backup; non cancella quelli assenti.
 const fs = require('fs');
+const zlib = require('zlib');
 const path = require('path');
 const { adminDb, FieldValue } = require('./lib/firebase-admin');
 const req = require('module').createRequire(path.join(__dirname, '..', 'functions', 'package.json'));
@@ -17,10 +19,11 @@ const { restoreBackup } = req('./backup');
 const args = Object.fromEntries(process.argv.slice(2).map((a) => a.match(/^--([^=]+)(?:=(.*))?$/)).filter(Boolean)
   .map((m) => [m[1], m[2] === undefined ? true : m[2]]));
 if (!args.project || !args.file) {
-  console.error('Uso: node scripts/restore-backup.js --project=<id> --file=<backup.json> [--confirm]');
+  console.error('Uso: node scripts/restore-backup.js --project=<id> --file=<backup.json | backup.json.gz> [--confirm]');
   process.exit(1);
 }
-const backup = JSON.parse(fs.readFileSync(args.file, 'utf8'));
+const grezzo = fs.readFileSync(args.file);
+const backup = JSON.parse((/.gz$/i.test(args.file) ? zlib.gunzipSync(grezzo) : grezzo).toString('utf8'));
 console.log(`Backup del ${backup.createdAt}: ${backup.docs} documenti in ${Object.keys(backup.collections).join(', ')}`);
 if (!args.confirm) { console.log('Anteprima: nessuna scrittura. Aggiungi --confirm per ripristinare su ' + args.project + '.'); process.exit(0); }
 

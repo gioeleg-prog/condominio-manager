@@ -224,7 +224,8 @@ const GUIDA = {
       'Categorie di spesa.',
       'Sicurezza dell\'account: cambio password.',
       ['super', 'Gestione dei condomìni, nome del servizio, log degli accessi e "Stato del servizio" (backup automatici, avvisi automatici, registro modifiche, errori).'],
-      ['super', 'Backup manuale: "💾 Scarica backup JSON" salva una copia dei dati sul tuo computer.'],
+      ['super', 'Backup automatico: ogni notte alle 3 una copia completa nello spazio del servizio (30 giorni) e una copia compressa nel Google Drive di notifichecondominio@, cartella "Backup Condominio" (ultimi 14 giorni, uno al mese per un anno, uno all\'anno per sempre). L\'esito è in "Stato del servizio".'],
+      ['super', 'Backup manuale: "💾 Scarica backup JSON" salva una copia dei dati sul tuo computer; conviene farlo una volta al mese.'],
     ],
     fare: [
       ['admin', 'Disabilitare un utente', 'Il pulsante con l\'omino barrato sulla riga; "Riabilita" (omino con la spunta) lo riattiva.'],
