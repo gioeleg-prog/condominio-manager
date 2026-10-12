@@ -375,6 +375,7 @@ function renderImpostazioni() {
 
     ${canUserAdmin(state.user) ? renderSezioneEmail() : ''}
     ${canUserAdmin(state.user) ? renderSezioneMillesimi() : ''}
+    ${canUserAdmin(state.user) ? renderSezioneAffitti() : ''}
 
     <!-- ADMIN OWN PASSWORD + FIREBASE -->
     <div class="section-divider"><h3>🔐 Sicurezza account admin</h3></div>
@@ -759,6 +760,7 @@ function renderModalCategoria(d) {
 function bindAzioniImpostazioni() {
   bindSezioneEmail();
   bindSezioneMillesimi();
+  bindSezioneAffitti();
   // Gestione edifici
   const bNuovoEd = document.getElementById('btn-nuovo-edificio');
   if (bNuovoEd) bNuovoEd.onclick = () => setState({modal:{type:'edificio', data:null}});

@@ -20,6 +20,7 @@ function render() {
     _pageEl.classList.toggle('page-full-width', ['spese'].includes(state.page));
   }
   if (typeof assicuraMillesimi === 'function') assicuraMillesimi();
+  if (typeof assicuraAffitti === 'function') assicuraAffitti();
   applyA11y(app);
   bindApp();
   if (focusKey) { const el = app.querySelector(`[data-focus-key="${focusKey}"]`); if (el) el.focus(); }

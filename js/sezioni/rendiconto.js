@@ -412,14 +412,23 @@ function datiEstratto(condId, anno) {
   let saldo = riporto;
   movimenti.forEach(m => { saldo += m.accredito - m.addebito; m.saldo = saldo; });
   const daConsuntivare = spese.filter(s => !(num(s.consuntivo) > 0) && num(s.preventivo) > 0)
-    .map(s => ({ data: s.data, descrizione: s.titolo || 'Spesa', categoria: catLabel(s.categoria), quota: quotaSuSpesa(s, condId, num(s.preventivo), nAttivi) }))
+    .map(s => ({ data: s.data, descrizione: s.titolo || 'Spesa', categoria: catLabel(s.categoria), straordinaria: s.tipoSpesa === 'straordinaria', quota: quotaSuSpesa(s, condId, num(s.preventivo), nAttivi) }))
     .filter(x => x.quota > 0.004).sort((a, b) => String(a.data).localeCompare(String(b.data)));
   const rate = entrate.filter(e => e.previsionale).map(e => ({ data: e.data, descrizione: e.descrizione || 'Rata prevista', importo: num(e.importo) }))
     .sort((a, b) => String(a.data).localeCompare(String(b.data)));
   const quoteOrd = movimenti.filter(m => m.tipo === 'quota' && !m.straordinaria).reduce((a, m) => a + m.addebito, 0);
   const quoteStr = movimenti.filter(m => m.tipo === 'quota' && m.straordinaria).reduce((a, m) => a + m.addebito, 0);
   const versato = movimenti.reduce((a, m) => a + m.accredito, 0);
+  // Appartamento in affitto (js/sezioni/affitti.js): le quote ordinarie sono da
+  // recuperare dall'inquilino; le straordinarie restano del proprietario.
+  const inAffitto = typeof appartamentoInAffitto === 'function' && appartamentoInAffitto(cond.appartamento);
+  const affitto = inAffitto ? {
+    recuperabile: quoteOrd,
+    voci: movimenti.filter(m => m.tipo === 'quota' && !m.straordinaria),
+    previste: daConsuntivare.filter(x => !x.straordinaria).reduce((a, x) => a + x.quota, 0),
+  } : null;
   return {
+    affitto,
     anno, preventivo, inCorso: anno === oggi.getFullYear(), alGiorno: ymdLocale(oggi),
     condomino: { id: cond.id, nome: cond.nome, appartamento: cond.appartamento || '' },
     riporto, quoteOrd, quoteStr, versato, saldo: riporto + versato - quoteOrd - quoteStr,
@@ -552,6 +561,24 @@ function generaEstrattoPDF(condId, anno, conFile = false) {
   columnStyles: { 1: { ...num, cellWidth: 40 } },
   didParseCell: (h) => { if (h.section === 'foot' && h.column.index === 1) { h.cell.styles.halign = 'right'; h.cell.styles.textColor = colSaldo(d.saldo); } } });
   dopo();
+
+  // Appartamento in affitto: quanto recuperare dall'inquilino
+  if (d.affitto) {
+    titolo('Appartamento in affitto', 'Verso il condominio paga il proprietario. Le quote delle spese ordinarie sono a carico dell\'inquilino e il proprietario può chiedergliele; le straordinarie restano del proprietario.');
+    tab({ ...stile, startY: y, head: [['Data', 'Spesa ordinaria', 'Quota']],
+      body: d.affitto.voci.length ? d.affitto.voci.map(m => [dataPdf(m.data), m.descrizione + (m.dettaglio ? '\n' + m.dettaglio : ''), euroPdf(m.addebito)])
+        : [[{ content: 'Nessuna spesa ordinaria consuntivata nel periodo.', colSpan: 3, styles: { fontStyle: 'italic', textColor: GRIGIO } }]],
+      foot: [['', 'Da recuperare dall\'inquilino', euroPdf(d.affitto.recuperabile)]],
+      styles: { ...stile.styles, fontSize: 8.3 },
+      columnStyles: { 0: { cellWidth: 20 }, 2: { ...num, cellWidth: 30 } },
+      didParseCell: (h) => { if (h.section === 'foot' && h.column.index === 2) h.cell.styles.halign = 'right'; } });
+    dopo();
+    if (d.affitto.previste > 0.004) {
+      doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(...GRIGIO)
+        .text('In arrivo: quote ordinarie ancora da consuntivare ' + euroPdf(d.affitto.previste) + ' (a carico dell\'inquilino quando saranno definitive).', M, y - 3);
+      y += 6;
+    }
+  }
 
   // Movimenti
   if (!d.preventivo) {

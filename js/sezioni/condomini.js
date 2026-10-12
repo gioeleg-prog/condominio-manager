@@ -37,6 +37,7 @@ function renderCondomini() {
               <div class="uc-name">${esc(c.nome)}</div>
               <div class="uc-apt">🏠 ${esc(c.appartamento)}</div>
               ${c.username?`<div style="font-size:11px;color:var(--text2)">👤 ${esc(c.username)}</div>`:''}
+              ${typeof appartamentoInAffitto === 'function' && appartamentoInAffitto(c.appartamento) ? `<div style="font-size:11px;color:var(--text2)" title="Si imposta in Impostazioni → Appartamenti in affitto">🔑 In affitto: le quote ordinarie sono dell'inquilino</div>` : ''}
               ${typeof millesimiDi === 'function' && millesimiDi(c).length ? `<div style="font-size:11px;color:var(--text2)" title="Si modificano in Impostazioni → Tabelle millesimali">⚖️ ${millesimiDi(c).map(m => esc(m.nome) + ' ' + fmtMill(m.valore)).join(' · ')}</div>` : ''}
             </div>
           </div>
