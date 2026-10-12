@@ -43,6 +43,14 @@
   --purple-border: #DDD6FE;
   --teal: #0E7490;
   --teal-light: #CFFAFE;
+  /* Grafici (js/core/grafici.js): colori verificati per il daltonismo. */
+  --g-entrate: #2A78D6;
+  --g-uscite: #EB6834;
+  --g-prev: #1BAF7A;
+  --g-negativo: #E34948;
+  --g-griglia: #EDEDED;
+  --g-asse: #C4C4C4;
+  --g-tenue: 38%;            /* quanto colore resta nelle parti "previste" */
   color-scheme: light;
 }
 
@@ -83,6 +91,13 @@
   --purple-light: #2E2C38;
   --purple-strong: #CCC0ED;
   --purple-border: #4B455D;
+  --g-entrate: #3987E5;
+  --g-uscite: #D95926;
+  --g-prev: #199E70;
+  --g-negativo: #E66767;
+  --g-griglia: #26262A;
+  --g-asse: #45454C;
+  --g-tenue: 62%;
   --teal: #64B7C4;
   --teal-light: #223034;
   --shadow: 0 1px 2px rgba(0,0,0,0.4);
