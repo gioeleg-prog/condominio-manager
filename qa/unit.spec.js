@@ -786,6 +786,9 @@ describe('UNIT — icone dei pulsanti e finestre dell\'app', () => {
     assert.strictEqual(app.iconaPerEmoji('🔁', '🔁 Subentro')[0], 'scambio');
     assert.strictEqual(app.iconaPerEmoji('📊', '📊 Esporta Excel')[0], 'foglio');
     assert.strictEqual(app.iconaPerEmoji('⏸', '⏸ Archivia')[0], 'archivio');
+    assert.strictEqual(app.iconaPerEmoji('⏸', '⏸')[0], 'disabilita');
+    assert.strictEqual(app.iconaPerEmoji('▶', '▶ Riabilita')[0], 'riabilita');
+    assert.strictEqual(app.iconaPerEmoji('▶', '▶ Riattiva')[0], 'riattiva');
     assert.strictEqual(app.iconaPerEmoji('🏠', '🏠'), null);
   });
   it('icona SVG nascosta ai lettori di schermo', () => {

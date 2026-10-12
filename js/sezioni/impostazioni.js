@@ -347,7 +347,7 @@ function renderImpostazioni() {
         const _speseImpD = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo); const nSpese = _speseImpD.filter(s=>s.split?.some(x=>x.id===c.id)).length;
         const disabledOn = c.disabledOn ? new Date(c.disabledOn).toLocaleDateString('it-IT') : '—';
         return `<div class="utente-card disabled">
-          <div class="disabled-banner">⏸ Disabilitato il ${disabledOn}${c.disabledNote ? ' · ' + esc(c.disabledNote) : ''}</div>
+          <div class="disabled-banner">${ico('disabilita')} Disabilitato il ${disabledOn}${c.disabledNote ? ' · ' + esc(c.disabledNote) : ''}</div>
           <div class="uc-head">
             <div class="avatar-lg" style="${avatarStyle(c.color)}">${initials(c.nome)}</div>
             <div style="flex:1;min-width:0">

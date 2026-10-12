@@ -129,7 +129,7 @@ function renderModalDisableCond(cond) {
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal" style="max-width:460px">
       <div class="modal-header">
-        <h2>⏸ Disabilita utente</h2>
+        <h2>${ico('disabilita')} Disabilita utente</h2>
         <button class="modal-close" id="modal-close">✕</button>
       </div>
       <div class="modal-body">

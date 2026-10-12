@@ -188,7 +188,7 @@ function renderFornitoreCard(f, canEdit, archived=false) {
       <button class="btn btn-secondary btn-sm" data-storico-fornitore="${f.id}" style="flex:1">📊 Storico</button>
       ${archived
         ? `<button class="btn btn-success btn-sm" data-enable-fornitore="${f.id}">▶ Riattiva</button>`
-        : `<button class="btn btn-secondary btn-sm" data-disable-fornitore="${f.id}" style="color:var(--amber)">⏸</button>`}
+        : `<button class="btn btn-secondary btn-sm" data-disable-fornitore="${f.id}" title="Disabilita fornitore" style="color:var(--amber)">⏸</button>`}
       <button class="btn btn-danger btn-sm" data-del-fornitore="${f.id}">🗑</button>
     </div>` : ''}
   </div>`;
