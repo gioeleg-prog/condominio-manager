@@ -13,13 +13,14 @@ const GUIDA = {
     breve: 'La pagina iniziale: in un colpo d\'occhio come stanno i conti del condominio nell\'anno scelto.',
     trovi: [
       'Entrate, uscite e saldo dell\'anno.',
-      'Il grafico mese per mese: dati reali fino a oggi, previsioni per i mesi che verranno.',
+      'Il grafico mese per mese: per ogni mese una colonna blu per le entrate e una arancio per le uscite; la parte piena è reale, quella più tenue è prevista.',
       'Ultimi versamenti, spese confermate e spese previste.',
       'Avvisi, lavori e delibere più recenti, con il collegamento "Vedi tutti".',
       ['lettura', '"La tua situazione": quanto ti spetta pagare nell\'anno, quanto hai già versato e il saldo, compreso ciò che arriva dagli anni precedenti. "📄 Il mio estratto conto" scarica il dettaglio in PDF.'],
     ],
     fare: [
       ['Vedere un altro anno', 'Usa il menu dell\'anno in alto a destra.'],
+      ['Leggere i valori di un grafico', 'Passa con il mouse o tocca un mese: compare il dettaglio con gli importi. Con la tastiera: Tab sul grafico, poi le frecce ← →. "Valori in tabella" sotto il grafico mostra tutti i numeri insieme.'],
       ['Andare a una sezione', 'Tocca una voce del menu, oppure "Vedi tutti" sotto ogni riquadro.'],
       ['Cercare qualcosa', 'Campo "🔍 Cerca nel sito" nella barra laterale (dal telefono 🔍 in alto): trova spese, versamenti, fornitori, avvisi e verbali.'],
       ['Modalità scura', 'Interruttore sole/luna accanto a "Guida", in cima a ogni pagina: spostalo per passare dal tema chiaro a quello scuro. Finché non lo tocchi, l\'app segue l\'impostazione del telefono o del computer.'],
@@ -114,6 +115,7 @@ const GUIDA = {
     breve: 'I conti di più anni affiancati, come il bilancio di un\'azienda: cosa è cambiato e dove.',
     trovi: [
       '<b>📋 Sintesi</b>: entrate, uscite (ordinarie e straordinarie), risultato, cassa a fine periodo, budget e scostamento. Sotto ogni cifra la variazione rispetto all\'anno prima.',
+      '<b>Andamento negli anni</b>: grafico con entrate, uscite e spese a preventivo di ogni anno; passa o tocca un anno per gli importi.',
       '<b>🏷️ Per categoria</b>: quanto si è speso per ogni voce, anno per anno.',
       '<b>⚖️ Ordinarie e straordinarie</b>: importi e peso dello straordinario.',
       '<b>👥 Per condomino</b>: quota, versato e saldo di ciascuno, anno per anno.',

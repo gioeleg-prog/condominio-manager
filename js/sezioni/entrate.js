@@ -695,47 +695,31 @@ function renderPianoRateBox(annoSel, canEdit) {
 // ===========================
 // PIANO RATE — MINI GRAFICO CASSA
 // ===========================
-// Mostra il saldo cumulato mese per mese lungo l'anno, con un marker viola nel
-// mese di ciascuna rata proposta. Barre verdi = cassa positiva, rosse = a rischio.
+// Cassa prevista a fine mese lungo l'anno, con il segno R1, R2… sotto il mese
+// di ciascuna rata proposta. Blu = cassa positiva, rosso = sotto zero.
 function renderMiniCashflowRateChart(piano, anno) {
   if (!piano.serieMensile || !piano.serieMensile.length) return '';
-  const W = 760, H = 170, padL = 46, padR = 10, padT = 22, padB = 22;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-  const vals = piano.serieMensile.map(s=>s.saldo);
-  const maxV = Math.max(...vals, 0);
-  const minV = Math.min(...vals, 0);
-  const range = (maxV - minV) || 1;
-  const n = piano.serieMensile.length;
-  const xFor = i => padL + (n>1 ? (plotW/(n-1))*i : plotW/2);
-  const yFor = v => padT + plotH - ((v - minV)/range)*plotH;
-  const yZero = yFor(0);
-  const barW = Math.max(8, Math.min(30, plotW/n - 6));
-
-  const bars = piano.serieMensile.map((s,i) => {
-    const x = xFor(i) - barW/2;
-    const yTop = s.saldo>=0 ? yFor(s.saldo) : yZero;
-    const h = Math.max(1, Math.abs(yFor(s.saldo) - yZero));
-    const color = s.saldo>=0 ? 'var(--green)' : 'var(--red)';
-    return '<rect x="'+x.toFixed(1)+'" y="'+yTop.toFixed(1)+'" width="'+barW.toFixed(1)+'" height="'+h.toFixed(1)+'" fill="'+color+'" opacity=".75" rx="2"><title>'+s.mese+': '+fmt(s.saldo)+'</title></rect>';
-  }).join('');
-
-  const labels = piano.serieMensile.map((s,i) =>
-    '<text x="'+xFor(i).toFixed(1)+'" y="'+(H-6)+'" font-size="10" fill="var(--text2)" text-anchor="middle">'+s.mese+'</text>'
-  ).join('');
-
-  const markers = piano.rate.map(r => {
-    const x = xFor(r.dataObj.getMonth());
-    return '<g><circle cx="'+x.toFixed(1)+'" cy="'+(padT-10).toFixed(1)+'" r="7" fill="var(--purple)"/>' +
-      '<text x="'+x.toFixed(1)+'" y="'+(padT-6).toFixed(1)+'" font-size="9" fill="#fff" text-anchor="middle" font-weight="700">R'+r.n+'</text></g>';
-  }).join('');
-
-  return '<div style="overflow-x:auto;margin-top:.875rem">' +
-    '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-width:760px;height:auto;display:block">' +
-    '<line x1="'+padL+'" y1="'+yZero.toFixed(1)+'" x2="'+(W-padR)+'" y2="'+yZero.toFixed(1)+'" stroke="var(--border)" stroke-dasharray="3,3"/>' +
-    bars + labels + markers +
-    '</svg>' +
-    '<div style="font-size:11px;color:var(--text2);margin-top:2px">🟣 mese della rata &nbsp; 🟩 cassa positiva &nbsp; 🟥 cassa a rischio &nbsp; (linea tratteggiata = zero)</div>' +
-    '</div>';
+  const POS = 'var(--g-entrate)', NEG = 'var(--g-negativo)';
+  const giorno = (r) => r.dataObj.toLocaleDateString('it-IT', { day: 'numeric', month: 'long' });
+  const rateDi = (m) => piano.rate.filter(r => r.dataObj.getMonth() === m);
+  return '<div style="margin-top:.875rem">' + graficoBarre({
+    classe: 'piatto',
+    aria: 'Cassa prevista a fine mese nel ' + anno + ', con le rate proposte',
+    legenda: [{ colore: POS, nome: 'Cassa positiva' }, { colore: NEG, nome: 'Cassa sotto zero' }, { segno: 'R1', nome: 'mese della rata' }],
+    gruppi: piano.serieMensile.map((s, m) => {
+      const rr = rateDi(m);
+      const col = s.saldo >= 0 ? POS : NEG;
+      return {
+        etichetta: s.mese, segno: rr.map(r => 'R' + r.n).join(' '),
+        colonne: [[{ valore: s.saldo, colore: col }]],
+        tip: { titolo: s.mese + ' ' + anno, righe: [
+          { colore: col, nome: 'Cassa a fine mese', valore: fmt(s.saldo) },
+          ...rr.map(r => ({ nome: 'Rata ' + r.n + ' del ' + giorno(r), valore: '+' + fmt(r.importoTotale) }))] },
+      };
+    }),
+    tabella: { intestazioni: ['Mese', 'Cassa a fine mese', 'Rate'],
+      righe: piano.serieMensile.map((s, m) => [s.mese, fmt(s.saldo), rateDi(m).map(r => 'R' + r.n + ' ' + fmt(r.importoTotale)).join(', ') || '—']) },
+  }) + '</div>';
 }
 
 // Filtri, versamenti, validazione delle rate e piano rate della pagina Entrate. Chiamata da bindPageActions() (azioni.js).

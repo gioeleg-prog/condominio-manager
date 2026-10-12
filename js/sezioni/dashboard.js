@@ -135,8 +135,6 @@ function renderDashboard() {
   const nMesiPianificati  = Math.max(mesiConSpese.size, 1);
   const spesaMensileMedia = totSpeseFull / nMesiPianificati;
 
-  // Max per scala grafico
-  const maxCF = Math.max(...cashflow.map(cf=>Math.max(cf.totUscite, cf.totIncassi)), 1);
 
   // Alert status e messaggio — stessa impostazione chiara/esplicita del box "Piano rate" in Entrate/Quote
   const alertStatus = saldoInizio < 0 ? 'critical' : meseZero !== null ? 'warn' : 'ok';
@@ -294,40 +292,7 @@ function renderDashboard() {
     </div>
 
     <!-- CASHFLOW CHART -->
-    <div class="cf-chart">
-      <div class="cf-chart-title">📊 Cashflow mensile ${anno}</div>
-      <div class="cf-chart-sub">🟢 Entrate reali · 🟣 Entrate previsionali · 🔴 Uscite reali · 🟪 Uscite ancora da consuntivare</div>
-      <div class="cf-bars" tabindex="0" role="region" aria-label="Grafico flusso di cassa">
-        ${cfCumul.map((cf,i) => {
-          const hIA = Math.round(cf.incassi/maxCF*100);
-          const hIP = Math.round(cf.incPrevis/maxCF*100);
-          const hCA = Math.round(cf.cons/maxCF*100);
-          const hCP = Math.round(cf.prevForecast/maxCF*100);
-          const saldoM = cf.totIncassi - cf.totUscite;
-          const saldoColor = saldoM >= 0 ? 'var(--green)' : 'var(--red)';
-          return `<div class="cf-col">
-            <div class="cf-col-saldo" style="color:${saldoColor}">${saldoM>=0?'+':''}${fmtN(saldoM/1000).replace(',','.')}k</div>
-            <div class="cf-col-bars">
-              <div style="display:flex;flex-direction:column;align-items:center">
-                <div class="cf-bar" style="height:${hIP}px;background:var(--purple);opacity:.7;width:14px" title="Entrate previsionali ${fmt(cf.incPrevis)}"></div>
-                <div class="cf-bar" style="height:${hIA}px;background:var(--green);opacity:.85;width:14px" title="Entrate reali ${fmt(cf.incassi)}"></div>
-              </div>
-              <div style="display:flex;flex-direction:column;align-items:center">
-                <div class="cf-bar" style="height:${hCP}px;background:var(--purple-border);opacity:.7;width:14px" title="Uscite ancora da consuntivare ${fmt(cf.prevForecast)}"></div>
-                <div class="cf-bar" style="height:${hCA}px;background:var(--red);opacity:.85;width:14px" title="Uscite reali ${fmt(cf.cons)}"></div>
-              </div>
-            </div>
-            <div class="cf-col-label" style="font-weight:${cf.isCurrent?'700':'400'};color:${cf.isCurrent?'var(--accent)':'var(--text2)'}">${cf.mese}</div>
-          </div>`;
-        }).join('')}
-      </div>
-      <div class="cf-legend">
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--green)"></div>Entrate reali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--purple)"></div>Entrate previsionali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--red)"></div>Uscite reali</div>
-        <div class="cf-legend-item"><div class="cf-legend-dot" style="background:var(--purple-border)"></div>Uscite da consuntivare</div>
-      </div>
-    </div>
+    ${graficoCassaMensile(cfCumul, { titolo: 'Entrate e uscite mese per mese · ' + anno, sottotitolo: 'Tocca o passa su un mese per i valori; le parti più tenui sono previsioni.' })}
 
     <!-- RUNWAY MENSILE -->
     <div class="runway-card" style="margin-bottom:1.25rem">
