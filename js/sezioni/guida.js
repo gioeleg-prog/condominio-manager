@@ -219,7 +219,7 @@ const GUIDA = {
       'Utenti del condominio con ruolo e stato (attivo o disabilitato).',
       'Categorie di spesa.',
       'Sicurezza dell\'account: cambio password.',
-      ['super', 'Gestione dei condomìni, nome del servizio, log degli accessi e "Stato del servizio" (backup automatici, registro modifiche, errori).'],
+      ['super', 'Gestione dei condomìni, nome del servizio, log degli accessi e "Stato del servizio" (backup automatici, avvisi automatici, registro modifiche, errori).'],
       ['super', 'Backup manuale: "💾 Scarica backup JSON" salva una copia dei dati sul tuo computer.'],
     ],
     fare: [
@@ -228,6 +228,7 @@ const GUIDA = {
       ['super', 'Aggiungere un condominio', 'Sezione "🏢 Gestione condomini".'],
       ['admin', 'Email ai condomini', 'Sezione "📧 Email ai condomini": accendi o spegni i promemoria automatici delle rate (e quanti giorni prima) e consulta lo storico delle email inviate, con chi le ha ricevute.'],
       ['admin', 'Tabelle millesimali', 'Sezione "⚖️ Tabelle millesimali": accendi "Usa i millesimi" con la data da cui valgono, inserisci i millesimi di ogni appartamento (il totale deve fare 1000), aggiungi altre tabelle (Scale, Ascensore…) e scegli quale proporre per ogni categoria. Le spese già inserite non cambiano; per quelle dell\'anno in corso non consuntivate c\'è "Applica…" con l\'anteprima di prima e dopo.'],
+      ['super', 'Ricevere gli avvisi quando qualcosa non va', 'Sono già attivi: ogni mattina alle 7:30 un controllo verifica backup notturno, errori dell\'app ed email ai condomini non partite, e se trova un problema scrive al Super Admin (al massimo una volta al giorno). In "Stato del servizio › 🔔 Avvisi automatici" vedi l\'esito dell\'ultimo controllo; "📧 Invia email di prova" lo esegue subito e ti scrive anche se è tutto a posto.'],
       ['admin', 'Appartamenti in affitto', 'Sezione "🔑 Appartamenti in affitto": di base sono tutti del proprietario; spunta quelli affittati. Nell\'estratto conto del proprietario comparirà "Da recuperare dall\'inquilino": le quote delle spese ordinarie (le straordinarie restano sue). Verso il condominio paga sempre il proprietario.'],
     ],
     sapere: [

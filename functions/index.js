@@ -295,3 +295,8 @@ const notifiche = require('./notifiche');
 exports.notificaVita = notifiche.notificaVita;
 exports.promemoriaRate = notifiche.promemoriaRate;
 exports.inviaEmail = notifiche.inviaEmail;
+
+// Avvisi automatici al Super Admin (backup, errori, email non partite): vedi controllo.js.
+const controllo = require('./controllo');
+exports.controlloServizio = controllo.controlloServizio;
+exports.provaAvvisi = controllo.provaAvvisi;

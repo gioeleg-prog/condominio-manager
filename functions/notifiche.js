@@ -42,7 +42,10 @@ const dataIt = (s) => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2}
 const unaRiga = (s, max = 140) => String(s ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
 const testoLibero = (s, max = 3000) => String(s ?? '').replace(/\r\n/g, '\n').trim().slice(0, max);
 
-function pagina(nomeEdificio, titolo, corpoHtml) {
+const PIEDE_CONDOMINI = `Email di Condominio Manager inviata dall'amministratore: non rispondere a questo indirizzo.
+  Per non ricevere più queste email chiedi all'amministratore di togliere la spunta "Riceve le email" dalla tua scheda.`;
+
+function pagina(nomeEdificio, titolo, corpoHtml, piede = PIEDE_CONDOMINI) {
   return `<!doctype html><html lang="it"><body style="margin:0;background:#f5f5f5;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0a0a0a">
 <div style="max-width:560px;margin:0 auto;padding:24px 16px">
   <div style="font-size:13px;color:#636363;margin-bottom:8px">${escHtml(nomeEdificio)}</div>
@@ -51,8 +54,7 @@ function pagina(nomeEdificio, titolo, corpoHtml) {
     ${corpoHtml}
     <p style="margin:20px 0 0"><a href="${SITO}" style="display:inline-block;background:#171717;color:#fafafa;text-decoration:none;padding:9px 16px;border-radius:8px;font-size:14px">Apri Condominio Manager</a></p>
   </div>
-  <p style="font-size:12px;color:#636363;line-height:1.5;margin:14px 4px 0">Email di Condominio Manager inviata dall'amministratore: non rispondere a questo indirizzo.
-  Per non ricevere più queste email chiedi all'amministratore di togliere la spunta "Riceve le email" dalla tua scheda.</p>
+  <p style="font-size:12px;color:#636363;line-height:1.5;margin:14px 4px 0">${escHtml(piede)}</p>
 </div></body></html>`;
 }
 const paragrafi = (testo) => String(testo || '').split(/\n{2,}/).filter((p) => p.trim())
@@ -322,5 +324,8 @@ async function inviaPromemoriaRate() {
 exports.promemoriaRate = onSchedule({ schedule: '0 8 * * *', timeZone: 'Europe/Rome', region: 'europe-west1', secrets: [GMAIL_APP_PASSWORD] }, async () => {
   await inviaPromemoriaRate();
 });
+
+// Per gli avvisi al Super Admin (controllo.js).
+exports.posta = { GMAIL_APP_PASSWORD, EMULATORE, spedisci, pagina, escHtml, unaRiga, emailValida, dataTraGiorni };
 
 exports._test = { inviaPromemoriaRate, inviaDaApp, motivoEsclusione, dataTraGiorni, contenuto, unaRiga };

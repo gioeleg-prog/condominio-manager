@@ -497,3 +497,17 @@ test.describe('Millesimi: subentro e spegnimento (modifica i dati)', () => {
     expect(dopo).toBe(prima);
   });
 });
+
+test.describe('Avvisi automatici (modifica i dati)', () => {
+  test('Super Admin: esito del controllo ed email di prova da Stato del servizio', async ({ page }) => {
+    await accedi(page, 'superadmin@qa.test');
+    await vaiA(page, 'impostazioni');
+    const card = page.locator('.card', { has: page.locator('h4', { hasText: 'Avvisi automatici' }) });
+    await card.getByRole('button', { name: 'Mostra esito' }).click();
+    await expect(card).toContainText('Nessun controllo eseguito finora');
+    await card.locator('#ops-prova-avvisi').click();
+    await expect(page.locator('.avviso-ok')).toContainText('Email di prova inviata a 1 indirizzo');
+    await expect(page.locator('.avviso-ok')).toContainText('Nessun backup automatico registrato');
+    await expect(card).toContainText('Ultimo controllo (prova)');
+  });
+});
