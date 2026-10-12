@@ -118,6 +118,14 @@ function opsVal(v) {
   return s.length > 60 ? s.slice(0, 57) + '…' : (s === '' ? '(vuoto)' : s);
 }
 
+// Copia esterna del backup su Google Drive (functions/drive.js).
+function opsDriveHtml(d) {
+  if (!d) return `<p class="hint" style="margin-top:.5rem">Copia su Google Drive: nessun esito ancora (compare dopo il prossimo backup notturno).</p>`;
+  if (d.ok) return `<div class="alert alert-success" style="font-size:13px;margin-top:.5rem">✅ Copia su Google Drive: <code>${esc(d.file)}</code>, ${esc(d.sizeKB)} KB, nella cartella "Backup Condominio" di notifichecondominio@. Restano gli ultimi 14 giorni, uno al mese per un anno e uno all'anno.</div>`;
+  if (d.configurata === false) return `<div class="alert alert-warning" style="font-size:13px;margin-top:.5rem">⚠️ Copia su Google Drive non attiva: manca l'autorizzazione del Drive.</div>`;
+  return `<div class="alert alert-danger" style="font-size:13px;margin-top:.5rem">⚠️ Copia su Google Drive NON riuscita: ${esc(d.error)}</div>`;
+}
+
 function renderOpsSection() {
   if (!isSuperAdmin(state.user)) return '';
   const btn = (what, label) => `<button class="btn btn-secondary btn-sm" data-ops-load="${what}" ${ops.loading ? 'disabled' : ''}>${ops.loading === what ? 'Caricamento…' : label}</button>`;
@@ -127,7 +135,7 @@ function renderOpsSection() {
   const b = ops.backup;
   const backupHtml = b === undefined ? `<p class="hint">Mostra l'esito dell'ultimo backup automatico notturno.</p>`
     : b === null ? `<div class="alert alert-warning" style="font-size:13px">Nessun backup automatico eseguito finora (il primo parte alle 3 di notte).</div>`
-    : b.ok ? `<div class="alert alert-success" style="font-size:13px">✅ Ultimo backup: <strong>${esc(opsWhen(b.at))}</strong> — ${esc(b.docs)} documenti, ${esc(b.sizeKB)} KB (<code>${esc(b.file)}</code>). Si conservano 30 giorni di copie.</div>`
+    : b.ok ? `<div class="alert alert-success" style="font-size:13px">✅ Ultimo backup: <strong>${esc(opsWhen(b.at))}</strong> — ${esc(b.docs)} documenti, ${esc(b.sizeKB)} KB (<code>${esc(b.file)}</code>). Si conservano 30 giorni di copie.</div>${opsDriveHtml(b.drive)}`
     : `<div class="alert alert-danger" style="font-size:13px">⚠️ Ultimo backup NON riuscito (${esc(opsWhen(b.at))}): ${esc(b.error)}</div>`;
 
   // Avvisi automatici

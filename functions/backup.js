@@ -97,7 +97,8 @@ async function runBackup(db, bucket, { now = new Date() } = {}) {
     const m = f.name.match(/^backups\/(\d{4}-\d{2}-\d{2})\.json$/);
     if (m && new Date(m[1] + 'T12:00:00Z') < limit) { await f.delete(); removed++; }
   }
-  return { file: name, docs: backup.docs, sizeKB: Math.round(body.length / 1024), removed };
+  // body serve alla copia su Drive (index.js) e non va salvato nell'esito.
+  return { file: name, docs: backup.docs, sizeKB: Math.round(body.length / 1024), removed, body };
 }
 
 module.exports = { buildBackup, restoreBackup, runBackup, backupFileName, encode, decode, KEEP_DAYS };

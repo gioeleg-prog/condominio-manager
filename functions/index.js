@@ -2,7 +2,11 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { getStorage } = require('firebase-admin/storage');
-const { runBackup } = require('./backup');
+const { runBackup, backupFileName } = require('./backup');
+const { copiaSuDrive } = require('./drive');
+const { defineSecret } = require('firebase-functions/params');
+// Credenziali per la copia su Google Drive (scripts/drive-autorizza.js).
+const DRIVE_BACKUP = defineSecret('DRIVE_BACKUP');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
@@ -265,15 +269,24 @@ function stableStringify(v) {
 // Cloud Storage (backups/AAAA-MM-GG.json, non accessibile dall'app: le
 // storage.rules negano tutto fuori da buildings/), tiene 30 giorni di
 // copie e registra l'esito in appSettings/backupStatus, mostrato al superAdmin.
+// Subito dopo ne mette una copia compressa su Google Drive (drive.js).
 // Pulisce anche le segnalazioni di errore più vecchie di 30 giorni.
 // Ripristino: scripts/restore-backup.js.
 // ═══════════════════════════════════════════════════════════════
-exports.dailyBackup = onSchedule({ schedule: '0 3 * * *', timeZone: 'Europe/Rome', region: 'europe-west1', timeoutSeconds: 300 }, async () => {
+exports.dailyBackup = onSchedule({ schedule: '0 3 * * *', timeZone: 'Europe/Rome', region: 'europe-west1', timeoutSeconds: 300, secrets: [DRIVE_BACKUP] }, async () => {
   const status = db.doc('appSettings/backupStatus');
   try {
-    const res = await runBackup(db, getStorage().bucket());
+    const { body, ...res } = await runBackup(db, getStorage().bucket());
     await purgeOldClientErrors();
-    await status.set({ ok: true, at: FieldValue.serverTimestamp(), ...res, error: null });
+    // Copia esterna su Google Drive (drive.js): un errore qui non annulla il backup principale.
+    let drive;
+    try {
+      drive = await copiaSuDrive(DRIVE_BACKUP.value(), body, backupFileName().slice(8, 18));
+    } catch (e) {
+      console.error('dailyBackup drive', e);
+      drive = { ok: false, configurata: true, error: String(e.message || e).slice(0, 300) };
+    }
+    await status.set({ ok: true, at: FieldValue.serverTimestamp(), ...res, error: null, drive: { ...drive, at: FieldValue.serverTimestamp() } });
   } catch (e) {
     console.error('dailyBackup', e);
     await status.set({ ok: false, at: FieldValue.serverTimestamp(), error: String(e.message || e).slice(0, 500) }, { merge: true });

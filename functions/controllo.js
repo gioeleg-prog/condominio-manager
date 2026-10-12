@@ -2,7 +2,7 @@
 // dover aprire "Stato del servizio".
 //
 //  • controlloServizio: ogni mattina alle 7:30 (dopo il backup delle 3) verifica
-//      - backup notturno: riuscito e non più vecchio di 30 ore;
+//      - backup notturno: riuscito e non più vecchio di 30 ore, con la copia su Google Drive;
 //      - errori dell'app (clientErrors) nelle ultime 24 ore: almeno 10, oppure
 //        almeno 5 e il triplo della media giornaliera dei 7 giorni prima;
 //      - email ai condomini non partite nelle ultime 24 ore (storico invii:
@@ -41,6 +41,12 @@ async function controllaBackup(ora) {
   const b = s.data();
   if (b.ok === false) return { titolo: 'Backup notturno non riuscito', righe: [`Tentativo del ${quando(ms(b.at))}: ${unaRiga(b.error || 'errore sconosciuto', 300)}`] };
   if (ora - ms(b.at) > 30 * ORA) return { titolo: 'Backup notturno non eseguito', righe: [`L'ultimo backup riuscito è del ${quando(ms(b.at))}.`] };
+  // Copia esterna su Google Drive (drive.js), registrata dallo stesso backup.
+  if (b.drive && b.drive.ok === false) {
+    return b.drive.configurata === false
+      ? { titolo: 'Copia del backup su Google Drive non attiva', righe: ['Manca l\'autorizzazione del Drive: vedi scripts/drive-autorizza.js.'] }
+      : { titolo: 'Copia del backup su Google Drive non riuscita', righe: [unaRiga(b.drive.error || 'errore sconosciuto', 300)] };
+  }
   return null;
 }
 
