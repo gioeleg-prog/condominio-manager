@@ -195,7 +195,7 @@ function renderConfronto() {
   <div>
     <div class="page-header">
       <div><div class="page-title">Confronto anni ${btnGuida()}</div><div class="page-sub">${esc(nomeEdificioAttivo())} · ${periodo === 'ytd' ? 'dal 1° gennaio al ' + dataYtd + ' di ogni anno' : 'anno intero'}</div></div>
-      <button class="btn btn-secondary" id="btn-confronto-csv">📊 Esporta Excel</button>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap"><button class="btn btn-secondary btn-sm" onclick="window.print()" title="Stampa questa pagina o salvala in PDF">🖨 Stampa</button><button class="btn btn-secondary btn-sm" id="btn-confronto-csv">📊 Esporta Excel</button></div>
     </div>
 
     <div class="cf-comandi">

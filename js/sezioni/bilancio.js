@@ -659,6 +659,7 @@ function renderBilancio() {
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
         ${canUserEdit(state.user) ? `<button class="btn btn-primary btn-sm" id="btn-rendiconto-pdf" title="Rendiconto annuale da scaricare e inviare">📄 Rendiconto PDF</button>` : ''}
         <button class="btn btn-secondary btn-sm" data-page="confronto" title="Confronta più anni">📈 Confronta anni</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.print()" title="Stampa questa pagina o salvala in PDF">🖨 Stampa</button>
         <select style="padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:14px;" id="anno-bilancio">
           ${anni.map(a=>`<option value="${a}" ${a===anno?'selected':''}>${a}</option>`).join('')}
         </select>

@@ -1,0 +1,39 @@
+/* Stampa e "Salva come PDF" dal browser: solo il contenuto della pagina.
+   Spariscono menu, barre, pulsanti, filtri, guida, avvisi e finestre; le
+   tabelle si allargano a tutta la pagina senza scorrimento e le righe non si
+   spezzano tra due fogli. Il tema scuro passa al chiaro durante la stampa
+   (js/core/tema.js, eventi beforeprint/afterprint). Caricato per ultimo. */
+
+@media print {
+  @page { size: A4; margin: 14mm 12mm; }
+
+  html, body { background: #fff !important; }
+  body { font-size: 11pt; }
+  * { box-shadow: none !important; text-shadow: none !important; transition: none !important; animation: none !important; }
+  /* I colori dei dati (barre, importi, etichette) restano anche se il browser toglie gli sfondi. */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* Navigazione, comandi e cose sovrapposte */
+  .sidebar, .sidebar-overlay, .topbar, .bottom-nav, .mobile-profile-menu,
+  button, .btn, a.btn, select, .btn-guida, .tema-switch,
+  .filtro-anni, .cf-comandi, .search-bar, .no-stampa,
+  .guida-sfondo, .guida-pannello, .avvisi, dialog, .modal-overlay { display: none !important; }
+
+  /* Tutta la larghezza del foglio, niente scorrimento */
+  .main { margin-left: 0 !important; overflow: visible !important; min-height: 0 !important; }
+  .page { padding: 0 !important; max-width: none !important; }
+  .table-wrap, .ops-table-wrap, [class*="-wrap"] { overflow: visible !important; max-height: none !important; }
+  table { width: 100% !important; font-size: 9.5pt; }
+  th, td { padding: 4px 6px !important; }
+  thead { display: table-header-group; }
+  tr, .card, .stat-card, .kpi, .graf, .alert { break-inside: avoid; page-break-inside: avoid; }
+  h1, h2, h3, h4, .section-divider, .page-header { break-after: avoid; page-break-after: avoid; }
+
+  .card, .graf { border: 1px solid #d4d4d4 !important; }
+  .page-header { margin-bottom: 10pt !important; }
+  .page-title { font-size: 18pt !important; }
+  /* Sotto il titolo: condominio, anno e data di stampa (attributo data-stampato, da tema.js). */
+  .page-sub::after { content: attr(data-stampato); display: block; font-size: 9pt; color: #636363; }
+
+  a { color: inherit !important; text-decoration: none !important; }
+}
