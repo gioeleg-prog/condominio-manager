@@ -46,3 +46,12 @@ if (window.matchMedia) {
   const segui = () => { if (temaScelto() === 'auto') applicaTema(); };
   if (mq.addEventListener) mq.addEventListener('change', segui); else if (mq.addListener) mq.addListener(segui);
 }
+
+// Stampa (css/stampa.css): sempre su fondo chiaro, con la data di stampa sotto
+// il titolo della pagina; finita la stampa torna il tema scelto.
+window.addEventListener('beforeprint', () => {
+  document.documentElement.setAttribute('data-theme', 'light');
+  const quando = 'Stampato il ' + new Date().toLocaleDateString('it-IT');
+  document.querySelectorAll('.page-sub').forEach((e) => e.setAttribute('data-stampato', quando));
+});
+window.addEventListener('afterprint', applicaTema);

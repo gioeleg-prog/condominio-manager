@@ -96,6 +96,7 @@ const GUIDA = {
       '<b>🏷️ Per categoria</b>: quanto pesa ogni tipo di spesa.',
     ],
     fare: [
+      ['Stampare o salvare in PDF', '"🖨 Stampa": stampa la scheda aperta senza menu e pulsanti, su fondo chiaro anche con il tema scuro; nella finestra di stampa scegli "Salva come PDF" per un file.'],
       ['Cambiare anno o vista', 'Menu dell\'anno in alto e schede sotto il titolo.'],
       ['Vedere il dettaglio di un condomino', 'Scheda "👥 Per condomino", poi tocca il nome.'],
       ['mod', 'Estratto conto di un condomino', 'Scheda "👥 Per condomino", "📄 Estratto conto" sotto il nome: PDF con saldo iniziale, quote delle spese, versamenti e saldo progressivo, poi le prossime scadenze.'],
@@ -123,6 +124,7 @@ const GUIDA = {
       ['Confrontare a parità di periodo', '"Da inizio anno a oggi" confronta ogni anno dal 1° gennaio alla data di oggi (year to date): utile quando l\'anno è in corso.'],
       ['Usare il preventivo', 'Con "Importi: Preventivo" o "Reali + previsti" categorie, tipo e quote usano anche le spese non ancora consuntivate (utile per l\'anno prossimo).'],
       ['Portarlo in Excel', '"📊 Esporta Excel" scarica sintesi e categorie.'],
+      ['Stampare o salvare in PDF', '"🖨 Stampa": stampa il confronto senza menu e pulsanti; nella finestra di stampa scegli "Salva come PDF" per un file.'],
     ],
     sapere: [
       'Le frecce: <b>▲ verde</b> = va meglio (più entrate o meno spese), <b>▼ rossa</b> = va peggio.',
