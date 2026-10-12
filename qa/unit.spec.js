@@ -778,6 +778,36 @@ describe('UNIT — subentro solo per amministratori', () => {
   }
 });
 
+describe('UNIT — grafici a colonne', () => {
+  const app = loadApp();
+  it('asse con valori puliti, sempre con lo zero', () => {
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(app.grafScala(0, 3600))), { min: 0, max: 4000, tacche: [0, 1000, 2000, 3000, 4000] });
+    const neg = app.grafScala(-1100, 600);
+    assert.ok(neg.min <= -1100 && neg.max >= 600 && neg.tacche.includes(0), JSON.stringify(neg));
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(app.grafScala(0, 0).tacche)), [0, 0.25, 0.5, 0.75, 1]);
+    assert.strictEqual(app.grafEuroAsse(25000), '€ 25k');
+    assert.strictEqual(app.grafEuroAsse(-500), '−€ 500');
+  });
+  it('cassa mensile: legenda, dettaglio per mese, tabella dei valori; previsioni in tinta chiara', () => {
+    const mesi = ['Gen', 'Feb'].map((mese, m) => ({ mese, incassi: 500 * (m + 1), incPrevis: 200, cons: 300, prevForecast: 0, isCurrent: m === 1 }));
+    const html = app.graficoCassaMensile(mesi, { titolo: 'Andamento <prova>' });
+    assert.match(html, /Andamento &lt;prova&gt;/);
+    assert.strictEqual((html.match(/class="graf-gruppo/g) || []).length, 2);
+    assert.match(html, /graf-gruppo oggi/);
+    for (const v of ['Entrate reali', 'Entrate previste', 'Uscite reali', 'Uscite da consuntivare']) assert.ok(html.includes(`</i>${v}</li>`), v);
+    assert.match(html, /aria-label="Feb \(mese in corso\): Entrate reali € 1000,00; Entrate previste € 200,00/);
+    assert.match(html, /graf-pezzo tenue/);
+    assert.match(html, /<summary>Valori in tabella<\/summary>/);
+    assert.ok(!/style="[^"]*height:0\.00%/.test(html), 'un valore zero non disegna pezzi');
+  });
+  it('valori negativi scendono sotto lo zero; una sola serie senza legenda', () => {
+    const html = app.graficoBarre({ aria: 'x', legenda: [{ colore: 'red', nome: 'Cassa' }],
+      gruppi: [{ etichetta: 'Gen', colonne: [[{ valore: -300, colore: 'red' }]], tip: { titolo: 'Gen', righe: [] } }] });
+    assert.match(html, /graf-pezzo neg/);
+    assert.ok(!html.includes('graf-legenda'));
+  });
+});
+
 describe('UNIT — icone dei pulsanti e finestre dell\'app', () => {
   const app = loadApp();
   it('emoji dei pulsanti → icona: matita per modificare, cestino per eliminare', () => {

@@ -177,20 +177,6 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .kpi-trend.down { color: var(--green); }
 
 /* Cashflow chart */
-.cf-chart { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1.25rem; }
-.cf-chart-title { font-size: 15px; font-weight: 700; margin-bottom: .25rem; }
-.cf-chart-sub { font-size: 12px; color: var(--text2); margin-bottom: 1.25rem; }
-.cf-bars { display: flex; align-items: flex-end; gap: 4px; height: 140px; overflow-x: auto; padding-bottom: 4px; }
-.cf-col { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1; min-width: 42px; }
-.cf-col-bars { display: flex; align-items: flex-end; gap: 1px; height: 110px; }
-.cf-bar { border-radius: 3px 3px 0 0; width: 14px; transition: height .3s; cursor: pointer; }
-.cf-col-label { font-size: 10px; color: var(--text2); white-space: nowrap; }
-.cf-col-saldo { font-size: 9px; font-weight: 600; white-space: nowrap; }
-.cf-legend { display: flex; gap: 1rem; margin-top: .75rem; font-size: 12px; flex-wrap: wrap; }
-.cf-legend-item { display: flex; align-items: center; gap: 5px; }
-.cf-legend-dot { width: 10px; height: 10px; border-radius: 2px; }
-/* Override colore forecast: viola invece di grigio/bianco */
-.cf-bar-forecast { background: var(--purple) !important; opacity: .45 !important; }
 
 /* Zero-line indicator */
 .cf-zero-warn { display: flex; align-items: center; gap: 8px; padding: .625rem .875rem; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; margin-bottom: 1rem; }
@@ -372,16 +358,7 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .cf-gruppo { border-left: 2px solid var(--border); text-align: center !important; }
 .cf-nota { font-size: 12px; color: var(--text2); padding: .5rem .75rem .75rem; margin: 0; }
 .cf-base { margin: .25rem 0 1rem; }
-.cf-grafico { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; padding: .75rem; border-top: 1px solid var(--border); }
-.cf-grafico-tit { font-weight: 700; margin-bottom: .35rem; }
-.cf-barra-riga { display: grid; grid-template-columns: 78px 1fr auto; align-items: center; gap: .5rem; font-size: 12px; margin-bottom: .3rem; }
 .cf-barra-lbl { color: var(--text2); }
-.cf-barra-wrap { background: var(--surface2); border-radius: 4px; height: 12px; overflow: hidden; }
-.cf-barra { height: 100%; border-radius: 4px; }
-.cf-barra.entrate { background: var(--green); }
-.cf-barra.uscite { background: var(--red); }
-.cf-barra.prev { background: var(--purple); opacity: .75; }
-.cf-barra-val { font-variant-numeric: tabular-nums; min-width: 90px; text-align: right; }
 .cf-stack-wrap { padding: .75rem; border-top: 1px solid var(--border); }
 .cf-stack-riga { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: .5rem; margin-bottom: .35rem; font-size: 12px; }
 .cf-stack { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: var(--surface2); }
@@ -392,7 +369,6 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 @media (max-width: 768px) {
   .cf-tab { font-size: 12.5px; }
   .cf-tab th, .cf-tab td { padding: .45rem .5rem; }
-  .cf-barra-val { min-width: 76px; }
 }
 /* Le etichette di riga sono intestazioni (<th scope="row">) per i lettori di schermo,
    ma si leggono come testo normale, non in maiuscoletto come le intestazioni di colonna. */
@@ -432,3 +408,58 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .ric-ant { font-size: 12.5px; color: var(--text2); font-style: italic; }
 .ric-altri { font-size: 12.5px; color: var(--text2); padding: .5rem 1rem .75rem; }
 .ric-voce mark, .ric-gruppo mark { background: var(--amber-light); color: var(--text); border-radius: 2px; padding: 0 1px; box-shadow: inset 0 -2px 0 var(--amber); }
+
+/* ─── Grafici a colonne (js/core/grafici.js) ───────────────────────── */
+.graf { position: relative; margin: 0 0 1.25rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.25rem 1rem; }
+.graf.piatto { border: 0; padding: 0; background: transparent; margin: 0; }
+.graf-testa { margin-bottom: .6rem; }
+.graf-titolo { font-size: 15px; font-weight: 700; }
+.graf-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.graf-legenda { display: flex; flex-wrap: wrap; gap: .35rem 1rem; list-style: none; margin: 0 0 .9rem; padding: 0; font-size: 12px; color: var(--text2); }
+.graf-legenda li { display: flex; align-items: center; gap: 6px; }
+.graf-chiave { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--c); }
+.graf-chiave.tenue, .graf-tip-chiave.tenue, .graf-pezzo.tenue { background: color-mix(in srgb, var(--c) var(--g-tenue), var(--surface)); }
+.graf-chiave.segno { width: auto; height: auto; padding: 0 4px; font-style: normal; font-size: 10px; font-weight: 700; line-height: 15px; color: var(--text); border: 1px solid var(--border); background: var(--surface2); }
+.graf-corpo { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; }
+.graf-asse { position: relative; height: 180px; min-width: 44px; font-size: 11px; color: var(--text2); font-variant-numeric: tabular-nums; }
+.graf-asse span { position: absolute; right: 0; transform: translateY(50%); white-space: nowrap; line-height: 1; }
+.graf-piano { position: relative; height: 180px; }
+.graf-linea { position: absolute; left: 0; right: 0; height: 1px; background: var(--g-griglia); }
+.graf-linea.zero { background: var(--g-asse); }
+.graf-gruppi { position: absolute; inset: 0; display: flex; }
+.graf-gruppo { flex: 1; min-width: 0; position: relative; border-radius: 6px; cursor: default; outline: none; }
+.graf-gruppo:hover, .graf-gruppo.attivo { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.graf-gruppo:focus-visible { box-shadow: inset 0 0 0 2px var(--ring); }
+.graf-colonne { position: absolute; inset: 0 0 0 0; display: flex; justify-content: center; gap: 2px; padding: 0 12%; }
+.graf-col { position: relative; flex: 1; max-width: 24px; }
+.graf-pezzo { position: absolute; left: 0; right: 0; background: var(--c); min-height: 2px; }
+.graf-pezzo.sopra { border-bottom: 2px solid var(--surface); box-sizing: border-box; }
+.graf-pezzo.cima { border-radius: 4px 4px 0 0; }
+.graf-pezzo.neg { border-radius: 0 0 4px 4px; }
+.graf-etichette { display: flex; margin-top: 6px; font-size: 11px; color: var(--text2); }
+.graf-etichette span { flex: 1; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; }
+.graf-etichette span.oggi { color: var(--text); font-weight: 700; }
+.graf-segno { display: block; margin: 3px auto 0; width: max-content; padding: 0 4px; font-style: normal; font-size: 10px; font-weight: 700; line-height: 15px; color: var(--text); border: 1px solid var(--border); border-radius: 3px; background: var(--surface2); }
+.graf-tip { position: absolute; z-index: 5; min-width: 180px; max-width: 260px; padding: .55rem .7rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-lg); font-size: 12px; pointer-events: none; }
+.graf-tip-titolo { font-weight: 700; margin-bottom: .3rem; }
+.graf-tip-riga { display: grid; grid-template-columns: 12px auto 1fr; align-items: center; gap: 6px; padding: 1px 0; }
+.graf-tip-riga b { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.graf-tip-riga span { color: var(--text2); }
+.graf-tip-riga.forte { border-top: 1px solid var(--border); margin-top: .25rem; padding-top: .3rem; }
+.graf-tip-chiave { display: block; width: 12px; height: 3px; border-radius: 2px; background: var(--c); }
+.graf-dati { margin-top: .75rem; font-size: 12px; }
+.graf-dati summary { cursor: pointer; color: var(--text2); width: max-content; }
+.graf-dati table { width: 100%; margin-top: .5rem; border-collapse: collapse; }
+.graf-dati th, .graf-dati td { padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.graf-dati .num { text-align: right; font-variant-numeric: tabular-nums; }
+.graf-nota { font-size: 11px; color: var(--text2); margin: .6rem 0 0; }
+@media (max-width: 768px) {
+  .graf { padding: .9rem .75rem .8rem; }
+  .graf-asse { min-width: 38px; font-size: 10px; }
+  .graf-etichette { font-size: 10px; }
+  .graf-colonne { padding: 0 6%; gap: 1px; }
+}
+@media print {
+  .graf-tip { display: none !important; }
+  .graf-dati:not([open]) { display: none; }
+}

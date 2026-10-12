@@ -22,14 +22,14 @@
   /* Tutta la larghezza del foglio, niente scorrimento */
   .main { margin-left: 0 !important; overflow: visible !important; min-height: 0 !important; }
   .page { padding: 0 !important; max-width: none !important; }
-  .table-wrap, .ops-table-wrap, .cf-bars, [class*="-wrap"] { overflow: visible !important; max-height: none !important; }
+  .table-wrap, .ops-table-wrap, [class*="-wrap"] { overflow: visible !important; max-height: none !important; }
   table { width: 100% !important; font-size: 9.5pt; }
   th, td { padding: 4px 6px !important; }
   thead { display: table-header-group; }
-  tr, .card, .stat-card, .kpi, .cf-chart, .cf-grafico-anno, .alert { break-inside: avoid; page-break-inside: avoid; }
+  tr, .card, .stat-card, .kpi, .graf, .alert { break-inside: avoid; page-break-inside: avoid; }
   h1, h2, h3, h4, .section-divider, .page-header { break-after: avoid; page-break-after: avoid; }
 
-  .card, .cf-chart { border: 1px solid #d4d4d4 !important; }
+  .card, .graf { border: 1px solid #d4d4d4 !important; }
   .page-header { margin-bottom: 10pt !important; }
   .page-title { font-size: 18pt !important; }
   /* Sotto il titolo: condominio, anno e data di stampa (attributo data-stampato, da tema.js). */

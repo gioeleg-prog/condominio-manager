@@ -142,6 +142,58 @@ test.describe('Aspetto e navigazione', () => {
   }
 });
 
+test.describe('Grafici', () => {
+  const foto = async (loc, nome) => { if (process.env.GRAF_FOTO) await loc.screenshot({ path: `qa/out/graf-${nome}.png` }); };
+  test('dettaglio al passaggio del mouse e con le frecce; tabella dei valori; Bilancio e Confronto', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    const g = page.locator('.graf').first();
+    await expect(g.locator('.graf-gruppo')).toHaveCount(12);
+    await expect(g.locator('.graf-legenda li')).toHaveCount(4);
+    await g.locator('.graf-gruppo').first().hover();
+    const tip = g.locator('.graf-tip');
+    await expect(tip).toBeVisible();
+    await expect(tip).toContainText('Gen');
+    await expect(tip).toContainText('Entrate reali');
+    await foto(g, 'dashboard-chiaro');
+    await g.locator('.graf-gruppo').first().focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(tip.locator('.graf-tip-titolo')).toHaveText(/^Feb/);
+    await page.keyboard.press('Escape');
+    await expect(tip).toBeHidden();
+    await g.locator('summary').click();
+    await expect(g.locator('.graf-dati tbody tr')).toHaveCount(12);
+    await tema(page, true);
+    await g.locator('.graf-gruppo').first().hover();
+    await foto(page.locator('.graf').first(), 'dashboard-scuro');
+    await tema(page, false);
+    await vaiA(page, 'bilancio');
+    await expect(page.locator('.graf .graf-titolo')).toContainText('Andamento mensile');
+    await vaiA(page, 'confronto');
+    const c = page.locator('.graf', { hasText: 'Andamento negli anni' });
+    await expect(c.locator('.graf-legenda li')).toHaveCount(3);
+    await c.locator('.graf-gruppo').last().hover();
+    await expect(c.locator('.graf-tip')).toContainText('Spese a preventivo');
+    await foto(c, 'confronto');
+    await vaiA(page, 'entrate');
+    const r = page.locator('.graf.piatto');
+    if (await r.count()) { await r.locator('.graf-gruppo').nth(2).hover(); await foto(r, 'piano-rate'); }
+  });
+  test('telefono: il tocco mostra il dettaglio, la pagina non scorre di lato', async ({ browser }) => {
+    const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
+    const page = await ctx.newPage();
+    await accedi(page, 'admin1@qa.test');
+    const g = page.locator('.graf').first();
+    await g.locator('.graf-gruppo').nth(9).tap();
+    await expect(g.locator('.graf-tip')).toBeVisible();
+    const box = await g.locator('.graf-tip').boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(375);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    await foto(g, 'telefono');
+    await ctx.close();
+  });
+});
+
 test.describe('Telefono', () => {
   test.use({ viewport: { width: 375, height: 812 }, isMobile: true, hasTouch: true });
   test('barra in basso, nessuno scorrimento orizzontale, avvisi sopra la barra', async ({ page }) => {

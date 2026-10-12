@@ -104,16 +104,28 @@ function renderConfronto() {
     </table>
     <p class="cf-nota">Lo scostamento confronta solo le spese già consuntivate che avevano un preventivo: positivo = si è speso più del previsto. "—" = anno non ancora iniziato.</p>`;
 
-  // ── Grafico entrate / uscite / preventivo ──
-  const maxBar = Math.max(1, ...D.flatMap(d => [d.entrateReali, d.usciteCons, d.preventivo]));
-  const barra = (val, cls, lbl) => `<div class="cf-barra-riga"><span class="cf-barra-lbl">${lbl}</span><div class="cf-barra-wrap"><div class="cf-barra ${cls}" style="width:${Math.max(0.5, val / maxBar * 100).toFixed(1)}%"></div></div><span class="cf-barra-val">${fmt(val)}</span></div>`;
-  const grafico = `<div class="cf-grafico">${D.map(d => `
-      <div class="cf-grafico-anno">
-        <div class="cf-grafico-tit">${d.anno}</div>
-        ${futuro(d.anno) ? '' : barra(d.entrateReali, 'entrate', 'Entrate')}
-        ${futuro(d.anno) ? '' : barra(d.usciteCons, 'uscite', 'Uscite')}
-        ${barra(d.preventivo, 'prev', 'Preventivo')}
-      </div>`).join('')}</div>`;
+  // ── Grafico entrate / uscite / preventivo, anno per anno ──
+  // Un anno non ancora iniziato ha solo il preventivo.
+  const E = 'var(--g-entrate)', U = 'var(--g-uscite)', P = 'var(--g-prev)';
+  const grafico = graficoBarre({
+    titolo: 'Andamento negli anni',
+    sottotitolo: periodo === 'ytd' ? 'Dal 1° gennaio al ' + dataYtd + ' di ogni anno' : 'Anno intero',
+    aria: 'Entrate, uscite e preventivo anno per anno',
+    legenda: [{ colore: E, nome: 'Entrate reali' }, { colore: U, nome: 'Uscite reali' }, { colore: P, nome: 'Spese a preventivo' }],
+    gruppi: D.map(d => {
+      const fut = futuro(d.anno);
+      return {
+        etichetta: String(d.anno),
+        colonne: [fut ? [] : [{ valore: d.entrateReali, colore: E }], fut ? [] : [{ valore: d.usciteCons, colore: U }], [{ valore: d.preventivo, colore: P }]],
+        tip: { titolo: String(d.anno) + (fut ? ' (preventivo)' : ''), righe: [
+          ...(fut ? [] : [{ colore: E, nome: 'Entrate reali', valore: fmt(d.entrateReali) }, { colore: U, nome: 'Uscite reali', valore: fmt(d.usciteCons) }]),
+          { colore: P, nome: 'Spese a preventivo', valore: fmt(d.preventivo) },
+          ...(fut ? [] : [{ nome: 'Entrate − uscite', valore: (d.entrateReali - d.usciteCons > 0 ? '+' : '') + fmt(d.entrateReali - d.usciteCons), forte: true }])] },
+      };
+    }),
+    tabella: { intestazioni: ['Anno', 'Entrate reali', 'Uscite reali', 'Spese a preventivo'],
+      righe: D.map(d => [String(d.anno), futuro(d.anno) ? '—' : fmt(d.entrateReali), futuro(d.anno) ? '—' : fmt(d.usciteCons), fmt(d.preventivo)]) },
+  });
 
   // ── Per categoria ──
   const cats = getCategorie();
@@ -200,8 +212,8 @@ function renderConfronto() {
     <div class="card cf-card">
       <div class="card-header"><h3>📋 Sintesi</h3></div>
       <div class="cf-scroll" tabindex="0" role="region" aria-label="Sintesi anno per anno">${sintesi}</div>
-      ${grafico}
     </div>
+    ${grafico}
 
     <div class="filtro-anni cf-base" role="group" aria-label="Importi da usare per categorie, tipo e condomini">
       <span class="filtro-anni-lbl" aria-hidden="true">Importi</span>
