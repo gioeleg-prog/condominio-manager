@@ -322,6 +322,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
   this.timeout(40000);
   beforeEach(async () => { await seed(); });
   const invii = async (b = '1') => (await admin.collection(`buildings/${b}/invii`).get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+  // L'invio è registrato prima "in invio" e subito dopo con l'esito: si aspetta l'esito.
   const emails = (v) => (v.destinatari || []).map((d) => d.email);
   const TUTTI = [101, 102, 103, 104, 105, 106, 107];
   const avviso = (id, extra = {}) => ({ id, titolo: 'Acqua chiusa', testo: 'Martedì dalle 9 alle 12.', edificioId: 1, ...extra });
@@ -336,7 +337,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
     const a = await as('admin1@qa.test');
     await admin.doc('buildings/1/members/105').update({ emailNotifiche: false });
     await scrivi(a, 'notices', avviso(9001, { notificaEmail: 'c1', notificaDestinatari: [101, 103, 105, 106] }));
-    const [v] = await waitFor(async () => { const l = await invii(); return l.length ? l : null; });
+    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; });
     assert.strictEqual(v.stato, 'simulata');
     assert.strictEqual(v.tipo, 'avviso');
     assert.match(v.oggetto, /^Nuovo avviso: Acqua chiusa$/);
@@ -362,7 +363,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
   it('verbale: oggetto e destinatari scelti', async () => {
     const a = await as('admin1@qa.test');
     await scrivi(a, 'minutes', { id: 9003, titolo: 'Assemblea ordinaria', data: '2026-09-30', tipo: 'ordinaria', argomenti: [], decisioni: ['Approvato bilancio'], allegati: [], edificioId: 1, notificaEmail: 'v1', notificaDestinatari: [102] });
-    const [v] = await waitFor(async () => { const l = await invii(); return l.length ? l : null; });
+    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; });
     assert.strictEqual(v.tipo, 'verbale');
     assert.deepStrictEqual(emails(v), ['editor1@qa.test']);
   });
