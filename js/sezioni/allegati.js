@@ -10,8 +10,7 @@ function renderAllegatiClip(spesa) {
   if (allegati.length === 0) return '';
   const extra = allegati.length > 3 ? `<span class="attach-clip-more">+${allegati.length - 3}</span>` : '';
   return ' ' + allegati.slice(0, 3).map(a => {
-    const safe = JSON.stringify({id:a.id}).replace(/'/g,'&#39;');
-    return `<button class="attach-clip" data-view-allegato='${safe}' title="Apri allegato: ${esc(a.nome)}" aria-label="Apri allegato ${esc(a.nome)}">📎</button>`;
+    return `<button class="attach-clip" data-view-allegato='${attrJson({id:a.id})}' title="Apri allegato: ${esc(a.nome)}" aria-label="Apri allegato ${esc(a.nome)}">📎</button>`;
   }).join('') + extra;
 }
 
@@ -20,8 +19,7 @@ function renderAllegatiChip(spesa) {
   if (allegati.length === 0) return '<span style="color:var(--text2);font-size:12px">—</span>';
   return `<div style="display:flex;flex-wrap:wrap;gap:4px">
     ${allegati.map(a => {
-      const safe = JSON.stringify({id:a.id}).replace(/'/g,'&#39;');
-      return `<button class="attach-chip" data-view-allegato='${safe}' title="${esc(a.nome)}">${fileEmoji(a.mime)} <span>${esc(a.nome.length>14?a.nome.slice(0,12)+'…':a.nome)}</span></button>`;
+      return `<button class="attach-chip" data-view-allegato='${attrJson({id:a.id})}' title="${esc(a.nome)}">${fileEmoji(a.mime)} <span>${esc(a.nome.length>14?a.nome.slice(0,12)+'…':a.nome)}</span></button>`;
     }).join('')}
   </div>`;
 }
@@ -125,6 +123,10 @@ function fmtSize(bytes) {
   return (bytes/1024/1024).toFixed(1) + ' MB';
 }
 
+// Massimo di allegati per record: lo stesso limite delle firestore.rules
+// (validAllegati), che oltre rifiuterebbero il salvataggio.
+const MAX_ALLEGATI = 20;
+
 // SEC-04: gli allegati vanno su Firebase Storage (buildings/{edificioId}/allegati/...)
 // invece di essere incorporati come Base64 nel blob Firestore appdata/cm_spese —
 // quel blob è un unico documento condiviso da tutti gli edifici (limite 1MB) e ogni
@@ -132,7 +134,12 @@ function fmtSize(bytes) {
 async function handleFilesDrop(files) {
   const MAX = 5 * 1024 * 1024; // 5MB per file (rispecchia il limite di storage.rules)
   const added = [];
+  const giaPresenti = (state.modal?.data?.allegati || []).length + state.pendingFiles.length;
   for (const file of Array.from(files)) {
+    if (giaPresenti + added.length >= MAX_ALLEGATI) {
+      avvisa(`Si possono allegare al massimo ${MAX_ALLEGATI} file per scheda: "${file.name}" e gli eventuali successivi non sono stati aggiunti.`);
+      break;
+    }
     if (file.size > MAX) { avvisa(`Il file "${file.name}" supera il limite di 5MB.`); continue; }
     const id = newId();
     try {
@@ -186,14 +193,14 @@ function renderAllegatoItem(f, isPending=false) {
     <div class="allegato-icon ${cls}">${fileEmoji(f.mime)}</div>
     <div class="allegato-info">
       <div class="nome">${esc(f.nome)}</div>
-      <div class="meta">${fmtSize(f.size)} · ${f.mime.split('/')[1]?.toUpperCase()||'FILE'}</div>
+      <div class="meta">${esc(fmtSize(f.size))} · ${esc(f.mime.split('/')[1]?.toUpperCase()||'FILE')}</div>
     </div>
     <div class="allegato-actions">
       ${isPending
-        ? `<button class="allegato-btn danger" data-remove-pending="${f.id}" title="Rimuovi">🗑</button>`
-        : `<button class="allegato-btn" data-view-allegato='${JSON.stringify({id:f.id})}' title="Visualizza">👁</button>
-           <button class="allegato-btn" data-dl-allegato='${JSON.stringify({id:f.id})}' title="Scarica">⬇</button>
-           <button class="allegato-btn danger" data-del-allegato='${JSON.stringify({id:f.id})}' title="Elimina">🗑</button>`}
+        ? `<button class="allegato-btn danger" data-remove-pending="${esc(f.id)}" title="Rimuovi">🗑</button>`
+        : `<button class="allegato-btn" data-view-allegato='${attrJson({id:f.id})}' title="Visualizza">👁</button>
+           <button class="allegato-btn" data-dl-allegato='${attrJson({id:f.id})}' title="Scarica">⬇</button>
+           <button class="allegato-btn danger" data-del-allegato='${attrJson({id:f.id})}' title="Elimina">🗑</button>`}
     </div>
   </div>`;
 }

@@ -60,7 +60,16 @@ function ymdLocale(d) {
 function esc(s) {
   // null/undefined/false → '' (come prima); 0 resta "0" — con s||'' un
   // importo o una percentuale a zero diventava stringa vuota.
-  return String(s == null || s === false ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // Anche l'apice singolo (audit 2026-10-15): il risultato è sicuro sia negli
+  // attributi tra virgolette sia in quelli tra apici singoli.
+  return String(s == null || s === false ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Valore JSON da mettere in un attributo data-* (es. data-view-allegato):
+// l'escape lo rende sicuro qualunque sia il delimitatore dell'attributo, e
+// dataset restituisce il JSON originale per JSON.parse.
+function attrJson(v) {
+  return esc(JSON.stringify(v));
 }
 
 // Anno di una data 'AAAA-MM-GG' letto dal testo: new Date('2027-01-01') è

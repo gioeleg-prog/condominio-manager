@@ -14,6 +14,8 @@ const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 initializeApp();
 const db = getFirestore();
 const auth = getAuth();
+// Permessi di condomini disattivati, usciti o declassati: vedi permessi.js.
+const permessi = require('./permessi');
 
 // ═══════════════════════════════════════════════════════════════
 // Modello dati (REB-01, fase 2 QA): un documento per record sotto
@@ -130,6 +132,7 @@ exports.whoami = onCall(async (request) => {
   }
 
   const ref = docs[0].ref;
+  const buildingId = ref.parent.parent.id;
   const record = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const data = snap.data();
@@ -139,6 +142,18 @@ exports.whoami = onCall(async (request) => {
     if (!data.uid) tx.update(ref, { uid, _updatedAt: FieldValue.serverTimestamp(), _updatedBy: 'whoami-auto' });
     return { ...data, uid };
   });
+
+  // Il record del chiamante, senza metadati né flag superAdmin (non autorevole qui).
+  const profile = Object.fromEntries(Object.entries(record)
+    .filter(([k]) => !k.startsWith('_') && k !== 'superAdmin'));
+
+  // Audit 2026-10-15: un condomino disattivato o uscito (dataUscita passata)
+  // non riceve permessi, e quelli che aveva ancora gli vengono tolti. L'app
+  // vede disabled e chiude la sessione con il messaggio "account disattivato".
+  if (!permessi.membroAttivo(record)) {
+    await permessi.togliPermessi(uid, buildingId, 'whoami-auto');
+    return { profile: { ...profile, disabled: true }, isSuperAdmin: false };
+  }
 
   // Provisiona il ruolo se assente — mai superAdmin (vedi sopra).
   const existingUser = await auth.getUser(uid).catch(() => null);
@@ -151,10 +166,7 @@ exports.whoami = onCall(async (request) => {
     }, { merge: true });
   }
 
-  // Il record del chiamante, senza metadati né flag superAdmin (non autorevole qui).
-  const profile = Object.fromEntries(Object.entries(record)
-    .filter(([k]) => !k.startsWith('_') && k !== 'superAdmin'));
-  if (!profile.disabled) await recordLogin(profile);
+  await recordLogin(profile);
   return { profile, isSuperAdmin: false };
 });
 
@@ -198,12 +210,23 @@ async function recordLogin(profile) {
 // che le rules obbligano a coincidere con chi scrive) e valori prima/dopo dei
 // campi cambiati. Serve a ricostruire chi ha modificato una spesa in caso di
 // contestazione. Le scritture della migrazione (autore 'backfill') non
-// generano eventi.
+// generano eventi. Per i condomini allinea anche i permessi dell'account
+// (permessi.js, audit 2026-10-15).
 // ═══════════════════════════════════════════════════════════════
 const MAX_VALUE_LEN = 500;
 
 exports.auditTrail = onDocumentWritten('buildings/{buildingId}/{coll}/{docId}', async (event) => {
   if (event.params.coll === 'invii') return; // storico delle email: lo scrive il server
+  await registraModifica(event);
+  // Condomini: allinea anche i permessi del loro account (permessi.js). Sta
+  // in questo trigger, che scatta già a ogni scrittura, per non aggiungere
+  // un'esecuzione in più per ogni modifica.
+  if (event.params.coll === 'members' && event.data?.after?.exists) {
+    await permessi.allineaPermessi(event.data.after.ref, event.data.before?.exists ? event.data.before.data() : null);
+  }
+});
+
+async function registraModifica(event) {
   const before = event.data?.before?.exists ? event.data.before.data() : null;
   const after = event.data?.after?.exists ? event.data.after.data() : null;
   const actor = after?._deletedBy && after?._deleted ? after._deletedBy : (after?._updatedBy ?? null);
@@ -240,7 +263,7 @@ exports.auditTrail = onDocumentWritten('buildings/{buildingId}/{coll}/{docId}', 
     changes: type === 'updated' || type === 'restored' ? changes : {},
     at: FieldValue.serverTimestamp(),
   });
-});
+}
 
 function labelOf(r) {
   return r ? (r.titolo ?? r.nome ?? r.descrizioneSintetica ?? null) : null;
@@ -300,3 +323,4 @@ exports.inviaEmail = notifiche.inviaEmail;
 const controllo = require('./controllo');
 exports.controlloServizio = controllo.controlloServizio;
 exports.provaAvvisi = controllo.provaAvvisi;
+exports.permessiUsciti = permessi.permessiUsciti;
