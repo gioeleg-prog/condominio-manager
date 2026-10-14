@@ -506,6 +506,37 @@ describe('INTEGRAZIONE — avvisi automatici al Super Admin', function () {
     assert.strictEqual(await _test.controllaBackup(Date.now()), null);
   });
 
+  it('avviso del giorno rimasto "in invio" o in errore: il controllo successivo riprova; in invio da poco no', async () => {
+    const controlli = [['del backup', async () => ({ titolo: 'Backup notturno non riuscito', righe: [] })]];
+    assert.strictEqual((await _test.eseguiControllo({ controlli })).email, 'simulata');
+    const [a] = await avvisi();
+    const ref = admin.doc('serviceAlerts/' + a.id);
+    // funzione interrotta tra la creazione e la spedizione, 20 minuti fa
+    await ref.update({ stato: 'in invio', inInvioDal: new Date(Date.now() - 20 * 60000) });
+    assert.strictEqual((await _test.eseguiControllo({ controlli })).email, 'simulata');
+    assert.deepStrictEqual([(await ref.get()).data().stato, (await ref.get()).data().tentativi], ['simulata', 2]);
+    // un'altra esecuzione sta spedendo adesso: non si spedisce due volte
+    await ref.update({ stato: 'in invio', inInvioDal: new Date() });
+    assert.strictEqual((await _test.eseguiControllo({ controlli })).email, 'già in invio');
+    // invio precedente in errore: si riprova e l'errore vecchio sparisce
+    await ref.update({ stato: 'errore', errore: 'Invalid login' });
+    assert.strictEqual((await _test.eseguiControllo({ controlli })).email, 'simulata');
+    const dopo = (await ref.get()).data();
+    assert.deepStrictEqual([dopo.stato, dopo.errore, dopo.tentativi], ['simulata', undefined, 3]);
+    assert.strictEqual((await avvisi()).length, 1);
+  });
+
+  it('email ai condomini rimasta "in invio" da prima delle 24 ore: segnalata comunque', async () => {
+    const ore = (h) => new Date(Date.now() - h * 3600000);
+    await admin.doc('buildings/1/invii/v1').set({ tipo: 'avviso', oggetto: 'Bloccata', stato: 'in invio', creatoIl: ore(25) });
+    await admin.doc('buildings/1/invii/v2').set({ tipo: 'avviso', oggetto: 'Vecchia ok', stato: 'inviata', creatoIl: ore(25) });
+    await admin.doc('buildings/1/invii/v3').set({ tipo: 'avviso', oggetto: 'In corso', stato: 'in invio', creatoIl: ore(0.5) });
+    await admin.doc('buildings/1/invii/v4').set({ tipo: 'avviso', oggetto: 'Ferma', stato: 'in invio', creatoIl: ore(2) });
+    const p = await _test.controllaEmail(Date.now());
+    assert.strictEqual(p.titolo, '2 email ai condomini non partite');
+    assert.ok(p.righe.some((r) => r.includes('Bloccata')) && p.righe.some((r) => r.includes('Ferma')), p.righe.join('\n'));
+  });
+
   it('un controllo che non riesce diventa un problema e non fa perdere gli altri', async () => {
     const controlli = [
       ['del backup', async () => ({ titolo: 'Backup notturno non riuscito', righe: ['quota superata'] })],
@@ -589,6 +620,51 @@ describe('UNITÀ — copia del backup su Google Drive', function () {
       await assert.rejects(drive.copiaSuDrive(cred, '{}', '2026-10-14', { limiteMs: 100 }), /non ha risposto entro/);
     } finally { global.fetch = vero; }
   });
+
+  // fetch finto di Google Drive: cartella "cart" con i file presenti; caricato(gz)
+  // è la risposta al caricamento, cancella[id] lo stato HTTP della DELETE (o 'rete').
+  const cred = JSON.stringify({ client_id: 'x', client_secret: 'y', refresh_token: 'z' });
+  const conDriveFinto = async ({ presenti = [], caricato, cancella = {} }, prova) => {
+    const vero = global.fetch;
+    const risposta = (x, status = 200) => new Response(status === 204 ? null : JSON.stringify(x), { status });
+    const cancellati = [];
+    global.fetch = async (url, opz = {}) => {
+      if (url.startsWith('https://oauth2')) return risposta({ access_token: 't' });
+      if (opz.method === 'DELETE') {
+        const id = url.split('/').pop();
+        cancellati.push(id);
+        if (cancella[id] === 'rete') throw new TypeError('fetch failed');
+        return risposta({}, cancella[id] || 204);
+      }
+      if (url.includes('/upload/')) {
+        const corpo = Buffer.from(opz.body);
+        const inizio = corpo.indexOf('application/gzip\r\n\r\n') + 20;
+        return risposta(caricato(corpo.subarray(inizio, corpo.lastIndexOf('\r\n--'))));
+      }
+      if (decodeURIComponent(url).includes("in parents")) return risposta({ files: presenti });
+      return risposta({ files: [{ id: 'cart' }] });
+    };
+    try { return await prova(cancellati); } finally { global.fetch = vero; }
+  };
+
+  it('caricamento senza id o con dimensione diversa: copia non riuscita', async () => {
+    await conDriveFinto({ caricato: () => ({ name: 'condominio-2026-10-14.json.gz' }) }, () =>
+      assert.rejects(drive.copiaSuDrive(cred, '{"a":1}', '2026-10-14'), /Caricamento incompleto: Drive ha registrato nessun file/));
+    await conDriveFinto({ caricato: (gz) => ({ id: 'f', name: 'n', size: String(gz.length - 1) }) }, () =>
+      assert.rejects(drive.copiaSuDrive(cred, '{"a":1}', '2026-10-14'), /Caricamento incompleto: Drive ha registrato \d+ byte su \d+/));
+    await conDriveFinto({ caricato: (gz) => ({ id: 'f', name: 'n', size: String(gz.length) }) }, async () =>
+      assert.strictEqual((await drive.copiaSuDrive(cred, '{"a":1}', '2026-10-14')).ok, true));
+  });
+
+  it('copie vecchie che Drive non cancella (403, 5xx, rete): contate nell\'esito, la copia resta riuscita', async () => {
+    const presenti = ['2026-08-01', '2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14'].map((d) => ({ id: d, name: nome(d) }));
+    const cancella = { '2026-08-11': 403, '2026-08-12': 503, '2026-08-13': 404, '2026-08-14': 'rete' };
+    await conDriveFinto({ presenti, cancella, caricato: (gz) => ({ id: 'f', name: nome('2026-10-14'), size: String(gz.length) }) }, async (cancellati) => {
+      const r = await drive.copiaSuDrive(cred, '{"a":1}', '2026-10-14');
+      assert.deepStrictEqual(cancellati, ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14'], 'il primo del mese/anno resta');
+      assert.deepStrictEqual([r.ok, r.rimossi, r.nonRimossi], [true, 2, 3]);
+    });
+  });
 });
 
 describe('INTEGRAZIONE — il controllo delle 7:30 segnala la copia su Drive', function () {
@@ -607,7 +683,11 @@ describe('INTEGRAZIONE — il controllo delle 7:30 segnala la copia su Drive', f
     // funzione interrotta durante la copia: resta lo stato scritto prima della copia
     await stato({ ok: false, configurata: true, error: backupLib.COPIA_NON_CONCLUSA });
     assert.strictEqual((await _test.controllaBackup(Date.now())).titolo, 'Copia del backup su Google Drive non riuscita');
-    await stato({ ok: true, configurata: true, file: 'condominio-2026-10-13.json.gz' });
+    await stato({ ok: true, configurata: true, file: 'condominio-2026-10-13.json.gz', nonRimossi: 3 });
+    const v = await _test.controllaBackup(Date.now());
+    assert.strictEqual(v.titolo, 'Backup vecchi su Google Drive non cancellati');
+    assert.match(v.righe[0], /^3 copie/);
+    await stato({ ok: true, configurata: true, file: 'condominio-2026-10-13.json.gz', nonRimossi: 0 });
     assert.strictEqual(await _test.controllaBackup(Date.now()), null);
   });
 });

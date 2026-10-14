@@ -7,7 +7,8 @@
 //      - errori dell'app (clientErrors) nelle ultime 24 ore: almeno 10, oppure
 //        almeno 5 e il triplo della media giornaliera dei 7 giorni prima;
 //      - email ai condomini non partite nelle ultime 24 ore (storico invii:
-//        "errore", "in parte", o ferme "in invio" da più di un'ora).
+//        "errore", "in parte", o ferme "in invio" da più di un'ora; queste
+//        ultime anche se create prima delle 24 ore).
 //    Un controllo che non riesce a leggere i dati diventa a sua volta un problema,
 //    senza fermare gli altri. Con almeno un problema scrive ai Super Admin, al
 //    massimo una volta al giorno; se l'email non parte l'esecuzione pianificata
@@ -18,7 +19,9 @@
 // Destinatari: utenti con ruolo superAdmin (roles/) e l'email di cm_config.
 // Ogni esecuzione è registrata in serviceAlerts/{id} (con i dettagli, mai
 // leggibile dall'app) creato prima di spedire: un nuovo tentativo della
-// funzione non rispedisce. L'esito per la schermata va in
+// funzione non rispedisce, a meno che l'invio precedente sia finito in errore o
+// sia rimasto "in invio" per più di 10 minuti (funzione interrotta prima di
+// spedire): allora riprova. L'esito per la schermata va in
 // appSettings/controlloServizio con i soli titoli dei problemi, perché
 // appSettings è leggibile da tutti gli utenti autenticati.
 // Sugli emulatori nessuna email parte (vedi notifiche.js).
@@ -34,6 +37,7 @@ const GIORNO = 24 * ORA;
 const SOGLIA_BACKUP_ORE = 26;
 const SOGLIA_ERRORI = 10;
 const SOGLIA_AUMENTO = 5;
+const RIPROVA_MS = 10 * 60000;
 
 const db = () => getFirestore();
 const ms = (t) => (t?.toMillis ? t.toMillis() : (t instanceof Date ? t.getTime() : 0));
@@ -52,6 +56,9 @@ async function controllaBackup(ora) {
       ? { titolo: 'Copia del backup su Google Drive non attiva', righe: ['Manca l\'autorizzazione del Drive: vedi scripts/drive-autorizza.js.'] }
       : { titolo: 'Copia del backup su Google Drive non riuscita', righe: [unaRiga(b.drive.error || 'errore sconosciuto', 300)] };
   }
+  // Copia riuscita, ma copie vecchie non cancellate: si accumulerebbero.
+  const n = b.drive?.nonRimossi;
+  if (n > 0) return { titolo: 'Backup vecchi su Google Drive non cancellati', righe: [`${n} ${n === 1 ? 'copia da togliere è rimasta' : 'copie da togliere sono rimaste'} nella cartella "Backup Condominio": il motivo è nei log di Cloud Functions (dailyBackup drive).`] };
   return null;
 }
 
@@ -76,9 +83,15 @@ async function controllaErrori(ora) {
 async function controllaEmail(ora) {
   const righe = [];
   for (const e of await db().collection('buildings').listDocuments()) {
-    const snap = await e.collection('invii').where('creatoIl', '>=', new Date(ora - GIORNO)).get();
+    // Le ultime 24 ore, più gli invii ancora "in invio" creati prima: un'email
+    // rimasta a metà poco prima della finestra non va persa.
+    const [recenti, inInvio] = await Promise.all([
+      e.collection('invii').where('creatoIl', '>=', new Date(ora - GIORNO)).get(),
+      e.collection('invii').where('stato', '==', 'in invio').get(),
+    ]);
+    const docs = recenti.docs.concat(inInvio.docs.filter((d) => ms(d.data().creatoIl) < ora - GIORNO));
     let nome = null;
-    for (const d of snap.docs) {
+    for (const d of docs) {
       const v = d.data();
       const ferma = v.stato === 'in invio' && ora - ms(v.creatoIl) > ORA;
       if (!['errore', 'in parte'].includes(v.stato) && !ferma) continue;
@@ -142,6 +155,23 @@ function componi(problemi, prova) {
 }
 
 // ─── Esecuzione ────────────────────────────────────────────────────
+// Prenota l'invio in serviceAlerts: crea il documento, oppure riprende quello
+// di un'esecuzione che non ha spedito (stato "errore", o "in invio" da più di
+// RIPROVA_MS). Ritorna null se tocca a questa esecuzione spedire, altrimenti lo
+// stato trovato. In transazione: due esecuzioni insieme non spediscono due volte.
+function prenota(ref, dati, ora) {
+  return db().runTransaction(async (t) => {
+    const s = await t.get(ref);
+    if (!s.exists) { t.create(ref, { ...dati, creatoIl: FieldValue.serverTimestamp() }); return null; }
+    const v = s.data();
+    const ferma = v.stato === 'in invio' && ora - ms(v.inInvioDal || v.creatoIl) > RIPROVA_MS;
+    if (v.stato !== 'errore' && !ferma) return v.stato || 'in invio';
+    console.warn('controlloServizio: nuovo tentativo di invio', ref.id, v.stato);
+    t.update(ref, { ...dati, tentativi: (v.tentativi || 1) + 1, errore: FieldValue.delete() });
+    return null;
+  });
+}
+
 async function eseguiControllo({ prova = false, ora = Date.now(), autoreUid = null, controlli = CONTROLLI, auth } = {}) {
   const problemi = await raccogli(controlli, ora);
   let email = 'non necessaria', n = 0, errore = null;
@@ -158,13 +188,8 @@ async function eseguiControllo({ prova = false, ora = Date.now(), autoreUid = nu
     const { oggetto, html, testo } = componi(problemi, prova);
     const id = prova ? `prova_${ora}_${Math.random().toString(36).slice(2, 6)}` : `controllo_${dataTraGiorni(0)}`;
     const ref = db().doc(`serviceAlerts/${id}`);
-    let nuovo = true;
-    try {
-      await ref.create({ oggetto, problemi, destinatari: a, prova, autoreUid, stato: 'in invio', simulata: EMULATORE, creatoIl: FieldValue.serverTimestamp() });
-    } catch (e) {
-      if (e.code === 6 || /already exists/i.test(e.message)) nuovo = false; else throw e;
-    }
-    if (!nuovo) email = 'già inviata oggi';
+    const trovato = await prenota(ref, { oggetto, problemi, destinatari: a, prova, autoreUid, stato: 'in invio', simulata: EMULATORE, inInvioDal: FieldValue.serverTimestamp() }, ora);
+    if (trovato) email = trovato === 'in invio' ? 'già in invio' : 'già inviata oggi';
     else if (!a.length) { email = 'nessun destinatario'; await ref.update({ stato: email }); }
     else {
       try {
