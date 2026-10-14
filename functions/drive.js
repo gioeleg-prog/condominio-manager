@@ -14,11 +14,16 @@
 // primo backup di ogni mese per 12 mesi, il primo di ogni anno per sempre.
 // Spazio: circa 150 KB al giorno compressi, pochi MB all'anno nei 15 GB gratuiti.
 // Ripristino: scaricare il .json.gz dal Drive e usare scripts/restore-backup.js.
+//
+// Tempo massimo: tutta la copia deve finire entro LIMITE_MS (2 minuti, contro i
+// 5 della funzione); oltre, le chiamate a Google vengono interrotte e la copia
+// risulta "non riuscita" invece di bloccare la funzione fino al suo arresto.
 const zlib = require('zlib');
 
 const CARTELLA = 'Backup Condominio';
 const PREFISSO = 'condominio-';
 const GIORNI = 14, MESI = 12;
+const LIMITE_MS = 120000;
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 
@@ -28,21 +33,21 @@ async function json(r, cosa) {
   return t ? JSON.parse(t) : {};
 }
 
-async function accesso(cred) {
+async function accesso(cred, signal) {
   const r = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, signal,
     body: new URLSearchParams({ client_id: cred.client_id, client_secret: cred.client_secret, refresh_token: cred.refresh_token, grant_type: 'refresh_token' }),
   });
   return (await json(r, 'Autorizzazione Google Drive')).access_token;
 }
 
-async function cartella(token) {
+async function cartella(token, signal) {
   const auth = { Authorization: 'Bearer ' + token };
   const q = encodeURIComponent(`name='${CARTELLA}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
-  const trovate = await json(await fetch(`${API}/files?q=${q}&fields=files(id)&spaces=drive`, { headers: auth }), 'Ricerca cartella');
+  const trovate = await json(await fetch(`${API}/files?q=${q}&fields=files(id)&spaces=drive`, { headers: auth, signal }), 'Ricerca cartella');
   if (trovate.files?.length) return trovate.files[0].id;
   const nuova = await json(await fetch(`${API}/files?fields=id`, {
-    method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+    method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, signal,
     body: JSON.stringify({ name: CARTELLA, mimeType: 'application/vnd.google-apps.folder' }),
   }), 'Creazione cartella');
   return nuova.id;
@@ -67,19 +72,30 @@ function tieniDaCancellare(nomi, oggi) {
 }
 
 // body: il JSON del backup; giorno: "AAAA-MM-GG" (data italiana del backup).
-async function copiaSuDrive(credJson, body, giorno) {
+// limiteMs: solo per i test.
+async function copiaSuDrive(credJson, body, giorno, { limiteMs = LIMITE_MS } = {}) {
   let cred;
   try { cred = JSON.parse(credJson || ''); } catch (e) { cred = null; }
   if (!cred?.client_id || !cred?.client_secret || !cred?.refresh_token) return { ok: false, configurata: false, error: 'Copia su Drive non configurata' };
-  const token = await accesso(cred);
+  const signal = AbortSignal.timeout(limiteMs);
+  try {
+    return await carica(cred, body, giorno, signal);
+  } catch (e) {
+    if (e.name === 'TimeoutError') throw new Error(`Google Drive non ha risposto entro ${Math.round(limiteMs / 1000)} secondi`);
+    throw e;
+  }
+}
+
+async function carica(cred, body, giorno, signal) {
+  const token = await accesso(cred, signal);
   const auth = { Authorization: 'Bearer ' + token };
-  const idCartella = await cartella(token);
+  const idCartella = await cartella(token, signal);
   const nome = `${PREFISSO}${giorno}.json.gz`;
   const gz = zlib.gzipSync(Buffer.from(body, 'utf8'), { level: 9 });
 
   // Stesso giorno già caricato (nuovo tentativo): si sostituisce il contenuto.
   const q = encodeURIComponent(`'${idCartella}' in parents and trashed=false`);
-  const presenti = (await json(await fetch(`${API}/files?q=${q}&fields=files(id,name)&pageSize=1000&spaces=drive`, { headers: auth }), 'Elenco file')).files || [];
+  const presenti = (await json(await fetch(`${API}/files?q=${q}&fields=files(id,name)&pageSize=1000&spaces=drive`, { headers: auth, signal }), 'Elenco file')).files || [];
   const stesso = presenti.find((f) => f.name === nome);
   const confine = 'confine' + Date.now().toString(36);
   const meta = JSON.stringify(stesso ? { name: nome } : { name: nome, parents: [idCartella] });
@@ -88,14 +104,14 @@ async function copiaSuDrive(credJson, body, giorno) {
     gz, Buffer.from(`\r\n--${confine}--`),
   ]);
   const caricato = await json(await fetch(`${UPLOAD}/files${stesso ? '/' + stesso.id : ''}?uploadType=multipart&fields=id,name,size`, {
-    method: stesso ? 'PATCH' : 'POST', headers: { ...auth, 'Content-Type': `multipart/related; boundary=${confine}` }, body: corpo,
+    method: stesso ? 'PATCH' : 'POST', headers: { ...auth, 'Content-Type': `multipart/related; boundary=${confine}` }, body: corpo, signal,
   }), 'Caricamento');
 
   let rimossi = 0;
   const daTogliere = new Set(tieniDaCancellare(presenti.map((f) => f.name).concat(stesso ? [] : [nome]), giorno));
   for (const f of presenti) {
     if (!daTogliere.has(f.name)) continue;
-    const r = await fetch(`${API}/files/${f.id}`, { method: 'DELETE', headers: auth });
+    const r = await fetch(`${API}/files/${f.id}`, { method: 'DELETE', headers: auth, signal });
     if (r.ok || r.status === 404) rimossi++;
   }
   return { ok: true, configurata: true, file: caricato.name, sizeKB: Math.round(gz.length / 1024), rimossi, error: null };

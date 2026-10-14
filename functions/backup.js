@@ -101,4 +101,37 @@ async function runBackup(db, bucket, { now = new Date() } = {}) {
   return { file: name, docs: backup.docs, sizeKB: Math.round(body.length / 1024), removed, body };
 }
 
-module.exports = { buildBackup, restoreBackup, runBackup, backupFileName, encode, decode, KEEP_DAYS };
+// Backup notturno (dailyBackup in index.js): backup principale, pulizia, poi la
+// copia esterna (copia(body, "AAAA-MM-GG"), drive.js). L'esito del backup
+// principale va in appSettings/backupStatus PRIMA della copia, con la copia
+// segnata "non conclusa": se la copia si blocca e la funzione viene interrotta
+// per tempo scaduto, il backup risulta comunque e il controllo delle 7:30
+// (controllo.js) segnala la copia mancata invece di vedere l'esito del giorno prima.
+const COPIA_NON_CONCLUSA = 'Copia su Google Drive non conclusa (in corso, oppure la funzione si è interrotta)';
+
+async function backupNotturno(db, bucket, { copia, pulisci = async () => {}, now = new Date() } = {}) {
+  const status = db.doc('appSettings/backupStatus');
+  let body;
+  try {
+    const { body: b, ...res } = await runBackup(db, bucket, { now });
+    body = b;
+    await pulisci();
+    await status.set({ ok: true, at: new Date(), ...res, error: null, drive: { ok: false, configurata: true, error: COPIA_NON_CONCLUSA, at: new Date() } });
+  } catch (e) {
+    console.error('dailyBackup', e);
+    await status.set({ ok: false, at: new Date(), error: String(e.message || e).slice(0, 500) }, { merge: true });
+    throw e;
+  }
+  // Un errore della copia non annulla il backup principale.
+  let drive;
+  try {
+    drive = await copia(body, backupFileName(now).slice(8, 18));
+  } catch (e) {
+    console.error('dailyBackup drive', e);
+    drive = { ok: false, configurata: true, error: String(e.message || e).slice(0, 300) };
+  }
+  await status.update({ drive: { ...drive, at: new Date() } });
+  return drive;
+}
+
+module.exports = { buildBackup, restoreBackup, runBackup, backupNotturno, backupFileName, encode, decode, KEEP_DAYS, COPIA_NON_CONCLUSA };
