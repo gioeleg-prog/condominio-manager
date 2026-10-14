@@ -279,6 +279,31 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     it('BAK-03 un file che non è un backup viene rifiutato dal ripristino', async () => {
       await assert.rejects(backupLib.restoreBackup(admin, { collections: {} }), /non riconosciuto/);
     });
+    it('BAK-04 backup notturno: esito salvato prima della copia su Drive; copia fallita non annulla il backup', async () => {
+      const status = () => admin.doc('appSettings/backupStatus').get().then((s) => s.data());
+      let durante;
+      const drive = await backupLib.backupNotturno(admin, bucket(), { copia: async (body, giorno) => {
+        durante = await status();
+        assert.ok(JSON.parse(body).collections, 'la copia riceve il backup');
+        assert.match(giorno, /^\d{4}-\d{2}-\d{2}$/);
+        return { ok: true, configurata: true, file: `condominio-${giorno}.json.gz` };
+      } });
+      // se la funzione venisse interrotta durante la copia, resterebbe questo
+      assert.strictEqual(durante.ok, true);
+      assert.strictEqual(durante.drive.ok, false);
+      assert.strictEqual(durante.drive.error, backupLib.COPIA_NON_CONCLUSA);
+      assert.strictEqual(drive.ok, true);
+      const dopo = await status();
+      assert.strictEqual(dopo.ok, true);
+      assert.deepStrictEqual([dopo.drive.ok, dopo.drive.error], [true, undefined]);
+      assert.ok(!('body' in dopo), 'il contenuto del backup non va nell\'esito');
+
+      await backupLib.backupNotturno(admin, bucket(), { copia: async () => { throw new Error('Google Drive non ha risposto entro 120 secondi'); } });
+      const fallita = await status();
+      assert.strictEqual(fallita.ok, true, 'il backup principale resta riuscito');
+      assert.deepStrictEqual([fallita.drive.ok, fallita.drive.configurata], [false, true]);
+      assert.match(fallita.drive.error, /120 secondi/);
+    });
   });
 
   describe('setUserRole', () => {
@@ -474,6 +499,40 @@ describe('INTEGRAZIONE — avvisi automatici al Super Admin', function () {
     assert.deepStrictEqual(r.problemi, ['Backup notturno non eseguito']);
   });
 
+  it('backup saltato stanotte: alle 7:30 quello di ieri (28,5 ore) è già segnalato', async () => {
+    await backupOk(28.5);
+    assert.strictEqual((await _test.controllaBackup(Date.now())).titolo, 'Backup notturno non eseguito');
+    await backupOk(25);
+    assert.strictEqual(await _test.controllaBackup(Date.now()), null);
+  });
+
+  it('un controllo che non riesce diventa un problema e non fa perdere gli altri', async () => {
+    const controlli = [
+      ['del backup', async () => ({ titolo: 'Backup notturno non riuscito', righe: ['quota superata'] })],
+      ['degli errori dell\'app', async () => { throw new Error('Firestore non disponibile'); }],
+      ['delle email ai condomini', async () => null],
+    ];
+    const r = await _test.eseguiControllo({ controlli });
+    assert.deepStrictEqual(r.problemi, ['Backup notturno non riuscito', 'Controllo degli errori dell\'app non riuscito']);
+    assert.strictEqual(r.email, 'simulata');
+    const [a] = await avvisi();
+    assert.match(a.problemi[1].righe[0], /Firestore non disponibile/);
+  });
+
+  it('destinatari: utente cancellato saltato; Auth in errore senza altri indirizzi = email in errore, non "nessun destinatario"', async () => {
+    const controlli = [['del backup', async () => ({ titolo: 'Backup notturno non riuscito', righe: [] })]];
+    await admin.doc('appdata/cm_config').set({ superAdminEmail: '' }, { merge: true });
+    const conErrore = (code, message) => ({ getUser: async () => { throw Object.assign(new Error(message), { code }); } });
+    const cancellato = await _test.eseguiControllo({ controlli, auth: conErrore('auth/user-not-found', 'utente non trovato') });
+    assert.strictEqual(cancellato.email, 'nessun destinatario');
+    await admin.collection('serviceAlerts').get().then((s) => Promise.all(s.docs.map((d) => d.ref.delete())));
+    const r = await _test.eseguiControllo({ controlli, auth: conErrore('auth/internal-error', 'Auth non raggiungibile') });
+    assert.strictEqual(r.email, 'errore');
+    assert.match(r.errore, /Auth non raggiungibile/);
+    const s = (await admin.doc('appSettings/controlloServizio').get()).data();
+    assert.strictEqual(s.email, 'errore');
+  });
+
   it('email di prova: solo il Super Admin, parte anche se è tutto a posto', async () => {
     await backupOk();
     const m = await (await as('admin1@qa.test')).call('provaAvvisi');
@@ -520,6 +579,16 @@ describe('UNITÀ — copia del backup su Google Drive', function () {
       assert.deepStrictEqual([r.ok, r.configurata], [false, false]);
     }
   });
+
+  it('Google che non risponde: la copia si interrompe dopo il tempo massimo con un errore chiaro', async () => {
+    const vero = global.fetch;
+    // fetch finto che non risponde mai, ma rispetta l'interruzione
+    global.fetch = (url, opz) => new Promise((_, rifiuta) => opz.signal.addEventListener('abort', () => rifiuta(opz.signal.reason)));
+    try {
+      const cred = JSON.stringify({ client_id: 'x', client_secret: 'y', refresh_token: 'z' });
+      await assert.rejects(drive.copiaSuDrive(cred, '{}', '2026-10-14', { limiteMs: 100 }), /non ha risposto entro/);
+    } finally { global.fetch = vero; }
+  });
 });
 
 describe('INTEGRAZIONE — il controllo delle 7:30 segnala la copia su Drive', function () {
@@ -535,6 +604,9 @@ describe('INTEGRAZIONE — il controllo delle 7:30 segnala la copia su Drive', f
     const p = await _test.controllaBackup(Date.now());
     assert.strictEqual(p.titolo, 'Copia del backup su Google Drive non riuscita');
     assert.match(p.righe[0], /invalid_grant/);
+    // funzione interrotta durante la copia: resta lo stato scritto prima della copia
+    await stato({ ok: false, configurata: true, error: backupLib.COPIA_NON_CONCLUSA });
+    assert.strictEqual((await _test.controllaBackup(Date.now())).titolo, 'Copia del backup su Google Drive non riuscita');
     await stato({ ok: true, configurata: true, file: 'condominio-2026-10-13.json.gz' });
     assert.strictEqual(await _test.controllaBackup(Date.now()), null);
   });
