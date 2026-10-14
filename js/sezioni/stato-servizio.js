@@ -70,6 +70,7 @@ async function opsProvaAvvisi() {
     const esito = r.email === 'inviata' || r.email === 'simulata'
       ? `✅ Email di prova inviata a ${r.destinatari} ${r.destinatari === 1 ? 'indirizzo' : 'indirizzi'}.`
       : r.email === 'nessun destinatario' ? '⚠️ Nessun indirizzo a cui scrivere: manca l\'email del Super Admin.'
+      : r.email === 'errore' && r.errore ? '⚠️ Email di prova non partita: ' + r.errore
       : '⚠️ Email di prova non partita. Controlla la casella notifichecondominio@ e la password per le app.';
     avvisa(esito + (r.problemi?.length ? ' Problemi trovati: ' + r.problemi.join('; ') + '.' : ' Nessun problema trovato.') + (r.simulata ? ' (Ambiente di prova: nessuna email reale.)' : ''));
     await opsLoad('avvisi');
@@ -121,7 +122,8 @@ function opsVal(v) {
 // Copia esterna del backup su Google Drive (functions/drive.js).
 function opsDriveHtml(d) {
   if (!d) return `<p class="hint" style="margin-top:.5rem">Copia su Google Drive: nessun esito ancora (compare dopo il prossimo backup notturno).</p>`;
-  if (d.ok) return `<div class="alert alert-success" style="font-size:13px;margin-top:.5rem">✅ Copia su Google Drive: <code>${esc(d.file)}</code>, ${esc(d.sizeKB)} KB, nella cartella "Backup Condominio" di notifichecondominio@. Restano gli ultimi 14 giorni, uno al mese per un anno e uno all'anno.</div>`;
+  if (d.ok) return `<div class="alert alert-success" style="font-size:13px;margin-top:.5rem">✅ Copia su Google Drive: <code>${esc(d.file)}</code>, ${esc(d.sizeKB)} KB, nella cartella "Backup Condominio" di notifichecondominio@. Restano gli ultimi 14 giorni, uno al mese per un anno e uno all'anno.</div>`
+    + (d.nonRimossi > 0 ? `<div class="alert alert-warning" style="font-size:13px;margin-top:.5rem">⚠️ ${esc(d.nonRimossi)} ${d.nonRimossi === 1 ? 'copia vecchia non cancellata' : 'copie vecchie non cancellate'} dal Drive: il motivo è nei log di Cloud Functions.</div>` : '');
   if (d.configurata === false) return `<div class="alert alert-warning" style="font-size:13px;margin-top:.5rem">⚠️ Copia su Google Drive non attiva: manca l'autorizzazione del Drive.</div>`;
   return `<div class="alert alert-danger" style="font-size:13px;margin-top:.5rem">⚠️ Copia su Google Drive NON riuscita: ${esc(d.error)}</div>`;
 }
@@ -140,7 +142,7 @@ function renderOpsSection() {
 
   // Avvisi automatici
   const a = ops.avvisi;
-  const EMAIL_AVVISI = { 'inviata': 'email inviata', 'simulata': 'email simulata (ambiente di prova)', 'già inviata oggi': 'email già inviata oggi',
+  const EMAIL_AVVISI = { 'inviata': 'email inviata', 'simulata': 'email simulata (ambiente di prova)', 'già inviata oggi': 'email già inviata oggi', 'già in invio': 'email in invio da un altro controllo',
     'nessun destinatario': 'nessun indirizzo a cui scrivere', 'errore': 'email NON partita' };
   const avvisiHtml = `<p class="hint">Ogni mattina alle 7:30 un controllo verifica il backup notturno, gli errori dell'app e le email ai condomini non partite. Se trova un problema ti scrive, al massimo una volta al giorno.</p>`
     + (a === undefined ? '' : a === null ? `<div class="alert alert-warning" style="font-size:13px">Nessun controllo eseguito finora (il primo parte domattina alle 7:30).</div>`

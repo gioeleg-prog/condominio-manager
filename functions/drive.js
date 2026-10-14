@@ -13,6 +13,9 @@
 // Conservazione nella cartella (tieniDaCancellare): gli ultimi 14 giorni, il
 // primo backup di ogni mese per 12 mesi, il primo di ogni anno per sempre.
 // Spazio: circa 150 KB al giorno compressi, pochi MB all'anno nei 15 GB gratuiti.
+// Una copia vecchia che Drive non cancella (403, 5xx, rete) non ferma la
+// copia: finisce nei log e nel conteggio nonRimossi dell'esito, che il
+// controllo delle 7:30 segnala.
 // Ripristino: scaricare il .json.gz dal Drive e usare scripts/restore-backup.js.
 //
 // Tempo massimo: tutta la copia deve finire entro LIMITE_MS (2 minuti, contro i
@@ -106,15 +109,25 @@ async function carica(cred, body, giorno, signal) {
   const caricato = await json(await fetch(`${UPLOAD}/files${stesso ? '/' + stesso.id : ''}?uploadType=multipart&fields=id,name,size`, {
     method: stesso ? 'PATCH' : 'POST', headers: { ...auth, 'Content-Type': `multipart/related; boundary=${confine}` }, body: corpo, signal,
   }), 'Caricamento');
+  if (!caricato.id || Number(caricato.size) !== gz.length) {
+    throw new Error(`Caricamento incompleto: Drive ha registrato ${caricato.id ? Number(caricato.size) + ' byte su ' + gz.length : 'nessun file'}`);
+  }
 
-  let rimossi = 0;
+  let rimossi = 0, nonRimossi = 0;
   const daTogliere = new Set(tieniDaCancellare(presenti.map((f) => f.name).concat(stesso ? [] : [nome]), giorno));
   for (const f of presenti) {
     if (!daTogliere.has(f.name)) continue;
-    const r = await fetch(`${API}/files/${f.id}`, { method: 'DELETE', headers: auth, signal });
-    if (r.ok || r.status === 404) rimossi++;
+    try {
+      const r = await fetch(`${API}/files/${f.id}`, { method: 'DELETE', headers: auth, signal });
+      if (r.ok || r.status === 404) { rimossi++; continue; }
+      console.error('dailyBackup drive: cancellazione non riuscita', f.name, `HTTP ${r.status}`, (await r.text().catch(() => '')).slice(0, 200));
+    } catch (e) {
+      if (signal.aborted) throw e;
+      console.error('dailyBackup drive: cancellazione non riuscita', f.name, e);
+    }
+    nonRimossi++;
   }
-  return { ok: true, configurata: true, file: caricato.name, sizeKB: Math.round(gz.length / 1024), rimossi, error: null };
+  return { ok: true, configurata: true, file: caricato.name, sizeKB: Math.round(gz.length / 1024), rimossi, nonRimossi, error: null };
 }
 
 module.exports = { copiaSuDrive, tieniDaCancellare, CARTELLA };

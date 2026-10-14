@@ -23,7 +23,7 @@ if (!args.project || !args.file) {
   process.exit(1);
 }
 const grezzo = fs.readFileSync(args.file);
-const backup = JSON.parse((/.gz$/i.test(args.file) ? zlib.gunzipSync(grezzo) : grezzo).toString('utf8'));
+const backup = JSON.parse((/\.gz$/i.test(args.file) ? zlib.gunzipSync(grezzo) : grezzo).toString('utf8'));
 console.log(`Backup del ${backup.createdAt}: ${backup.docs} documenti in ${Object.keys(backup.collections).join(', ')}`);
 if (!args.confirm) { console.log('Anteprima: nessuna scrittura. Aggiungi --confirm per ripristinare su ' + args.project + '.'); process.exit(0); }
 
