@@ -131,8 +131,10 @@ exports.whoami = onCall(async (request) => {
   });
 
   // Il record del chiamante, senza metadati né flag superAdmin (non autorevole qui).
+  // L'email è quella dell'account: nel record non c'è più (sta in contatti/).
   const profile = Object.fromEntries(Object.entries(record)
-    .filter(([k]) => !k.startsWith('_') && k !== 'superAdmin'));
+    .filter(([k]) => !k.startsWith('_') && !['superAdmin', 'emailLower', 'telefono'].includes(k)));
+  profile.email = email;
 
   // Audit 2026-10-15: un condomino disattivato o uscito (dataUscita passata)
   // non riceve permessi, e quelli che aveva ancora gli vengono tolti. L'app
@@ -177,12 +179,30 @@ function piuVecchio(docs) {
 // I profili attivi se ce ne sono, altrimenti tutti (danno "account disattivato").
 const preferisciAttivi = (docs) => { const a = docs.filter((d) => permessi.membroAttivo(d.data())); return a.length ? a : docs; };
 
+// Profili di condomino con questa email. L'email sta in contatti/{id} (privacy,
+// decisione del 2026-10-15); finché un record non è migrato
+// (scripts/separa-contatti.js) vale anche il vecchio emailLower del condomino.
+async function profiliPerEmail(email) {
+  const [contatti, vecchi] = await Promise.all([
+    // Se l'indice dei contatti non è ancora pronto (subito dopo il deploy) si
+    // usa solo il vecchio campo, invece di impedire l'accesso a tutti.
+    db.collectionGroup('contatti').where('emailLower', '==', email).get()
+      .catch((e) => { console.error('whoami: ricerca nei contatti non riuscita', e.message); return { docs: [] }; }),
+    db.collectionGroup('members').where('emailLower', '==', email).get(),
+  ]);
+  const perPercorso = new Map(vecchi.docs.map((d) => [d.ref.path, d]));
+  const daLeggere = contatti.docs.filter((c) => !c.data()._deleted)
+    .map((c) => c.ref.parent.parent.collection('members').doc(c.id)).filter((r) => !perPercorso.has(r.path));
+  if (daLeggere.length) (await db.getAll(...daLeggere)).filter((s) => s.exists).forEach((s) => perPercorso.set(s.ref.path, s));
+  return [...perPercorso.values()];
+}
+
 async function sceltaProfilo(uid, email) {
   const members = db.collectionGroup('members');
   const alive = (snap) => snap.docs.filter((d) => !d.data()._deleted);
   const perUid = alive(await members.where('uid', '==', uid).get());
   if (perUid.some((d) => permessi.membroAttivo(d.data()))) return piuVecchio(preferisciAttivi(perUid)).ref;
-  const perEmail = alive(await members.where('emailLower', '==', email).get());
+  const perEmail = (await profiliPerEmail(email)).filter((d) => !d.data()._deleted);
   // Uno libero (o già suo) e attivo: es. chi è uscito da un condominio ed è entrato in un altro.
   const liberi = perEmail.filter((d) => (!d.data().uid || d.data().uid === uid) && permessi.membroAttivo(d.data()));
   if (liberi.length) return piuVecchio(liberi).ref;
@@ -208,8 +228,7 @@ exports.verificaEmail = onCall(async (request) => {
   }
   const e = String(request.data?.email || '').trim().toLowerCase();
   if (!e || e.length > 200) return { altroCondominio: false };
-  const snap = await db.collectionGroup('members').where('emailLower', '==', e).get();
-  return { altroCondominio: snap.docs.some((d) => d.ref.parent.parent.id !== b && !d.data()._deleted && permessi.membroAttivo(d.data())) };
+  return { altroCondominio: (await profiliPerEmail(e)).some((d) => d.ref.parent.parent.id !== b && !d.data()._deleted && permessi.membroAttivo(d.data())) };
 });
 
 // Registro accessi (cm_login_stats), aggregato per utente e mese. Lo scrive
@@ -272,7 +291,7 @@ async function registraModifica(event) {
   const before = event.data?.before?.exists ? event.data.before.data() : null;
   const after = event.data?.after?.exists ? event.data.after.data() : null;
   const actor = after?._deletedBy && after?._deleted ? after._deletedBy : (after?._updatedBy ?? null);
-  if (actor === 'backfill' || actor === 'whoami-auto') return;
+  if (actor === 'backfill' || actor === 'whoami-auto' || actor === 'migrazione-contatti') return;
   // Scrittura di un ripristino da backup (vedi backup.js): non è un'azione
   // dell'ultimo autore del record.
   if (after?._restoredAt && stableStringify(after._restoredAt) !== stableStringify(before?._restoredAt)) return;

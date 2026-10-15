@@ -141,6 +141,59 @@ describe('UNIT — saldo e riporto (getSaldoRiporto)', () => {
   });
 });
 
+// Privacy (decisione del 2026-10-15): al salvataggio email e telefono vanno in
+// buildings/{b}/contatti/{id}, mai nel record del condomino (js/core/dati.js).
+describe('UNIT — contatti dei condomini separati al salvataggio', () => {
+  function conFirebase() {
+    const app = loadApp();
+    const scritte = [];
+    const doc = (_db, ...p) => ({ path: p.join('/'), id: p[p.length - 1] });
+    app._fb = { auth: { currentUser: { uid: 'u' } }, db: {}, doc, serverTimestamp: () => 'ORA', deleteField: () => 'TOGLI',
+      writeBatch: () => ({ set: (ref, data, opts) => scritte.push({ path: ref.path, data, merge: !!opts }), commit: async () => {} }),
+      getDoc: async () => ({ exists: () => false }) };
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1 });
+    return { app, scritte };
+  }
+  const anna = { id: 7, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, email: 'Anna@Esempio.it' };
+
+  it('nuovo condomino: due documenti, il condomino senza email, i contatti con emailLower', async () => {
+    const { app, scritte } = conFirebase();
+    app.setServerSnap('cm_condomini', []);
+    await app.saveRecords('cm_condomini', [anna]);
+    const m = scritte.find((s) => s.path === 'buildings/1/members/7');
+    const c = scritte.find((s) => s.path === 'buildings/1/contatti/7');
+    assert.ok(m && c, JSON.stringify(scritte.map((s) => s.path)));
+    assert.ok(!('email' in m.data) && !('emailLower' in m.data));
+    assert.deepStrictEqual([c.data.email, c.data.emailLower, c.data.nome, c.merge], ['Anna@Esempio.it', 'anna@esempio.it', undefined, false]);
+  });
+  it('cambio di nome: si scrive solo il condomino (e si tolgono i vecchi campi); cambio di email: solo i contatti', async () => {
+    const { app, scritte } = conFirebase();
+    app.setServerSnap('cm_condomini', [anna]);
+    app.__get('_contattiNoti').add('buildings/1/contatti/7');
+    await app.saveRecords('cm_condomini', [{ ...anna, nome: 'Anna R.' }]);
+    assert.deepStrictEqual(scritte.map((s) => s.path), ['buildings/1/members/7']);
+    assert.deepStrictEqual([scritte[0].data.email, scritte[0].data.emailLower, scritte[0].merge], ['TOGLI', 'TOGLI', true]);
+    scritte.length = 0;
+    app.setServerSnap('cm_condomini', [anna]);
+    await app.saveRecords('cm_condomini', [{ ...anna, email: '' }]);
+    assert.deepStrictEqual(scritte.map((s) => s.path), ['buildings/1/contatti/7']);
+    assert.deepStrictEqual([scritte[0].data.email, scritte[0].data.emailLower], ['TOGLI', null]);
+  });
+  it('record non ancora migrato: salvandolo l\'email passa nei contatti; cancellandolo non si perde', async () => {
+    const { app, scritte } = conFirebase();
+    app.setServerSnap('cm_condomini', [anna]);
+    await app.saveRecords('cm_condomini', [{ ...anna, nome: 'Anna R.' }]);
+    assert.deepStrictEqual(scritte.map((s) => s.path).sort(), ['buildings/1/contatti/7', 'buildings/1/members/7']);
+    assert.strictEqual(scritte.find((s) => s.path.includes('contatti')).data.email, 'Anna@Esempio.it');
+    scritte.length = 0;
+    const { app: app2, scritte: s2 } = conFirebase();
+    app2.setServerSnap('cm_condomini', [anna]);
+    await app2.saveRecords('cm_condomini', []);
+    const c = s2.find((s) => s.path === 'buildings/1/contatti/7');
+    assert.deepStrictEqual([c.data._deleted, c.data.email, s2.find((s) => s.path === 'buildings/1/members/7').data.email], [true, 'Anna@Esempio.it', 'TOGLI']);
+  });
+});
+
 describe('UNIT — segnalazione errori (reportClientError)', () => {
   it('non lancia mai eccezioni, anche senza Firebase o senza utente', () => {
     const app = loadApp();

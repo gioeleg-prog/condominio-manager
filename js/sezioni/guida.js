@@ -196,7 +196,8 @@ const GUIDA = {
     titolo: 'Condomini',
     breve: 'Le persone del condominio e cosa possono fare nell\'app.',
     trovi: [
-      'Gli appartamenti attivi, con email di accesso e ruolo.',
+      'Gli appartamenti attivi, con ruolo.',
+      ['mod', 'Anche l\'email di ciascuno (con cui accede e riceve le comunicazioni).'],
       'In fondo gli archiviati: persone che non accedono più, con i dati conservati.',
     ],
     fare: [
@@ -217,6 +218,7 @@ const GUIDA = {
       ['super', 'Le nomine fatte dagli amministratori compaiono in Impostazioni › Stato del servizio › Registro modifiche come "Nomina", con chi l\'ha fatta. Per chi ha già fatto il primo accesso, confermale scegliendo il ruolo dal menu della sua scheda utente in Impostazioni.'],
       ['admin', 'Un\'email vale per un solo condominio: se è già usata da una persona di un altro condominio, al salvataggio l\'app ti avvisa. Puoi salvare lo stesso (le email le riceverà), ma con quell\'email la persona continuerà a entrare nell\'altro condominio.'],
       'Eliminare definitivamente si può solo dall\'archivio: preferisci archiviare.',
+      'Privacy: email e telefoni dei condomini li vedono solo l\'amministratore e chi ha "Modifica". Gli altri condomini vedono solo nomi, appartamenti e quote.',
       'Chi viene archiviato, o arriva alla data di uscita, non entra più; chi passa a un ruolo più basso perde i permessi in più. Se in quel momento ha l\'app aperta, i vecchi permessi smettono di valere entro un\'ora.',
       'Le spese senza ripartizione si dividono tra chi abitava nel condominio alla data della spesa: chi è uscito non paga quelle successive, chi è entrato non paga quelle precedenti. Rendiconto, bilancio ed estratto conto di un anno includono anche chi c\'era solo per una parte dell\'anno.',
     ],

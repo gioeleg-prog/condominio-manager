@@ -7,6 +7,7 @@
 const path = require('path');
 const { seed } = require('./seed');
 const { backfill } = require('../scripts/lib/buildings-migration');
+const { separaContatti } = require('../scripts/lib/contatti-migration');
 const req = require('module').createRequire(path.join(__dirname, '..', 'functions', 'package.json'));
 const { getApps } = req('firebase-admin/app');
 const { getFirestore } = req('firebase-admin/firestore');
@@ -53,6 +54,7 @@ async function seedMultianno() {
     await ref.set({ value: JSON.stringify([...arr, ...extra]) });
   }
   await backfill(db);
+  await separaContatti(db);
 }
 
 // Totali attesi per l'edificio 1 (solo dati reali, come il saldo di cassa).

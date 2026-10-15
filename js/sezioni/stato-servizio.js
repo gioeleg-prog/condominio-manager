@@ -107,7 +107,7 @@ function opsWho(uid) {
   return c ? c.nome : (uid === 'whoami-auto' ? 'Sistema (primo accesso)' : 'Utente ' + String(uid).slice(0, 6) + '…');
 }
 
-const OPS_COLL = { expenses: 'Spesa', payments: 'Versamento', suppliers: 'Fornitore', members: 'Condomino',
+const OPS_COLL = { expenses: 'Spesa', payments: 'Versamento', suppliers: 'Fornitore', members: 'Condomino', contatti: 'Contatti del condomino',
   notices: 'Avviso', minutes: 'Verbale', works: 'Lavoro', resolutions: 'Delibera' };
 
 const OPS_TYPE = { 'record.created': 'Creato', 'record.updated': 'Modificato', 'record.deleted': 'Cancellato',
