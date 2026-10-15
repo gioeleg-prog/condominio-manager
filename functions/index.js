@@ -97,7 +97,10 @@ exports.whoami = onCall(async (request) => {
   const cfg = (await db.collection('appdata').doc('cm_config').get()).data() || {};
   const isSuperAdmin = request.auth.token.role === 'superAdmin'
     || (cfg.superAdminUid && cfg.superAdminUid === uid)
-    || (cfg.superAdminEmail && cfg.superAdminEmail.toLowerCase() === email);
+    // Per email solo se verificata (audit 2026-10-15): chi riuscisse a creare
+    // un account con quell'indirizzo senza possederlo non diventa superAdmin.
+    || (cfg.superAdminEmail && cfg.superAdminEmail.toLowerCase() === email
+        && request.auth.token.email_verified === true);
 
   if (isSuperAdmin) {
     if (!request.auth.token.role) {

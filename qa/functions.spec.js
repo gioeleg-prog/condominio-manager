@@ -146,6 +146,15 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.ok(!(await claimsOf('u-disabled')).role, 'il condomino disattivato ha ancora un ruolo');
       assert.strictEqual((await admin.doc('roles/u-disabled').get()).data().role, null);
     });
+    it('FT-AUTH-12 superAdmin per email (cm_config) solo con email verificata', async () => {
+      await admin.doc('appdata/cm_config').set({ superAdminUid: 'u-super', superAdminEmail: 'stranger@qa.test' });
+      await adminAuth().updateUser('u-stranger', { emailVerified: false });
+      assert.strictEqual((await (await as('stranger@qa.test')).call('whoami')).code, 'functions/not-found');
+      assert.ok(!(await claimsOf('u-stranger')).role, 'email non verificata promossa a superAdmin');
+      await adminAuth().updateUser('u-stranger', { emailVerified: true });
+      const r = await (await as('stranger@qa.test')).call('whoami');
+      assert.ok(r.ok && r.data.isSuperAdmin, r.message);
+    });
     it('FT-AUTH-11 condomino uscito (data di uscita passata): niente ruolo al primo accesso', async () => {
       await admin.doc('buildings/1/members/104').update({ dataUscita: '2000-01-01' });
       const r = await (await as('newbie@qa.test')).call('whoami');
