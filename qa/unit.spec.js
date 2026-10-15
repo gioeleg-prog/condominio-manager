@@ -12,8 +12,19 @@ describe('UNIT — utilità di formato e sicurezza', () => {
     assert.strictEqual(app.esc(null), '');
     assert.strictEqual(app.esc(false), '');
   });
-  it("esc() NON neutralizza l'apice singolo (attributi tra apici singoli restano esposti)", () => {
-    assert.strictEqual(app.esc("a'b"), "a'b");
+  it("esc() neutralizza anche l'apice singolo (audit 2026-10-15)", () => {
+    assert.strictEqual(app.esc("a'b"), 'a&#39;b');
+  });
+  it('allegati: un id con apici non esce dagli attributi data-* (audit 2026-10-15)', () => {
+    const id = "1' onmouseover='window.__xss=1' x='";
+    const a = { id, nome: "f'.pdf", mime: "application/x'<b>", size: 10 };
+    for (const html of [app.renderAllegatoItem(a), app.renderAllegatiClip({ allegati: [a] }), app.renderAllegatiChip({ allegati: [a] })]) {
+      assert.ok(!html.includes("'1'") && !/onmouseover='/.test(html) && !html.includes('<b>'), html);
+      // dataset decodifica le entità: il JSON torna quello originale
+      const attr = html.match(/data-view-allegato='([^']*)'/)[1];
+      const decoded = attr.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      assert.deepStrictEqual(JSON.parse(decoded), { id });
+    }
   });
   it('fmt() formatta in euro con due decimali e gestisce valori non numerici', () => {
     assert.match(app.fmt(1234.5), /^€ 1\.?234,50$/);
@@ -164,7 +175,7 @@ describe('UNIT — graffetta allegati accanto al titolo (renderAllegatiClip)', (
   });
   it('usa lo stesso data-view-allegato della colonna e fa l\'escape del nome del file', () => {
     const h = app.renderAllegatiClip({ allegati: [{ id: 7, nome: '"><img src=x onerror=alert(1)>\'.pdf' }] });
-    assert.ok(h.includes(`data-view-allegato='{"id":7}'`));
+    assert.ok(h.includes(`data-view-allegato='{&quot;id&quot;:7}'`));
     assert.ok(!h.includes('<img'), 'nome del file non escapato');
   });
 });

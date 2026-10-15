@@ -191,11 +191,23 @@ describe('appdata — modello attuale', () => {
     }
   });
 
-  it('un member PUÒ ancora leggere le chiavi necessarie all\'app (cm_edifici, cm_categorie, cm_edificio_attivo)', async () => {
+  it('un member PUÒ ancora leggere le chiavi necessarie all\'app (cm_categorie, cm_edificio_attivo, cm_branding)', async () => {
     const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    for (const k of ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo']) {
+    for (const k of ['cm_categorie', 'cm_edificio_attivo', 'cm_branding']) {
       await assertSucceeds(db.collection('appdata').doc(k).get());
     }
+  });
+
+  // Audit 2026-10-15: copia della migrazione con i dati di tutti i condomìni;
+  // l'app legge l'elenco edifici da buildings/**.
+  it('cm_edifici lo legge solo il superAdmin', async () => {
+    for (const [uid, role] of [['u_member', 'member'], ['u_admin', 'adminEdificio'], ['u_editor', 'editor']]) {
+      const db = testEnv.authenticatedContext(uid, { role, buildingId: 'b1' }).firestore();
+      await assertFails(db.collection('appdata').doc('cm_edifici').get());
+    }
+    await assertFails(testEnv.unauthenticatedContext().firestore().collection('appdata').doc('cm_edifici').get());
+    const superA = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertSucceeds(superA.collection('appdata').doc('cm_edifici').get());
   });
 
   it('QA PRIV-01/03: member e adminEdificio NON leggono cm_login_stats né cm_config, il superAdmin sì', async () => {
@@ -406,6 +418,63 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
       await assertFails(admin().doc('buildings/1/members/51').set(rec('u_admin', 51, { _createdBy: 'backfill', _createdAt: T0, uid: 'u_attaccante' })));
       await assertSucceeds(admin().doc('buildings/1/members/51').set(rec('u_admin', 51, { _createdBy: 'backfill', _createdAt: T0, uid: 'u_vero', nome: 'Nuovo nome' })));
       await assertSucceeds(superA().doc('buildings/1/members/52').set(rec('u_super', 52, { superAdmin: false, uid: 'u_x' })));
+    });
+  });
+
+  // Audit 2026-10-15
+  describe('allegati: forma di ogni elemento', () => {
+    const all = (extra = {}) => ({ id: 1700000000001, nome: 'fattura.pdf', mime: 'application/pdf', size: 10, storagePath: 'buildings/1/allegati/x', ...extra });
+    it('id numero o stringa semplice, nome e mime testuali: accettati', async () => {
+      await assertSucceeds(editor().doc('buildings/1/expenses/60').set(rec('u_editor', 60, { allegati: [all(), all({ id: 'a-12_3' })] })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/61').set(rec('u_editor', 61, { allegati: [] })));
+    });
+    it('id con apici o caratteri HTML, campi mancanti o di tipo sbagliato: rifiutati', async () => {
+      const no = async (a) => assertFails(editor().doc('buildings/1/expenses/62').set(rec('u_editor', 62, { allegati: [all(), a] })));
+      await no(all({ id: "1' onmouseover='alert(1)" }));
+      await no(all({ id: '1"><img src=x>' }));
+      await no(all({ id: '' }));
+      await no(all({ nome: 5 }));
+      await no(all({ mime: ['x'] }));
+      await no({ id: 2, nome: 'senza-mime' });
+      await no('non-un-oggetto');
+    });
+    it('controllo anche in fondo alla lista; più di 20 allegati rifiutati', async () => {
+      const tanti = Array.from({ length: 20 }, (_, i) => all({ id: i + 1 }));
+      await assertSucceeds(editor().doc('buildings/1/expenses/63').set(rec('u_editor', 63, { allegati: tanti })));
+      await assertFails(editor().doc('buildings/1/expenses/64').set(rec('u_editor', 64, { allegati: [...tanti.slice(0, 19), all({ id: "x'" })] })));
+      await assertFails(editor().doc('buildings/1/expenses/65').set(rec('u_editor', 65, { allegati: [...tanti, all({ id: 21 })] })));
+    });
+    it('allegati invariati non ricontrollati: si modifica un record vecchio con più di 20 allegati', async () => {
+      const vecchi = Array.from({ length: 25 }, (_, i) => all({ id: i + 1 }));
+      await seedDoc('buildings/1/expenses/67', { id: 67, edificioId: 1, _createdBy: 'backfill', _createdAt: T0, allegati: vecchi });
+      await assertSucceeds(editor().doc('buildings/1/expenses/67').set(rec('u_editor', 67, { _createdBy: 'backfill', _createdAt: T0, allegati: vecchi, titolo: 'Nuovo' })));
+    });
+    it('vale per tutte le collezioni con allegati, condomini compresi', async () => {
+      for (const c of ['minutes', 'resolutions', 'notices', 'works', 'members']) {
+        await assertFails(admin().doc(`buildings/1/${c}/66`).set(rec('u_admin', 66, { allegati: [all({ id: "'" })] })));
+      }
+    });
+  });
+
+  describe('_restoredAt: lo imposta solo il ripristino da backup', () => {
+    const T1 = firebase.firestore.Timestamp.fromMillis(1710000000000);
+    it('il client non lo imposta su un nuovo record né su uno esistente', async () => {
+      await assertFails(editor().doc('buildings/1/expenses/70').set(rec('u_editor', 70, { _restoredAt: T1 })));
+      await seedDoc('buildings/1/expenses/71', { id: 71, edificioId: 1, _createdBy: 'backfill', _createdAt: T0 });
+      await assertFails(editor().doc('buildings/1/expenses/71').set(rec('u_editor', 71, { _createdBy: 'backfill', _createdAt: T0, _restoredAt: T1 })));
+      await assertFails(admin().doc('buildings/1/members/71').set(rec('u_admin', 71, { _restoredAt: now() })));
+    });
+    it('su un record ripristinato il client lo conserva o lo toglie, ma non lo cambia', async () => {
+      const base = { _createdBy: 'backfill', _createdAt: T0 };
+      await seedDoc('buildings/1/expenses/72', { id: 72, edificioId: 1, ...base, _restoredAt: T1 });
+      await assertSucceeds(editor().doc('buildings/1/expenses/72').set(rec('u_editor', 72, { ...base, _restoredAt: T1, titolo: 'Modificata' })));
+      await assertFails(editor().doc('buildings/1/expenses/72').set(rec('u_editor', 72, { ...base, _restoredAt: now() })));
+      // modifica con fusione, come fa l'app: il campo resta quello del server
+      await assertSucceeds(editor().doc('buildings/1/expenses/72').set({ titolo: 'Fusione', _updatedBy: 'u_editor', _updatedAt: now() }, { merge: true }));
+      await assertSucceeds(editor().doc('buildings/1/expenses/72').set(rec('u_editor', 72, base)));
+    });
+    it('il superAdmin può ancora scriverlo', async () => {
+      await assertSucceeds(superA().doc('buildings/1/expenses/73').set(rec('u_super', 73, { _restoredAt: T1 })));
     });
   });
 });

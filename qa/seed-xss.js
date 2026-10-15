@@ -40,6 +40,13 @@ async function seedXss() {
   const d = JSON.parse((await del.get()).data().value);
   d[0].stato = PAYLOAD;
   await del.set({ value: JSON.stringify(d) });
+  // Allegato con id avvelenato (audit 2026-10-15): l'id finisce in attributi
+  // data-* tra apici singoli. Scritto qui, senza passare dalle regole che oggi
+  // lo rifiuterebbero, come un dato già presente nel database.
+  const sp = db.collection('appdata').doc('cm_spese');
+  const s = JSON.parse((await sp.get()).data().value);
+  s[0].allegati = [{ id: '1' + PAYLOAD, nome: 'fattura.pdf' + PAYLOAD, mime: 'application/pdf' + PAYLOAD, size: 10, storagePath: 'buildings/1/allegati/x.pdf' }];
+  await sp.set({ value: JSON.stringify(s) });
   // Categoria personalizzata e registro accessi.
   await db.collection('appdata').doc('cm_categorie').set({ value: JSON.stringify([
     { id: 'pulizie', label: 'Pulizie' + PAYLOAD, tipo: 'ordinaria', icon: '🧹' + PAYLOAD },

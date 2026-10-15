@@ -52,6 +52,28 @@ function isText(v) {
 function isList(v) {
   return v == null || v is list;
 }
+// Un allegato (js/sezioni/allegati.js): id (numero o testo) senza apici né
+// caratteri HTML, nome e tipo testuali. L'id finisce in attributi HTML: audit
+// 2026-10-15, un id con un apice permetteva di iniettare codice nella pagina.
+function validAllegato(a) {
+  return a.nome is string && a.mime is string && string(a.id).matches("[^'\"<>&]{1,100}");
+}
+// Le regole non hanno cicli: si controllano uno per uno gli elementi, fino a
+// 20 (di più supererebbe il limite di 1000 espressioni per richiesta); una
+// lista più lunga è rifiutata.
+function validAllegati(l) {
+  return l == null || (l is list && l.size() <= 20
+    && (l.size() <= 0 || validAllegato(l[0])) && (l.size() <= 1 || validAllegato(l[1]))
+    && (l.size() <= 2 || validAllegato(l[2])) && (l.size() <= 3 || validAllegato(l[3]))
+    && (l.size() <= 4 || validAllegato(l[4])) && (l.size() <= 5 || validAllegato(l[5]))
+    && (l.size() <= 6 || validAllegato(l[6])) && (l.size() <= 7 || validAllegato(l[7]))
+    && (l.size() <= 8 || validAllegato(l[8])) && (l.size() <= 9 || validAllegato(l[9]))
+    && (l.size() <= 10 || validAllegato(l[10])) && (l.size() <= 11 || validAllegato(l[11]))
+    && (l.size() <= 12 || validAllegato(l[12])) && (l.size() <= 13 || validAllegato(l[13]))
+    && (l.size() <= 14 || validAllegato(l[14])) && (l.size() <= 15 || validAllegato(l[15]))
+    && (l.size() <= 16 || validAllegato(l[16])) && (l.size() <= 17 || validAllegato(l[17]))
+    && (l.size() <= 18 || validAllegato(l[18])) && (l.size() <= 19 || validAllegato(l[19])));
+}
 // Forma e firma di ogni record scritto dal client (vedi match /buildings).
 function validRecord(b, docId) {
   let d = request.resource.data;
@@ -66,7 +88,15 @@ function validRecord(b, docId) {
     && d.get('_deleted', false) is bool
     && (d.get('_deleted', false) == false || d.get('_deletedBy', null) == request.auth.uid
           || (resource != null && resource.data.get('_deleted', false) == true))
-    && isList(d.get('allegati', null)) && isList(d.get('split', null))
+    // _restoredAt lo scrive solo il ripristino da backup (functions/backup.js,
+    // Admin SDK) e fa saltare il registro modifiche a auditTrail: il client
+    // può solo conservarlo o toglierlo, mai impostarlo o cambiarlo.
+    && (isSuperAdmin() || d.get('_restoredAt', null) == null
+          || (resource != null && d.get('_restoredAt', null) == resource.data.get('_restoredAt', null)))
+    // allegati: controllati solo se cambiano (ogni elemento costa espressioni)
+    && ((resource != null && d.get('allegati', null) == resource.data.get('allegati', null))
+          || validAllegati(d.get('allegati', null)))
+    && isList(d.get('split', null))
     && isList(d.get('argomenti', null)) && isList(d.get('decisioni', null))
     && isList(d.get('storicoAggiornamenti', null))
     && isText(d.get('titolo', null)) && isText(d.get('nome', null)) && isText(d.get('testo', null))
@@ -100,11 +130,13 @@ service cloud.firestore {
       // edifici) e cm_config (email del superAdmin) passano al gruppo
       // superAdmin-only: il registro lo scrive la Cloud Function whoami e lo
       // mostra solo il superAdmin; cm_config serve solo a whoami (Admin SDK).
+      // Audit 2026-10-15: anche cm_edifici (copia della migrazione con i dati
+      // di tutti i condomìni): l'app legge l'elenco edifici da buildings/**.
       allow read: if key in ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_delibere',
                              'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_condomini',
-                             'cm_login_stats', 'cm_config']
+                             'cm_login_stats', 'cm_config', 'cm_edifici']
                    ? isSuperAdmin()
-                   : (isSignedIn() && key in ['cm_edifici', 'cm_categorie', 'cm_edificio_attivo', 'cm_branding']);
+                   : (isSignedIn() && key in ['cm_categorie', 'cm_edificio_attivo', 'cm_branding']);
       // P0 urgente: le chiavi per edificio (spese/entrate/fornitori/condomini/
       // bacheca/verbali/lavori/delibere) sono negate in scrittura diretta a
       // chiunque non sia superAdmin — un adminEdificio/editor che scriveva qui

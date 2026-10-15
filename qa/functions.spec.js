@@ -9,8 +9,9 @@ const { initializeApp, deleteApp } = require('firebase/app');
 const { getAuth, connectAuthEmulator, signInWithEmailAndPassword } = require('firebase/auth');
 const fs = require('firebase/firestore');
 const { getFunctions, connectFunctionsEmulator, httpsCallable } = require('firebase/functions');
-const { adminDb, getStorage } = require('../scripts/lib/firebase-admin');
-const backupLib = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'))('./backup');
+const { adminDb, getStorage, getAuth: adminAuth } = require('../scripts/lib/firebase-admin');
+const fnReq = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'));
+const backupLib = fnReq('./backup');
 const { backfill, verify, markCutover } = require('../scripts/lib/buildings-migration');
 
 const admin = adminDb(PROJECT);
@@ -53,6 +54,7 @@ const waitFor = async (fn, ms = 8000) => {
   while (Date.now() < end) { const v = await fn(); if (v) return v; await new Promise((r) => setTimeout(r, 200)); }
   return null;
 };
+const claimsOf = async (uid) => (await adminAuth().getUser(uid)).customClaims || {};
 const auditOf = async (recordId) => (await admin.collection('auditEvents').where('recordId', '==', String(recordId)).get()).docs.map((d) => d.data());
 
 describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
@@ -138,9 +140,28 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     it('FT-AUTH-07 chiamata non autenticata → unauthenticated', async () => {
       assert.strictEqual((await anonCall('whoami')).code, 'functions/unauthenticated');
     });
-    it('FT-AUTH-08 profilo disabilitato restituito con disabled:true (il client lo blocca)', async () => {
+    it('FT-AUTH-08 profilo disabilitato restituito con disabled:true (il client lo blocca) e senza più permessi', async () => {
       const r = await (await as('disabled@qa.test')).call('whoami');
       assert.ok(r.ok && r.data.profile.disabled === true);
+      assert.ok(!(await claimsOf('u-disabled')).role, 'il condomino disattivato ha ancora un ruolo');
+      assert.strictEqual((await admin.doc('roles/u-disabled').get()).data().role, null);
+    });
+    it('FT-AUTH-12 superAdmin per email (cm_config) solo con email verificata', async () => {
+      await admin.doc('appdata/cm_config').set({ superAdminUid: 'u-super', superAdminEmail: 'stranger@qa.test' });
+      await adminAuth().updateUser('u-stranger', { emailVerified: false });
+      assert.strictEqual((await (await as('stranger@qa.test')).call('whoami')).code, 'functions/not-found');
+      assert.ok(!(await claimsOf('u-stranger')).role, 'email non verificata promossa a superAdmin');
+      await adminAuth().updateUser('u-stranger', { emailVerified: true });
+      const r = await (await as('stranger@qa.test')).call('whoami');
+      assert.ok(r.ok && r.data.isSuperAdmin, r.message);
+    });
+    it('FT-AUTH-11 condomino uscito (data di uscita passata): niente ruolo al primo accesso', async () => {
+      await admin.doc('buildings/1/members/104').update({ dataUscita: '2000-01-01' });
+      const r = await (await as('newbie@qa.test')).call('whoami');
+      assert.ok(r.ok && r.data.profile.disabled === true, r.message);
+      assert.ok(!(await claimsOf('u-newbie')).role);
+      const stats = JSON.parse((await admin.collection('appdata').doc('cm_login_stats').get()).data().value);
+      assert.ok(!stats['104'], 'accesso registrato per un condomino uscito');
     });
     it('FT-AUTH-09 ogni accesso viene registrato lato server', async () => {
       const u = await as('member1@qa.test');
@@ -210,15 +231,17 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
   });
 
   describe('auditTrail — registro delle modifiche', () => {
-    it('AUD-01 creazione, modifica e cancellazione con autore e valori prima/dopo', async () => {
+    it('AUD-01 creazione, modifica e cancellazione con autore e valori prima/dopo', async function () {
+      this.timeout(90000);
       const ed = await as('editor1@qa.test');
       const ref = fs.doc(ed.db, 'buildings/1/expenses/1500');
       await fs.setDoc(ref, signed(ed, { id: 1500, titolo: 'Ascensore', consuntivo: '100', edificioId: 1 }));
       const created = (await fs.getDoc(ref)).data();
       await fs.setDoc(ref, signed(ed, { id: 1500, titolo: 'Ascensore', consuntivo: '120', edificioId: 1 }, created));
       await fs.setDoc(ref, { ...signed(ed, { id: 1500, titolo: 'Ascensore', consuntivo: '120', edificioId: 1 }, created), _deleted: true, _deletedBy: ed.uid });
-      // Attesa lunga: nella suite completa i reset precedenti accodano molti trigger.
-      const evs = await waitFor(async () => { const e = await auditOf(1500); return e.length >= 3 ? e : null; }, 30000);
+      // Attesa lunga: nella suite completa i reset precedenti accodano molti trigger
+      // (sul primo test del gruppo l'attesa supera già i 25 secondi).
+      const evs = await waitFor(async () => { const e = await auditOf(1500); return e.length >= 3 ? e : null; }, 75000);
       assert.ok(evs, 'eventi di audit non registrati');
       const byType = Object.fromEntries(evs.map((e) => [e.type, e]));
       assert.strictEqual(byType['record.created'].actorUid, 'u-editor1');
@@ -235,7 +258,8 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     });
     it('AUD-02 la migrazione non genera eventi', async () => {
       await new Promise((r) => setTimeout(r, 1500));
-      assert.strictEqual((await admin.collection('auditEvents').where('actorUid', '==', 'backfill').get()).size, 0);
+      // (gli eventi role.* sono permessi tolti al condomino già disattivato del seed)
+      assert.strictEqual((await admin.collection('auditEvents').where('actorUid', '==', 'backfill').get()).docs.filter((d) => d.data().type.startsWith('record.')).length, 0);
       // (il reset degli emulatori tra un test e l'altro genera eventi 'purged', esclusi)
       assert.strictEqual((await auditOf(1001)).filter((e) => e.type !== 'record.purged').length, 0);
     });
@@ -319,6 +343,75 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     it('FT-ROLE-03 edificio inesistente → invalid-argument', async () => {
       const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'member', buildingId: '99' });
       assert.strictEqual(r.code, 'functions/invalid-argument');
+    });
+  });
+
+  // Audit 2026-10-15: cambiare il record di un condomino allinea i permessi del
+  // suo account (functions/permessi.js), ma solo verso il basso.
+  describe('permessi dei condomini archiviati o declassati', () => {
+    // permessi.js carica notifiche.js: nessuna email reale (come negli altri test)
+    const permessi = () => { process.env.FUNCTIONS_EMULATOR = 'true'; return fnReq('./permessi')._test; };
+    const modifica = async (a, id, cambi) => {
+      const ref = fs.doc(a.db, `buildings/1/members/${id}`);
+      const prev = (await fs.getDoc(ref)).data();
+      await fs.setDoc(ref, signed(a, { ...prev, ...cambi }, prev));
+    };
+    it('PERM-01 archiviato dall\'amministratore: permessi tolti, token revocati, traccia nel registro', async () => {
+      const a = await as('admin1@qa.test');
+      const prima = (await adminAuth().getUser('u-member1')).tokensValidAfterTime;
+      // tokensValidAfterTime ha la precisione del secondo: senza attesa, su una
+      // macchina veloce la revoca può cadere nello stesso secondo del seed.
+      await new Promise((r) => setTimeout(r, 1100));
+      await modifica(a, 103, { disabled: true, dataUscita: '2026-01-01' });
+      assert.ok(await waitFor(async () => !(await claimsOf('u-member1')).role, 30000), 'permessi non tolti');
+      assert.strictEqual((await admin.doc('roles/u-member1').get()).data().role, null);
+      assert.notStrictEqual((await adminAuth().getUser('u-member1')).tokensValidAfterTime, prima, 'token non revocati');
+      const ev = await waitFor(async () => (await admin.collection('auditEvents').where('targetUid', '==', 'u-member1').get()).docs[0]?.data());
+      assert.deepStrictEqual([ev.type, ev.previousRole, ev.actorUid], ['role.revoked', 'member', 'u-admin1']);
+    });
+    it('PERM-02 tolto "Modifica" a un editor: diventa member dello stesso edificio', async () => {
+      await modifica(await as('admin1@qa.test'), 102, { canEdit: false });
+      const c = await waitFor(async () => { const x = await claimsOf('u-editor1'); return x.role === 'member' ? x : null; }, 30000);
+      assert.deepStrictEqual(c, { role: 'member', buildingId: '1' });
+    });
+    it('PERM-03 nessun aumento di permessi dal record: un admin che segna "isAdmin" non promuove', async () => {
+      const a = await as('admin1@qa.test');
+      await modifica(a, 103, { isAdmin: true, canEdit: true });
+      await modifica(a, 103, { nome: 'Marta M.' }); // seconda scrittura: quando arriva il suo trigger, il primo è passato
+      await new Promise((r) => setTimeout(r, 4000));
+      assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'member', buildingId: '1' });
+    });
+    it('PERM-04 non tocca il superAdmin né chi ha i permessi di un altro edificio', async () => {
+      const { riduciPermessi } = permessi();
+      assert.strictEqual(await riduciPermessi('u-super', '1', null, 'test'), false);
+      assert.strictEqual(await riduciPermessi('u-member2', '1', null, 'test'), false);
+      assert.deepStrictEqual(await claimsOf('u-member2'), { role: 'member', buildingId: '2' });
+      assert.strictEqual((await claimsOf('u-super')).role, 'superAdmin');
+    });
+    it('PERM-05 controllo notturno: chi arriva alla data di uscita perde i permessi', async () => {
+      await admin.doc('buildings/1/members/103').update({ dataUscita: '2999-01-01' });
+      await new Promise((r) => setTimeout(r, 2000));
+      assert.strictEqual((await claimsOf('u-member1')).role, 'member', 'uscita futura: permessi ancora validi');
+      const { revocaUsciti } = permessi();
+      assert.ok(await revocaUsciti('2999-01-01') >= 1);
+      assert.ok(!(await claimsOf('u-member1')).role);
+      assert.strictEqual((await claimsOf('u-admin1')).role, 'adminEdificio');
+    });
+    // Non regressione: l'uso normale non deve togliere permessi né scollegare nessuno.
+    it('PERM-06 modifica qualunque di un condomino attivo: stessi permessi, nessuna revoca dei token', async () => {
+      const prima = (await adminAuth().getUser('u-editor1')).tokensValidAfterTime;
+      await modifica(await as('admin1@qa.test'), 102, { telefono: '333 1234567', note: 'nuovo numero' });
+      await new Promise((r) => setTimeout(r, 4000));
+      assert.deepStrictEqual(await claimsOf('u-editor1'), { role: 'editor', buildingId: '1' });
+      assert.strictEqual((await adminAuth().getUser('u-editor1')).tokensValidAfterTime, prima, 'token revocati senza motivo');
+    });
+    it('PERM-07 promozione dall\'app (setUserRole, poi record salvato): il permesso nuovo resta', async () => {
+      const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });
+      assert.ok(r.ok, r.message);
+      await modifica(await as('superadmin@qa.test'), 103, { canEdit: true });
+      await modifica(await as('admin1@qa.test'), 103, { nome: 'Marta M.' }); // scrittura successiva qualunque
+      await new Promise((r) => setTimeout(r, 4000));
+      assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'editor', buildingId: '1' });
     });
   });
 
