@@ -386,7 +386,7 @@ function bindWizard() {
     if (step > 1) setState({wizardStep: step - 1});
   };
 
-  wNext.onclick = () => {
+  wNext.onclick = async () => {
     const step = state.wizardStep || 1;
     const wd   = state.wizardData || {};
     const showErr = (id, msg) => {
@@ -406,6 +406,7 @@ function bindWizard() {
       if (!nome || !apt) { showErr('wiz-err1','Nome e appartamento sono obbligatori'); return; }
       const edificioSel = parseInt(document.getElementById('wiz-edificio')?.value)||state.edificioAttivo;
       const usernameSel = (document.getElementById('wiz-username')?.value || '').trim().replace(/\s+/g, ' ').slice(0, 40); // nickname, testo libero
+      if (email && email.toLowerCase() !== String(wd.email || '').toLowerCase() && !await emailUsabileQui(email, edificioSel)) return;
       state.wizardData = {...wd, nome, appartamento:apt, email, edificioId:edificioSel, username:usernameSel};
       setState({wizardStep: 2});
 
@@ -604,8 +605,26 @@ function bindSchedaCondomini() {
   bindWizard();
 }
 
+// Decisione del 2026-10-15: un'email vale per un solo condominio. Se è già in
+// un profilo attivo di un altro condominio (functions/index.js, verificaEmail)
+// la persona continua a entrare in quello: l'amministratore viene avvisato e
+// sceglie se salvare lo stesso (l'email serve comunque per le notifiche).
+// Se la verifica non riesce non blocca il salvataggio.
+async function emailUsabileQui(email, edificioId) {
+  if (!email || !window._fb?.httpsCallable) return true;
+  try {
+    const { functionsInstance, httpsCallable } = window._fb;
+    const r = (await httpsCallable(functionsInstance, 'verificaEmail')({ buildingId: String(edificioId), email })).data || {};
+    if (!r.altroCondominio) return true;
+  } catch (e) { return true; }
+  return chiedi('Questa email è già usata da un condomino di un altro condominio gestito con l\'app.\n\n'
+    + 'Una persona può accedere a un solo condominio: con questa email continuerà a entrare nell\'altro, non in questo. '
+    + 'L\'email servirà comunque per mandarle avvisi, verbali e promemoria.\n\nSalvare lo stesso?',
+    { titolo: 'Email già usata in un altro condominio', conferma: 'Salva lo stesso' });
+}
+
 // Salvataggio della scheda condomino (nuovo o modificato, con controllo sullo spostamento di edificio). Chiamata da saveModal() (schede.js).
-function salvaSchedaCondomino(m) {
+async function salvaSchedaCondomino(m) {
     const nome = document.getElementById('m-nome')?.value?.trim();
     const apt = document.getElementById('m-apt')?.value?.trim();
     const email = document.getElementById('m-email')?.value?.trim();
@@ -619,6 +638,8 @@ function salvaSchedaCondomino(m) {
     const campoUscita = document.getElementById('m-uscita');
     const dataUscita = campoUscita ? campoUscita.value || '' : undefined;
     if (dataIngresso && dataUscita && dataUscita <= dataIngresso) { avvisa('La data di uscita deve venire dopo quella di ingresso.'); return; }
+    const emailPrima = m.data?.id ? String(state.condomini.find(c => c.id === m.data.id)?.email || '') : '';
+    if (email && email.toLowerCase() !== emailPrima.toLowerCase() && !await emailUsabileQui(email, edificioId)) return;
     const date = { dataIngresso, ...(dataUscita !== undefined ? { dataUscita } : {}),
       emailNotifiche: document.getElementById('m-email-notifiche') ? document.getElementById('m-email-notifiche').checked : true };
     let condomini;
@@ -728,7 +749,7 @@ function renderModalSubentro(d) {
 function bindSchedaSubentro() {
   const b = document.getElementById('btn-sub-conferma');
   if (!b || state.modal?.type !== 'subentro' || !canUserAdmin(state.user)) return;
-  b.onclick = () => {
+  b.onclick = async () => {
     const err = (t) => { const e = document.getElementById('sub-err'); e.textContent = t; e.style.display = 'block'; };
     if (!canUserAdmin(state.user)) return err('Solo l\'amministratore può registrare un subentro.');
     const vecchio = state.condomini.find(c => c.id === Number(b.dataset.cond));
@@ -742,6 +763,7 @@ function bindSchedaSubentro() {
     const { inizio } = periodoCondomino(vecchio);
     if (inizio && data <= inizio) return err('La data del subentro deve venire dopo l\'ingresso di ' + vecchio.nome + ' (' + dataPdf(inizio) + ').');
     const edificioId = vecchio.edificioId || state.edificioAttivo;
+    if (email && !await emailUsabileQui(email, edificioId)) return;
     const nuovo = { id: newId(), nome, appartamento: vecchio.appartamento || '', email, username: '', canEdit: ruolo === 'modifica', isAdmin: false, superAdmin: false,
       edificioId, color: COLORS[state.condomini.length % COLORS.length], dataIngresso: data };
     const condomini = [...state.condomini.map(c => c.id === vecchio.id

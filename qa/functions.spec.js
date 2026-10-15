@@ -131,8 +131,49 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     it('FT-AUTH-04 account senza profilo → not-found', async () => {
       assert.strictEqual((await (await as('stranger@qa.test')).call('whoami')).code, 'functions/not-found');
     });
-    it('FT-AUTH-05 email presente in due edifici → rifiuto esplicito', async () => {
+    // Decisione del 2026-10-15: un'email vale per un solo condominio, quello che l'ha inserita per primo.
+    it('FT-AUTH-05 email presente in due condomini: vale il profilo inserito per primo, l\'altro resta libero', async () => {
+      await admin.doc('buildings/2/members/203').update({ _createdAt: new Date('2025-01-01T10:00:00Z') });
+      await admin.doc('buildings/1/members/105').update({ _createdAt: new Date('2026-01-01T10:00:00Z') });
+      const u = await as('dup@qa.test');
+      const r = await u.call('whoami');
+      assert.ok(r.ok, r.message);
+      assert.strictEqual(r.data.profile.id, 203);
+      assert.strictEqual((await admin.doc('buildings/2/members/203').get()).data().uid, 'u-dup');
+      assert.ok(!(await admin.doc('buildings/1/members/105').get()).data().uid, 'collegato anche il profilo inserito dopo');
+      await u.user.getIdToken(true);
+      assert.strictEqual((await u.user.getIdTokenResult()).claims.buildingId, '2');
+    });
+    it('FT-AUTH-05b due profili con la stessa email inseriti nello stesso istante → rifiuto esplicito', async () => {
+      const t = new Date('2026-01-01T10:00:00Z');
+      await admin.doc('buildings/2/members/203').update({ _createdAt: t });
+      await admin.doc('buildings/1/members/105').update({ _createdAt: t });
       assert.strictEqual((await (await as('dup@qa.test')).call('whoami')).code, 'functions/failed-precondition');
+    });
+    it('FT-AUTH-13 uscito da un condominio ed entrato in un altro con la stessa email: entra nel nuovo', async () => {
+      await admin.doc('buildings/2/members/202').update({ disabled: true, _updatedBy: 'u-admin2' });
+      assert.ok(await waitFor(async () => !(await claimsOf('u-member2')).role, 30000), 'permessi del vecchio condominio non tolti');
+      await admin.doc('buildings/1/members/108').set({ id: 108, nome: 'Bice Member2', appartamento: 'Int. 8', email: 'member2@qa.test', emailLower: 'member2@qa.test',
+        edificioId: 1, canEdit: false, isAdmin: false, superAdmin: false, _createdAt: new Date(), _createdBy: 'u-admin1', _updatedBy: 'u-admin1', _updatedAt: new Date(), _deleted: false });
+      const u = await as('member2@qa.test');
+      const r = await u.call('whoami');
+      assert.ok(r.ok && !r.data.profile.disabled, r.message);
+      assert.strictEqual(r.data.profile.id, 108);
+      await u.user.getIdToken(true);
+      assert.deepStrictEqual([(await u.user.getIdTokenResult()).claims.role, (await u.user.getIdTokenResult()).claims.buildingId], ['member', '1']);
+    });
+    it('FT-AUTH-14 verificaEmail: avvisa l\'amministratore se l\'email è già in un altro condominio, senza dire quale', async () => {
+      const a = await as('admin1@qa.test');
+      const altro = await a.call('verificaEmail', { buildingId: '1', email: 'Member2@QA.test' });
+      assert.ok(altro.ok, altro.message);
+      assert.deepStrictEqual(altro.data, { altroCondominio: true });
+      assert.deepStrictEqual((await a.call('verificaEmail', { buildingId: '1', email: 'member1@qa.test' })).data, { altroCondominio: false });
+      assert.deepStrictEqual((await a.call('verificaEmail', { buildingId: '1', email: 'nessuno@qa.test' })).data, { altroCondominio: false });
+      // un profilo archiviato nell'altro condominio non conta
+      await admin.doc('buildings/2/members/202').update({ disabled: true });
+      assert.deepStrictEqual((await a.call('verificaEmail', { buildingId: '1', email: 'member2@qa.test' })).data, { altroCondominio: false });
+      assert.strictEqual((await a.call('verificaEmail', { buildingId: '2', email: 'admin2@qa.test' })).code, 'functions/permission-denied');
+      assert.strictEqual((await (await as('member1@qa.test')).call('verificaEmail', { buildingId: '1', email: 'x@qa.test' })).code, 'functions/permission-denied');
     });
     it('FT-AUTH-06 profilo già collegato a un altro account → already-exists', async () => {
       assert.strictEqual((await (await as('hijack@qa.test')).call('whoami')).code, 'functions/already-exists');
@@ -262,6 +303,20 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.strictEqual((await admin.collection('auditEvents').where('actorUid', '==', 'backfill').get()).docs.filter((d) => d.data().type.startsWith('record.')).length, 0);
       // (il reset degli emulatori tra un test e l'altro genera eventi 'purged', esclusi)
       assert.strictEqual((await auditOf(1001)).filter((e) => e.type !== 'record.purged').length, 0);
+    });
+    it('AUD-05 un amministratore che nomina un altro amministratore lascia una voce "Nomina" con il suo nome', async () => {
+      const a = await as('admin1@qa.test');
+      const ref = fs.doc(a.db, 'buildings/1/members/103');
+      const prev = (await fs.getDoc(ref)).data();
+      await fs.setDoc(ref, signed(a, { ...prev, isAdmin: true, canEdit: true }, prev));
+      const ev = await waitFor(async () => (await admin.collection('auditEvents').where('type', '==', 'role.nominated').get()).docs[0]?.data(), 30000);
+      assert.ok(ev, 'nomina non registrata');
+      assert.deepStrictEqual([ev.recordId, ev.titolo, ev.role, ev.previousRole, ev.actorUid, ev.buildingId], ['103', 'Marta Member', 'adminEdificio', 'member', 'u-admin1', '1']);
+      // togliere il ruolo non è una nomina
+      const dopo = (await fs.getDoc(ref)).data();
+      await fs.setDoc(ref, signed(a, { ...dopo, isAdmin: false, canEdit: false }, dopo));
+      await new Promise((r) => setTimeout(r, 3000));
+      assert.strictEqual((await admin.collection('auditEvents').where('type', '==', 'role.nominated').get()).size, 1);
     });
     it('AUD-03 il registro non è leggibile né scrivibile da un adminEdificio', async () => {
       const a = await as('admin1@qa.test');
@@ -515,6 +570,32 @@ describe('INTEGRAZIONE — email ai condomini', function () {
     assert.deepStrictEqual(tipi, ['estratti', 'promemoria']);
   });
 
+  // Limiti (functions/limiti.js): 5 invii all'ora e 50 destinatari in 24 ore per condominio.
+  it("limiti: al sesto invio dell'ora errore chiaro all'app e voce \"bloccata\" nello storico; l'altro condominio non è toccato", async () => {
+    const a = await as('admin1@qa.test');
+    const rend = (u, b) => u.call('inviaEmail', { tipo: 'rendiconto', buildingId: b, destinatari: [101], allegato: { nome: 'R.pdf', base64: PDF } });
+    for (let i = 0; i < 5; i++) assert.ok((await rend(a, '1')).ok, 'invio ' + (i + 1));
+    assert.deepStrictEqual((await a.call('inviaEmail', { tipo: 'verifica', buildingId: '1', n: 1 })).data.ok, false);
+    const sesto = await rend(a, '1');
+    assert.strictEqual(sesto.code, 'functions/resource-exhausted');
+    assert.match(sesto.message, /Limite di invii raggiunto per questo condominio \(5 all'ora\): riprova tra (59|60) minuti/);
+    const bloccate = (await invii()).filter((v) => v.stato === 'bloccata');
+    assert.strictEqual(bloccate.length, 1);
+    assert.match(bloccate[0].errore, /5 all'ora/);
+    const r2 = await rend(await as('admin2@qa.test'), '2');
+    assert.ok(r2.ok, r2.message);
+  });
+
+  it('limiti: avviso oltre i 50 destinatari del giorno non parte e resta "bloccata"; il codice scelto dal client non decide l\'invio', async () => {
+    const a = await as('admin1@qa.test');
+    await admin.doc('limitiEmail/1').set({ voci: [{ t: Date.now() - 3600e3 * 2, n: 49, orario: true }] });
+    await scrivi(a, 'notices', avviso(9010, { notificaEmail: 'stesso', notificaDestinatari: [101, 103] }));
+    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; });
+    assert.strictEqual(v.stato, 'bloccata');
+    assert.match(v.errore, /50 destinatari in 24 ore, già usati 49\): riprova tra circa 22 ore/);
+    assert.ok(!v.id.includes('stesso'), 'id dello storico preso dal codice del client: ' + v.id);
+  });
+
   it("storico: lo legge l'amministratore, non un condomino", async () => {
     await admin.doc('buildings/1/invii/x').set({ tipo: 'avviso', buildingId: '1' });
     assert.ok(!(await denied(fs.getDocs(fs.collection((await as('admin1@qa.test')).db, 'buildings/1/invii')))));
@@ -678,6 +759,46 @@ describe('INTEGRAZIONE — avvisi automatici al Super Admin', function () {
 
 // Copia del backup su Google Drive (functions/drive.js): regole di conservazione e
 // comportamento senza autorizzazione. Il caricamento vero si prova in produzione.
+describe('UNITÀ — limiti alle email', function () {
+  const { _test: { valuta }, LIMITI } = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'))('./limiti');
+  const ORA = 3600e3, ora = Date.parse('2026-10-15T12:00:00Z');
+  const voci = (...l) => l.map(([minFa, n, orario = true]) => ({ t: ora - minFa * 60e3, n, orario }));
+
+  it('limiti scelti il 2026-10-15', () => {
+    assert.deepStrictEqual(LIMITI, { inviiOra: 5, destinatariGiorno: 50, casellaGiorno: 400 });
+  });
+  it("5 invii nell'ultima ora: il sesto aspetta che esca il più vecchio; i promemoria automatici non contano", () => {
+    const cinque = voci([50, 1], [40, 1], [30, 1], [20, 1], [10, 1]);
+    const r = valuta(cinque, [], 1, {}, ora);
+    assert.strictEqual(r.ok, false);
+    assert.match(r.messaggio, /riprova tra 10 minuti/);
+    assert.ok(valuta(voci([50, 1, false], [40, 1, false], [30, 1, false], [20, 1, false], [10, 1, false]), [], 1, {}, ora).ok);
+    assert.ok(valuta(cinque, [], 1, { orario: false }, ora).ok, 'promemoria automatico bloccato dal limite orario');
+    assert.ok(valuta(voci([70, 1], [40, 1], [30, 1], [20, 1], [10, 1]), [], 1, {}, ora).ok, 'invio di più di un\'ora fa contato');
+  });
+  it('50 destinatari in 24 ore, finestra mobile', () => {
+    const r = valuta(voci([23 * 60, 30], [60 * 2, 15]), [], 10, {}, ora);
+    assert.strictEqual(r.ok, false);
+    assert.match(r.messaggio, /già usati 45\): riprova tra (59|60) minuti/);
+    assert.ok(valuta(voci([23 * 60, 30], [60 * 2, 15]), [], 5, {}, ora).ok);
+    assert.ok(valuta(voci([25 * 60, 50]), [], 50, {}, ora).ok, 'invio di più di 24 ore fa contato');
+    assert.match(valuta([], [], 51, {}, ora).messaggio, /Troppi destinatari in un solo invio/);
+  });
+  it('casella: 400 destinatari in 24 ore per tutti i condomini insieme', () => {
+    const r = valuta([], voci([60, 395]), 10, {}, ora);
+    assert.strictEqual(r.ok, false);
+    assert.match(r.messaggio, /casella delle notifiche/);
+    const ok = valuta([], voci([60, 390]), 10, {}, ora);
+    assert.ok(ok.ok);
+    assert.strictEqual(ok.casella.length, 2);
+    assert.strictEqual(ok.edificio.length, 1);
+  });
+  it('le voci più vecchie di 24 ore vengono tolte', () => {
+    const r = valuta(voci([25 * 60, 10], [60, 1]), voci([25 * 60, 10]), 1, {}, ora);
+    assert.deepStrictEqual([r.edificio.length, r.casella.length], [2, 1]);
+  });
+});
+
 describe('UNITÀ — copia del backup su Google Drive', function () {
   const drive = require('module').createRequire(require('path').join(__dirname, '..', 'functions', 'package.json'))('./drive');
   const nome = (d) => `condominio-${d}.json.gz`;

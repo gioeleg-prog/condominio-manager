@@ -112,7 +112,11 @@ const OPS_COLL = { expenses: 'Spesa', payments: 'Versamento', suppliers: 'Fornit
 
 const OPS_TYPE = { 'record.created': 'Creato', 'record.updated': 'Modificato', 'record.deleted': 'Cancellato',
   'record.restored': 'Ripristinato', 'record.purged': 'Eliminato definitivamente', 'role.assigned': 'Ruolo assegnato',
+  'role.nominated': 'Nomina', 'role.reduced': 'Permessi ridotti', 'role.revoked': 'Permessi tolti',
   'backup.restored': 'Ripristino da backup' };
+
+// Ruoli in parole, per le nomine e i permessi tolti.
+const OPS_RUOLO = { adminEdificio: 'amministratore del condominio', editor: 'con permesso di modifica', member: 'in sola lettura', superAdmin: 'Super Admin' };
 
 function opsVal(v) {
   const s = v == null ? '—' : (typeof v === 'string' ? v : JSON.stringify(v));
@@ -168,6 +172,8 @@ function renderOpsSection() {
           const changes = Object.entries(e.changes || {}).slice(0, 6)
             .map(([k, v]) => `<div><strong>${esc(k)}</strong>: ${esc(opsVal(v.from))} → ${esc(opsVal(v.to))}</div>`).join('');
           const cosa = e.type === 'role.assigned' ? `${esc(e.role)} a ${esc(opsWho(e.targetUid))}`
+            : e.type === 'role.nominated' ? `«${esc(opsVal(e.titolo))}» nominato ${esc(OPS_RUOLO[e.role] || e.role)} da ${esc(opsWho(e.actorUid))}`
+            : e.type === 'role.reduced' || e.type === 'role.revoked' ? `${esc(opsWho(e.targetUid))}: da ${esc(OPS_RUOLO[e.previousRole] || e.previousRole)} a ${e.role ? esc(OPS_RUOLO[e.role] || e.role) : 'nessun accesso'}`
             : e.type === 'backup.restored' ? `${esc(e.docs)} documenti da ${esc(e.file)}`
             : `${esc(OPS_COLL[e.collection] || e.collection || '')} ${e.titolo ? '«' + esc(opsVal(e.titolo)) + '»' : ''}`;
           return `<tr><td style="white-space:nowrap">${esc(opsWhen(e.at))}</td><td>${edNome(e.buildingId)}</td>

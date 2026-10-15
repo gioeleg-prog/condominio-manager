@@ -12,6 +12,11 @@
 //    acceso in Impostazioni (buildings/{b}/impostazioni/email), con i giorni
 //    di preavviso scelti. Spento finché nessuno lo accende.
 //
+// Limiti (limiti.js, decisione del 2026-10-15): per condominio 5 invii all'ora e
+// 50 destinatari in 24 ore, 400 destinatari in 24 ore per la casella. Oltre il
+// limite l'invio non parte: voce "bloccata" nello storico con il motivo e, per
+// gli invii dall'app, errore con il tempo di attesa.
+//
 // Mai a chi è archiviato, uscito, senza email valida o con "Riceve le email"
 // tolto (emailNotifiche: false), anche se richiesto. Ogni invio è registrato in
 // buildings/{b}/invii (storico per gli amministratori) con un id creato prima
@@ -24,12 +29,13 @@ const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const nodemailer = require('nodemailer');
+const limiti = require('./limiti');
 
 const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
 const MITTENTE = 'notifichecondominio@gmail.com';
 const SITO = 'https://neridarimini20.it';
 const EMULATORE = process.env.FUNCTIONS_EMULATOR === 'true';
-const MAX_DESTINATARI = 100;
+const MAX_DESTINATARI = limiti.LIMITI.destinatariGiorno;
 const MAX_ALLEGATI_BYTE = 7 * 1024 * 1024;
 
 const db = () => getFirestore();
@@ -131,12 +137,23 @@ async function spedisci({ a, ccn, oggetto, html, testo, allegati }) {
   });
 }
 
+// Prenota l'invio nei limiti (limiti.js); se non c'è posto la voce di storico
+// diventa "bloccata" con il motivo, che l'app mostra all'amministratore.
+async function nelLimite(ref, buildingId, n, orario) {
+  const r = await limiti.prenota(buildingId, n, { orario });
+  if (r.ok) return null;
+  await ref.update({ stato: 'bloccata', errore: r.messaggio });
+  return { bloccata: true, messaggio: r.messaggio };
+}
+
 // Un'email sola, destinatari in copia nascosta.
 async function inviaCollettiva(buildingId, idLog, { destinatari, esclusi = [], oggetto, html, testo, allegati, info }) {
   const ref = await apriStorico(buildingId, idLog, { ...info, oggetto, destinatari, esclusi, n: destinatari.length,
     allegato: allegati?.[0]?.nome || null });
   if (!ref) return { saltata: true };
   if (!destinatari.length) { await ref.update({ stato: 'nessun destinatario' }); return { inviati: 0 }; }
+  const bloccata = await nelLimite(ref, buildingId, destinatari.length, true);
+  if (bloccata) return bloccata;
   try {
     await spedisci({ ccn: destinatari.map((d) => d.email), oggetto, html, testo, allegati });
     await ref.update({ stato: EMULATORE ? 'simulata' : 'inviata', inviataIl: FieldValue.serverTimestamp() });
@@ -148,10 +165,14 @@ async function inviaCollettiva(buildingId, idLog, { destinatari, esclusi = [], o
 }
 
 // Un'email per ciascuno (estratti conto, promemoria): una voce di storico con l'esito di ognuno.
-async function inviaSingole(buildingId, idLog, { messaggi, esclusi = [], oggetto, info }) {
+// orario: false per i promemoria automatici (contano solo sui destinatari del giorno).
+async function inviaSingole(buildingId, idLog, { messaggi, esclusi = [], oggetto, info, orario = true }) {
   const ref = await apriStorico(buildingId, idLog, { ...info, oggetto, n: messaggi.length, esclusi,
     destinatari: messaggi.map((m) => ({ id: m.id, nome: m.nome, email: m.email })) });
   if (!ref) return { saltata: true };
+  if (!messaggi.length) { await ref.update({ stato: 'nessun destinatario' }); return { inviati: 0, errori: [] }; }
+  const bloccata = await nelLimite(ref, buildingId, messaggi.length, orario);
+  if (bloccata) return bloccata;
   const errori = [];
   for (const m of messaggi) {
     try { await spedisci({ a: m.email, oggetto: m.oggetto, html: m.html, testo: m.testo, allegati: m.allegati }); }
@@ -192,13 +213,19 @@ exports.notificaVita = onDocumentWritten({ document: 'buildings/{buildingId}/{co
   const codice = dopo.notificaEmail;
   // Solo una richiesta nuova: stesso codice di prima = semplice modifica del testo.
   if (!codice || typeof codice !== 'string' || codice === prima?.notificaEmail) return;
+  // Id dello storico (e quindi dell'invio) deciso dal server: l'ora della
+  // scrittura, che le regole impongono uguale all'ora del server (_updatedAt),
+  // o in mancanza l'id dell'evento, uguale nei nuovi tentativi della funzione.
+  // Mai il codice scritto dal client, che può sceglierlo a piacere.
+  const quando = typeof dopo._updatedAt?.toMillis === 'function' ? String(dopo._updatedAt.toMillis())
+    : String(event.id || Date.now()).replace(/[^\w-]/g, '').slice(0, 60);
   if (!Array.isArray(dopo.notificaDestinatari)) return; // sempre l'elenco scelto, mai "tutti" implicito
   const mappa = await condomini(buildingId);
   const { ok, esclusi } = scegli(mappa, dopo.notificaDestinatari.slice(0, MAX_DESTINATARI));
   const edificio = await nomeEdificio(buildingId);
   const titolo = unaRiga(dopo.titolo || TIPI[coll].etichetta);
   const { html, testo } = contenuto(coll, dopo);
-  await inviaCollettiva(buildingId, `vita_${coll}_${docId}_${unaRiga(codice, 60).replace(/[^\w-]/g, '')}`, {
+  await inviaCollettiva(buildingId, `vita_${coll}_${docId}_${quando}`, {
     destinatari: ok, esclusi,
     oggetto: `${TIPI[coll].etichetta}: ${titolo}`,
     html: pagina(edificio, titolo, html),
@@ -224,11 +251,22 @@ function leggiAllegato(a) {
   return { nome: /\.pdf$/i.test(nome) ? nome : nome + '.pdf', contenuto };
 }
 
+// Invio fermato dai limiti: errore all'app con il motivo e il tempo di attesa.
+function seBloccata(r) {
+  if (r.bloccata) throw new HttpsError('resource-exhausted', r.messaggio);
+  return r;
+}
+
 async function inviaDaApp(request) {
   const d = request.data || {};
   const buildingId = String(d.buildingId || '');
   if (!/^\d+$/.test(buildingId)) throw new HttpsError('invalid-argument', 'Condominio non valido.');
   controllaPermesso(request, buildingId);
+  // Prima di pubblicare un avviso o un verbale con l'email l'app chiede se
+  // l'invio passerebbe, per avvisare subito invece che dopo la pubblicazione.
+  if (d.tipo === 'verifica') {
+    return limiti.verifica(buildingId, Math.max(1, Math.min(1000, parseInt(d.n, 10) || 1)));
+  }
   const mappa = await condomini(buildingId);
   const edificio = await nomeEdificio(buildingId);
   const messaggio = testoLibero(d.messaggio);
@@ -241,12 +279,12 @@ async function inviaDaApp(request) {
     if (allegato.contenuto.length > MAX_ALLEGATI_BYTE) throw new HttpsError('invalid-argument', 'Il PDF è troppo grande per l\'email.');
     const { ok, esclusi } = scegli(mappa, ids);
     const oggetto = unaRiga(d.oggetto || 'Rendiconto del condominio');
-    const r = await inviaCollettiva(buildingId, idNuovo('rend'), {
+    const r = seBloccata(await inviaCollettiva(buildingId, idNuovo('rend'), {
       destinatari: ok, esclusi, oggetto, allegati: [allegato],
       html: pagina(edificio, oggetto, (messaggio ? paragrafi(messaggio) : '') + `<p style="font-size:14px;color:#636363;margin:10px 0 0">In allegato: ${escHtml(allegato.nome)}</p>`),
       testo: `${edificio}\n\n${oggetto}\n\n${messaggio}\n\nIn allegato: ${allegato.nome}\n\n${SITO}`,
       info: { ...info, tipo: 'rendiconto' },
-    });
+    }));
     return { inviati: r.inviati || 0, esclusi, simulata: EMULATORE };
   }
 
@@ -276,7 +314,7 @@ async function inviaDaApp(request) {
     });
     if (byte > MAX_ALLEGATI_BYTE * 2) throw new HttpsError('invalid-argument', 'Troppi PDF in un solo invio: dividi in più volte.');
     const oggettoStorico = d.tipo === 'estratti' ? `Estratti conto ${voci[0]?.anno || ''}`.trim() : 'Promemoria rate';
-    const r = await inviaSingole(buildingId, idNuovo(d.tipo === 'estratti' ? 'estr' : 'prom'), { messaggi, esclusi, oggetto: oggettoStorico, info: { ...info, tipo: d.tipo } });
+    const r = seBloccata(await inviaSingole(buildingId, idNuovo(d.tipo === 'estratti' ? 'estr' : 'prom'), { messaggi, esclusi, oggetto: oggettoStorico, info: { ...info, tipo: d.tipo } }));
     return { inviati: r.inviati || 0, errori: r.errori || [], esclusi, simulata: EMULATORE };
   }
   throw new HttpsError('invalid-argument', 'Tipo di invio sconosciuto.');
@@ -308,14 +346,14 @@ async function inviaPromemoriaRate() {
       if (motivoEsclusione(c)) continue;
       const oggetto = `Promemoria rata del ${dataIt(r.data)}: ${euro(r.importo)}`;
       const esito = await inviaSingole(e.id, `auto_rata_${r.id}_${r.data}`, {
-        oggetto, info: { tipo: 'promemoria-auto', recordId: r.id },
+        oggetto, info: { tipo: 'promemoria-auto', recordId: r.id }, orario: false,
         messaggi: [{ id: String(r.condominoId), nome: c.nome || '', email: String(c.email).trim(), oggetto,
           html: pagina(edificio, 'Promemoria rata', `<p style="font-size:15px;line-height:1.55;margin:0 0 10px">Ciao ${escHtml(c.nome || '')}, ti ricordiamo la rata di <strong>${escHtml(euro(r.importo))}</strong> prevista per il <strong>${escHtml(dataIt(r.data))}</strong>.</p>`
             + (r.descrizione ? `<p style="font-size:14px;color:#636363;margin:0 0 10px">${escHtml(r.descrizione)}</p>` : '')
             + '<p style="font-size:14px;color:#636363;margin:0">Se l\'hai già versata, non serve fare nulla: l\'amministratore la registrerà.</p>'),
           testo: `${edificio}\n\nCiao ${c.nome || ''}, ti ricordiamo la rata di ${euro(r.importo)} prevista per il ${dataIt(r.data)}.\nSe l'hai già versata, non serve fare nulla.\n\n${SITO}` }],
       });
-      if (!esito.saltata) n++;
+      if (!esito.saltata && !esito.bloccata) n++;
     }
   }
   return n;

@@ -727,7 +727,7 @@ describe('UNIT — subentri (date di ingresso e uscita)', () => {
       assert.ok(Math.abs(e.saldo - r.saldo) < 0.001, `${nome}: ${e.saldo} vs ${r.saldo}`);
     }
   });
-  it('subentro: archivia chi esce, crea chi entra e passa solo le quote future non consuntivate', () => {
+  it('subentro: archivia chi esce, crea chi entra e passa solo le quote future non consuntivate', async () => {
     const app = base();
     const st = app.__get('state');
     app.__set('state', { ...st,
@@ -745,7 +745,7 @@ describe('UNIT — subentri (date di ingresso e uscita)', () => {
       'sub-email': { value: 'elena@esempio.it' }, 'sub-ruolo': { value: 'lettura' }, 'sub-passa': { checked: true }, 'sub-err': { style: {} } };
     app.document.getElementById = (id) => campi[id] || null;
     app.bindSchedaSubentro();
-    campi['btn-sub-conferma'].onclick();
+    await campi['btn-sub-conferma'].onclick();
     const s = app.__get('state');
     const dario = s.condomini.find((c) => c.id === 201), elena = s.condomini.find((c) => c.nome === 'Elena');
     assert.ok(dario.disabled && dario.dataUscita === `${Y}-01-01` && /Subentro: Elena/.test(dario.disabledNote));

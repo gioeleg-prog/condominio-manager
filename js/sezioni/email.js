@@ -105,14 +105,29 @@ function richiestaEmail(id) {
   return { notificaEmail: new Date().toISOString() + '-' + Math.random().toString(36).slice(2, 7), notificaDestinatari: ids };
 }
 
+// Limiti del server (functions/limiti.js): 5 invii all'ora e 50 destinatari al
+// giorno per condominio. Prima di pubblicare chiede se l'invio passerebbe; se
+// no, l'amministratore sceglie se pubblicare senza email o aspettare.
+// Restituisce la richiesta (eventualmente senza email) o null = non pubblicare.
+// Se la verifica non riesce si pubblica lo stesso: il limite lo applica il server.
+async function verificaLimiteEmail(email) {
+  if (!email.notificaEmail || !window._fb?.httpsCallable) return email;
+  let r;
+  try { r = await chiamaInviaEmail({ tipo: 'verifica', n: email.notificaDestinatari.length }); } catch (e) { return email; }
+  if (r.ok !== false) return email;
+  if (!await chiedi(r.messaggio + '\n\nVuoi pubblicare lo stesso, senza email?', { titolo: 'Email non disponibile ora', conferma: 'Pubblica senza email' })) return null;
+  return { limiteRaggiunto: r.messaggio };
+}
+
 function avvisaEmail(email) {
   if (email.nessunDestinatario) { avvisa('⚠️ Pubblicato senza email: nessun destinatario era selezionato.'); return; }
+  if (email.limiteRaggiunto) { avvisa('⚠️ Pubblicato senza email: ' + email.limiteRaggiunto); return; }
   if (!email.notificaEmail) return;
   const n = email.notificaDestinatari.length;
   avvisa('✅ Pubblicato. Email in partenza per ' + n + (n === 1 ? ' condomino.' : ' condomini.'));
 }
 // Il campo di sola interfaccia non va salvato nel record.
-function pulisciRichiestaEmail(email) { const { nessunDestinatario, ...resto } = email; return resto; }
+function pulisciRichiestaEmail(email) { const { nessunDestinatario, limiteRaggiunto, ...resto } = email; return resto; }
 
 // ─── Chiamata al server ───────────────────────────────────────────
 async function chiamaInviaEmail(dati) {
@@ -282,7 +297,7 @@ function renderSezioneEmail() {
 }
 
 const ETICHETTE_INVIO = { avviso: 'Avviso', verbale: 'Verbale', rendiconto: 'Rendiconto', estratti: 'Estratti conto', promemoria: 'Promemoria', 'promemoria-auto': 'Promemoria automatico' };
-const STATI_INVIO = { inviata: 'inviata', simulata: 'prova (non spedita)', 'in invio': 'in invio', errore: 'non riuscita', 'in parte': 'in parte', 'nessun destinatario': 'nessun destinatario' };
+const STATI_INVIO = { inviata: 'inviata', simulata: 'prova (non spedita)', 'in invio': 'in invio', errore: 'non riuscita', 'in parte': 'in parte', 'nessun destinatario': 'nessun destinatario', bloccata: 'bloccata dal limite' };
 
 function disegnaStoricoEmail() {
   const box = document.getElementById('email-storico');
@@ -296,6 +311,7 @@ function disegnaStoricoEmail() {
       <div class="se-riga"><span class="badge ${ok ? 'badge-green' : v.stato === 'errore' ? 'badge-red' : 'badge-amber'}">${esc(STATI_INVIO[v.stato] || v.stato || '')}</span>
         <strong>${esc(ETICHETTE_INVIO[v.tipo] || v.tipo || '')}</strong> · ${esc(v.oggetto || '')}</div>
       <div class="se-dett">${quando ? esc(quando.toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })) : ''} · ${v.n || 0} ${v.n === 1 ? 'destinatario' : 'destinatari'}${v.allegato ? ' · allegato ' + esc(v.allegato) : ''}</div>
+      ${v.stato === 'bloccata' && v.errore ? `<div class="se-dett">${esc(v.errore)}</div>` : ''}
       ${nomi.length ? `<details><summary>Chi l'ha ricevuta</summary><p>${esc(nomi.join(', '))}</p>${(v.esclusi || []).length ? `<p class="hint">Esclusi: ${esc(v.esclusi.map(e => e.nome + ' (' + e.motivo + ')').join(', '))}</p>` : ''}</details>` : ''}
     </li>`; }).join('')}</ul>` : '<p class="hint">Nessuna email inviata finora.</p>';
 }

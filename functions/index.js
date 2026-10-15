@@ -117,24 +117,8 @@ exports.whoami = onCall(async (request) => {
     return { profile, isSuperAdmin: true };
   }
 
-  // Non-superAdmin: cerca per uid, poi per email (emailLower, scritto dal
-  // client e dalla migrazione). Rifiuta 2+ corrispondenze di email: un
-  // condomino presente in due edifici con la stessa email darebbe un match
-  // ambiguo.
-  const members = db.collectionGroup('members');
-  const alive = (snap) => snap.docs.filter((d) => !d.data()._deleted);
-  let docs = alive(await members.where('uid', '==', uid).get());
-  if (!docs.length) {
-    docs = alive(await members.where('emailLower', '==', email).get());
-    if (docs.length > 1) {
-      throw new HttpsError('failed-precondition', 'Più profili con questa email. Contatta l\'amministratore.');
-    }
-  }
-  if (!docs.length) {
-    throw new HttpsError('not-found', 'Nessun condomino associato a questa email. Contatta l\'amministratore.');
-  }
-
-  const ref = docs[0].ref;
+  // Non-superAdmin: cerca il profilo (vedi sceltaProfilo più sotto).
+  const ref = await sceltaProfilo(uid, email);
   const buildingId = ref.parent.parent.id;
   const record = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
@@ -171,6 +155,61 @@ exports.whoami = onCall(async (request) => {
 
   await recordLogin(profile);
   return { profile, isSuperAdmin: false };
+});
+
+// Quale profilo di condomino spetta a chi accede (decisione del 2026-10-15).
+// Prima il profilo già collegato al suo account (uid); se non ce n'è uno
+// attivo, un profilo con la sua email (emailLower, scritto dal client e dalla
+// migrazione) non ancora collegato. Un'email vale per un solo condominio:
+// se la stessa email è in più profili attivi, vale quello inserito per primo
+// (_createdAt). Così un amministratore che inserisce l'email di una persona
+// di un altro condominio non la collega a sé né la blocca; al salvataggio
+// l'app lo avvisa (verificaEmail). Due profili creati nello stesso istante
+// restano ambigui: rifiuto esplicito.
+const creatoMs = (d) => (typeof d.data()._createdAt?.toMillis === 'function' ? d.data()._createdAt.toMillis() : 0);
+function piuVecchio(docs) {
+  const ordinati = [...docs].sort((a, b) => creatoMs(a) - creatoMs(b));
+  if (ordinati.length > 1 && creatoMs(ordinati[0]) === creatoMs(ordinati[1])) {
+    throw new HttpsError('failed-precondition', 'Più profili con questa email inseriti insieme. Contatta l\'amministratore.');
+  }
+  return ordinati[0];
+}
+// I profili attivi se ce ne sono, altrimenti tutti (danno "account disattivato").
+const preferisciAttivi = (docs) => { const a = docs.filter((d) => permessi.membroAttivo(d.data())); return a.length ? a : docs; };
+
+async function sceltaProfilo(uid, email) {
+  const members = db.collectionGroup('members');
+  const alive = (snap) => snap.docs.filter((d) => !d.data()._deleted);
+  const perUid = alive(await members.where('uid', '==', uid).get());
+  if (perUid.some((d) => permessi.membroAttivo(d.data()))) return piuVecchio(preferisciAttivi(perUid)).ref;
+  const perEmail = alive(await members.where('emailLower', '==', email).get());
+  // Uno libero (o già suo) e attivo: es. chi è uscito da un condominio ed è entrato in un altro.
+  const liberi = perEmail.filter((d) => (!d.data().uid || d.data().uid === uid) && permessi.membroAttivo(d.data()));
+  if (liberi.length) return piuVecchio(liberi).ref;
+  if (perUid.length) return piuVecchio(perUid).ref;
+  if (perEmail.length) return piuVecchio(preferisciAttivi(perEmail)).ref;
+  throw new HttpsError('not-found', 'Nessun condomino associato a questa email. Contatta l\'amministratore.');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// verificaEmail
+// Per l'amministratore che salva un condomino: dice se la stessa email è già
+// in un profilo attivo di un ALTRO condominio. In quel caso la persona
+// continua ad accedere a quello (vedi sceltaProfilo) e l'app avvisa che con
+// questo profilo non entrerà; l'email serve comunque per le notifiche. Non
+// dice quale condominio né chi.
+// ═══════════════════════════════════════════════════════════════
+exports.verificaEmail = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
+  const t = request.auth.token || {};
+  const b = String(request.data?.buildingId || '');
+  if (!(t.role === 'superAdmin' || (t.role === 'adminEdificio' && String(t.buildingId) === b))) {
+    throw new HttpsError('permission-denied', 'Solo l\'amministratore del condominio.');
+  }
+  const e = String(request.data?.email || '').trim().toLowerCase();
+  if (!e || e.length > 200) return { altroCondominio: false };
+  const snap = await db.collectionGroup('members').where('emailLower', '==', e).get();
+  return { altroCondominio: snap.docs.some((d) => d.ref.parent.parent.id !== b && !d.data()._deleted && permessi.membroAttivo(d.data())) };
 });
 
 // Registro accessi (cm_login_stats), aggregato per utente e mese. Lo scrive
@@ -266,6 +305,29 @@ async function registraModifica(event) {
     changes: type === 'updated' || type === 'restored' ? changes : {},
     at: FieldValue.serverTimestamp(),
   });
+
+  // Nomine (decisione del 2026-10-15): un amministratore di condominio può
+  // nominare altri amministratori o dare "Modifica". Resta permesso, ma ogni
+  // aumento di ruolo ha una voce sua nel registro, leggibile come "nominato
+  // amministratore da …", oltre alla modifica dei campi isAdmin/canEdit.
+  if (event.params.coll === 'members' && after && !after._deleted) {
+    const ruolo = (m) => (m && !m._deleted ? (m.isAdmin ? 'adminEdificio' : (m.canEdit ? 'editor' : 'member')) : 'member');
+    const LIVELLO = { member: 1, editor: 2, adminEdificio: 3 };
+    const nuovo = ruolo(after), prima = ruolo(before);
+    if (LIVELLO[nuovo] > LIVELLO[prima]) {
+      await db.collection('auditEvents').add({
+        type: 'role.nominated',
+        buildingId: event.params.buildingId,
+        collection: 'members',
+        recordId: event.params.docId,
+        titolo: clip(after.nome ?? null),
+        role: nuovo,
+        previousRole: prima,
+        actorUid: actor,
+        at: FieldValue.serverTimestamp(),
+      });
+    }
+  }
 }
 
 function labelOf(r) {
