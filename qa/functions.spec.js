@@ -394,6 +394,22 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.ok(!(await claimsOf('u-member1')).role);
       assert.strictEqual((await claimsOf('u-admin1')).role, 'adminEdificio');
     });
+    // Non regressione: l'uso normale non deve togliere permessi né scollegare nessuno.
+    it('PERM-06 modifica qualunque di un condomino attivo: stessi permessi, nessuna revoca dei token', async () => {
+      const prima = (await adminAuth().getUser('u-editor1')).tokensValidAfterTime;
+      await modifica(await as('admin1@qa.test'), 102, { telefono: '333 1234567', note: 'nuovo numero' });
+      await new Promise((r) => setTimeout(r, 4000));
+      assert.deepStrictEqual(await claimsOf('u-editor1'), { role: 'editor', buildingId: '1' });
+      assert.strictEqual((await adminAuth().getUser('u-editor1')).tokensValidAfterTime, prima, 'token revocati senza motivo');
+    });
+    it('PERM-07 promozione dall\'app (setUserRole, poi record salvato): il permesso nuovo resta', async () => {
+      const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });
+      assert.ok(r.ok, r.message);
+      await modifica(await as('superadmin@qa.test'), 103, { canEdit: true });
+      await modifica(await as('admin1@qa.test'), 103, { nome: 'Marta M.' }); // scrittura successiva qualunque
+      await new Promise((r) => setTimeout(r, 4000));
+      assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'editor', buildingId: '1' });
+    });
   });
 
   describe('dati globali (appdata)', () => {
