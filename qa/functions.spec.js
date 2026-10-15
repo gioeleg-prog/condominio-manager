@@ -359,6 +359,9 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     it('PERM-01 archiviato dall\'amministratore: permessi tolti, token revocati, traccia nel registro', async () => {
       const a = await as('admin1@qa.test');
       const prima = (await adminAuth().getUser('u-member1')).tokensValidAfterTime;
+      // tokensValidAfterTime ha la precisione del secondo: senza attesa, su una
+      // macchina veloce la revoca può cadere nello stesso secondo del seed.
+      await new Promise((r) => setTimeout(r, 1100));
       await modifica(a, 103, { disabled: true, dataUscita: '2026-01-01' });
       assert.ok(await waitFor(async () => !(await claimsOf('u-member1')).role, 30000), 'permessi non tolti');
       assert.strictEqual((await admin.doc('roles/u-member1').get()).data().role, null);
