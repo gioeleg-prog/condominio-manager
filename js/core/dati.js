@@ -46,7 +46,8 @@ function setServerSnap(key, val) {
 }
 
 // Versione di ogni record letta dal server (_updatedAt in millisecondi), per
-// chiave e id. Prima di modificare o cancellare un record si controlla che sul
+// chiave e percorso del documento (un condomino e i suoi contatti hanno lo
+// stesso id in due collezioni). Prima di modificare o cancellare un record si controlla che sul
 // server sia ancora quella versione: se un'altra persona l'ha cambiato nel
 // frattempo il salvataggio si ferma invece di sovrascriverlo in silenzio.
 const _versioni = {};
@@ -57,7 +58,30 @@ function versioneDi(d) {
 }
 function setVersioni(key, docs) {
   _versioni[key] = _versioni[key] || new Map();
-  docs.forEach(d => { const v = d.data(); if (v && v.id != null) _versioni[key].set(String(v.id), versioneDi(v)); });
+  docs.forEach(d => { const v = d.data(); if (v && v.id != null) _versioni[key].set(d.ref.path, versioneDi(v)); });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Contatti dei condomini (privacy, decisione del 2026-10-15)
+// Email e telefono stanno in buildings/{b}/contatti/{id}, che le regole lasciano
+// leggere solo ad amministratori ed editor: un condomino semplice vede degli
+// altri solo nomi, appartamenti e quote. In memoria (state.condomini) i contatti
+// restano dentro il record del condomino, per chi li può vedere; al salvataggio
+// saveRecords li divide di nuovo nei due documenti.
+// ═══════════════════════════════════════════════════════════════
+const CAMPI_CONTATTO = ['email', 'telefono'];
+// Percorsi dei documenti contatti che esistono sul server (creazione o modifica).
+const _contattiNoti = new Set();
+function senzaContatti(r) { const o = { ...r }; CAMPI_CONTATTO.forEach(k => delete o[k]); return o; }
+function soloContatti(r) {
+  const o = { id: r.id, edificioId: r.edificioId };
+  CAMPI_CONTATTO.forEach(k => { if (r[k] != null && r[k] !== '') o[k] = r[k]; });
+  return o;
+}
+const haContatti = (c) => CAMPI_CONTATTO.some(k => k in c);
+function contattiRef(rec) {
+  const { db, doc } = window._fb;
+  return doc(db, 'buildings', String(rec.edificioId), 'contatti', String(rec.id));
 }
 
 // Salvataggi in coda per chiave: due salvataggi ravvicinati della stessa
@@ -108,6 +132,7 @@ async function saveRecords(key, val) {
   if (!uid) throw new Error('Sessione scaduta: accedi di nuovo.');
   const cfg = APPDATA_CONFIG[key];
   const before = new Map((_serverSnap[key] || []).map(r => [String(r.id), r]));
+  const condomini = key === 'cm_condomini';
   const writes = [];
   for (const raw0 of val) {
     // Copia JSON: elimina i campi undefined (Firestore li rifiuta, il vecchio
@@ -120,23 +145,16 @@ async function saveRecords(key, val) {
     if (prev && !cfg.buildings && String(prev.edificioId) !== String(rec.edificioId)) {
       // Spostato in un altro edificio (es. condomino senza movimenti): nuovo
       // documento nel nuovo edificio, cancellazione logica del vecchio.
-      writes.push([recordRef(key, prev), { _deleted: true, _deletedBy: uid, _updatedBy: uid, _updatedAt: serverTimestamp() }, { merge: true }]);
+      if (condomini) cancellaCondomino(writes, prev, uid);
+      else writes.push([recordRef(key, prev), cancellazione(uid), { merge: true }]);
       prev = null;
     }
-    if (prev && stableStringify(prev) === stableStringify(rec)) continue;
-    const data = { ...rec, _updatedBy: uid, _updatedAt: serverTimestamp(), _deleted: false };
-    if (key === 'cm_condomini') data.emailLower = rec.email ? String(rec.email).toLowerCase() : null;
-    if (prev) {
-      // Modifica: fusione con il documento esistente (conserva autore e data
-      // di creazione), togliendo esplicitamente i campi rimossi dal record.
-      Object.keys(prev).forEach(k => { if (!(k in rec)) data[k] = deleteField(); });
-      writes.push([recordRef(key, rec), data, { merge: true }]);
-    } else {
-      writes.push([recordRef(key, rec), { ...data, _createdBy: uid, _createdAt: serverTimestamp() }, null]);
-    }
+    const scritto = scriviRecord(writes, recordRef(key, rec), condomini ? senzaContatti(rec) : rec, prev && (condomini ? senzaContatti(prev) : prev), uid);
+    if (condomini) scriviContatti(writes, rec, prev, uid, scritto);
   }
   for (const prev of before.values()) {
-    writes.push([recordRef(key, prev), { _deleted: true, _deletedBy: uid, _updatedBy: uid, _updatedAt: serverTimestamp() }, { merge: true }]);
+    if (condomini) cancellaCondomino(writes, prev, uid);
+    else writes.push([recordRef(key, prev), cancellazione(uid), { merge: true }]);
   }
   await controllaConflitti(key, writes);
   for (let i = 0; i < writes.length; i += 400) {
@@ -144,7 +162,64 @@ async function saveRecords(key, val) {
     writes.slice(i, i + 400).forEach(([ref, data, opts]) => opts ? batch.set(ref, data, opts) : batch.set(ref, data));
     await batch.commit();
   }
+  writes.forEach(([ref]) => { if (/\/contatti\//.test(ref.path)) _contattiNoti.add(ref.path); });
   await aggiornaVersioni(key, writes);
+}
+
+const cancellazione = (uid) => {
+  const { serverTimestamp } = window._fb;
+  return { _deleted: true, _deletedBy: uid, _updatedBy: uid, _updatedAt: serverTimestamp() };
+};
+
+// Scrittura di un record nuovo o cambiato (prev = com'era sul server, o null).
+// Restituisce true se il record va scritto.
+function scriviRecord(writes, ref, rec, prev, uid, extra = {}) {
+  const { serverTimestamp, deleteField } = window._fb;
+  if (prev && stableStringify(prev) === stableStringify(rec)) return false;
+  const data = { ...rec, ...extra, _updatedBy: uid, _updatedAt: serverTimestamp(), _deleted: false };
+  if (prev) {
+    // Modifica: fusione con il documento esistente (conserva autore e data
+    // di creazione), togliendo esplicitamente i campi rimossi dal record.
+    Object.keys(prev).forEach(k => { if (!(k in rec) && !(k in extra)) data[k] = deleteField(); });
+    // Condomini: email e telefono non stanno più nel record (le regole li
+    // rifiutano), anche se un documento non ancora migrato li ha ancora.
+    if (/\/members\//.test(ref.path)) [...CAMPI_CONTATTO, 'emailLower'].forEach(k => { data[k] = deleteField(); });
+    writes.push([ref, data, { merge: true }]);
+  } else {
+    writes.push([ref, { ...data, _createdBy: uid, _createdAt: serverTimestamp() }, null]);
+  }
+  return true;
+}
+
+// Contatti di un condomino: buildings/{b}/contatti/{id}. Si scrivono se sono
+// cambiati, oppure se il documento non esiste ancora e il condomino viene
+// salvato (record non migrato: i contatti passano dal vecchio record al nuovo
+// documento nello stesso salvataggio).
+function scriviContatti(writes, rec, prev, uid, condominoScritto) {
+  const ref = contattiRef(rec);
+  const nuovi = soloContatti(rec);
+  const esiste = _contattiNoti.has(ref.path);
+  const prima = prev ? soloContatti(prev) : null;
+  const extra = { emailLower: nuovi.email ? String(nuovi.email).toLowerCase() : null };
+  if (esiste) { scriviRecord(writes, ref, nuovi, prima || {}, uid, extra); return; }
+  const cambiati = !prima || stableStringify(prima) !== stableStringify(nuovi);
+  if (haContatti(nuovi) && (cambiati || condominoScritto)) scriviRecord(writes, ref, nuovi, null, uid, extra);
+}
+
+// Cancellazione logica di un condomino e dei suoi contatti. Un record non
+// ancora migrato perde email e telefono (le regole non li accettano più nel
+// condomino): passano in un documento contatti, cancellato anche lui.
+function cancellaCondomino(writes, prev, uid) {
+  const { deleteField, serverTimestamp } = window._fb;
+  writes.push([recordRef('cm_condomini', prev), { ...cancellazione(uid),
+    ...Object.fromEntries([...CAMPI_CONTATTO, 'emailLower'].map(k => [k, deleteField()])) }, { merge: true }]);
+  const ref = contattiRef(prev);
+  const contatti = soloContatti(prev);
+  if (_contattiNoti.has(ref.path)) writes.push([ref, cancellazione(uid), { merge: true }]);
+  else if (haContatti(contatti)) {
+    writes.push([ref, { ...contatti, emailLower: contatti.email ? String(contatti.email).toLowerCase() : null,
+      ...cancellazione(uid), _createdBy: uid, _createdAt: serverTimestamp() }, null]);
+  }
 }
 
 // Modifiche e cancellazioni (scritture con merge) di record di cui si conosce
@@ -154,12 +229,12 @@ async function controllaConflitti(key, writes) {
   const { getDoc } = window._fb;
   const note = _versioni[key];
   if (!note) return;
-  const daControllare = writes.filter(([ref, , opts]) => opts && note.has(ref.id));
+  const daControllare = writes.filter(([ref, , opts]) => opts && note.has(ref.path));
   const conflitti = [];
   await Promise.all(daControllare.map(async ([ref]) => {
     const snap = await getDoc(ref);
     const cur = snap.exists() ? snap.data() : null;
-    if (!cur || cur._deleted || versioneDi(cur) !== note.get(ref.id)) conflitti.push(cur);
+    if (!cur || cur._deleted || versioneDi(cur) !== note.get(ref.path)) conflitti.push(cur);
   }));
   if (conflitti.length) {
     const nome = (r) => r && (r.titolo || r.nome || r.descrizioneSintetica || r.descrizione);
@@ -177,8 +252,8 @@ async function aggiornaVersioni(key, writes) {
   const { getDoc } = window._fb;
   _versioni[key] = _versioni[key] || new Map();
   await Promise.all(writes.map(async ([ref]) => {
-    try { const snap = await getDoc(ref); if (snap.exists()) _versioni[key].set(ref.id, versioneDi(snap.data())); }
-    catch (e) { _versioni[key].delete(ref.id); } // versione sconosciuta: nessun controllo, come prima
+    try { const snap = await getDoc(ref); if (snap.exists()) _versioni[key].set(ref.path, versioneDi(snap.data())); }
+    catch (e) { _versioni[key].delete(ref.path); } // versione sconosciuta: nessun controllo, come prima
   }));
 }
 
@@ -228,6 +303,31 @@ function fromDocs(docs) {
     .map(d => Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith('_') && k !== 'emailLower')));
 }
 
+// Unisce ai condomini email e telefono letti da buildings/{b}/contatti (solo
+// per amministratori ed editor). Se la lettura non riesce i condomini restano
+// senza contatti: l'app funziona, ma senza email da mostrare o a cui scrivere.
+async function conContatti(lista, edifici) {
+  const { db, getDocs, collection } = window._fb;
+  const perId = new Map();
+  try {
+    await Promise.all(edifici.map(async (ed) => {
+      const docs = (await getDocs(collection(db, 'buildings', String(ed.id), 'contatti'))).docs;
+      setVersioni('cm_condomini', docs);
+      docs.forEach(d => { _contattiNoti.add(d.ref.path); const c = d.data(); if (!c._deleted) perId.set(String(ed.id) + '/' + d.id, c); });
+    }));
+  } catch (e) {
+    console.warn('Contatti dei condomini non letti:', e.code || e.message);
+    return lista;
+  }
+  return lista.map(m => {
+    const c = perId.get(String(m.edificioId) + '/' + String(m.id));
+    if (!c) return m;
+    const o = { ...m };
+    CAMPI_CONTATTO.forEach(k => { if (c[k] != null) o[k] = c[k]; });
+    return o;
+  });
+}
+
 // Carica edifici e dati per edificio: tutti per il superAdmin, solo il proprio
 // per gli altri ruoli (le rules non permettono altro). Lancia un errore se non
 // riesce: senza questi dati l'app non è utilizzabile.
@@ -253,6 +353,7 @@ async function fbLoadBuildings(profile) {
     }));
     perKey[key] = parts.flat();
   }));
+  if (perKey.cm_condomini && canUserEdit(profile)) perKey.cm_condomini = await conContatti(perKey.cm_condomini, edifici);
   _cache.cm_edifici = edifici;
   setServerSnap('cm_edifici', edifici);
   Object.entries(perKey).forEach(([key, arr]) => { _cache[key] = arr; setServerSnap(key, arr); });

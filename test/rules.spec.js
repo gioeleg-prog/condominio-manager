@@ -303,6 +303,37 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
     await assertSucceeds(superA().doc('buildings/3').set({ id: 3, nome: 'Nuovo' }));
   });
 
+  // Privacy (decisione del 2026-10-15): email e telefono dei condomini in contatti/.
+  describe('privacy: contatti dei condomini', () => {
+    const c = (uid, id, extra = {}) => ({ id, edificioId: 1, email: 'Rossi@Esempio.it', emailLower: 'rossi@esempio.it',
+      _createdBy: uid, _createdAt: now(), _updatedBy: uid, _updatedAt: now(), _deleted: false, ...extra });
+    it('li leggono solo amministratori ed editor del condominio, non i condomini semplici né un altro condominio', async () => {
+      await seedDoc('buildings/1/contatti/31', { id: 31, edificioId: 1, email: 'a@b.it', emailLower: 'a@b.it' });
+      await assertSucceeds(admin().doc('buildings/1/contatti/31').get());
+      await assertSucceeds(editor().collection('buildings/1/contatti').get());
+      await assertSucceeds(superA().doc('buildings/1/contatti/31').get());
+      await assertFails(member().doc('buildings/1/contatti/31').get());
+      await assertFails(member().collection('buildings/1/contatti').get());
+      await assertFails(ctx('u_admin2', { role: 'adminEdificio', buildingId: '2' }).doc('buildings/1/contatti/31').get());
+    });
+    it('li scrive solo l\'amministratore, con emailLower uguale all\'email e solo i campi previsti', async () => {
+      await assertSucceeds(admin().doc('buildings/1/contatti/32').set(c('u_admin', 32, { telefono: '333 1234567' })));
+      await assertSucceeds(admin().doc('buildings/1/contatti/33').set(c('u_admin', 33, { email: null, emailLower: null })));
+      await assertFails(admin().doc('buildings/1/contatti/34').set(c('u_admin', 34, { emailLower: 'altra@esempio.it' })));
+      await assertFails(admin().doc('buildings/1/contatti/35').set(c('u_admin', 35, { nome: 'Rossi' })));
+      await assertFails(admin().doc('buildings/1/contatti/36').set(c('u_admin', 36, { telefono: 'x'.repeat(41) })));
+      await assertFails(editor().doc('buildings/1/contatti/37').set(c('u_editor', 37)));
+      await assertFails(member().doc('buildings/1/contatti/38').set(c('u_member', 38)));
+      await assertFails(admin().doc('buildings/1/contatti/32').delete());
+    });
+    it('il record del condomino non può più contenere email o telefono', async () => {
+      await assertFails(admin().doc('buildings/1/members/40').set(rec('u_admin', 40, { nome: 'Rossi', email: 'r@e.it' })));
+      await assertFails(admin().doc('buildings/1/members/41').set(rec('u_admin', 41, { nome: 'Rossi', emailLower: 'r@e.it' })));
+      await assertFails(admin().doc('buildings/1/members/42').set(rec('u_admin', 42, { nome: 'Rossi', telefono: '333' })));
+      await assertSucceeds(admin().doc('buildings/1/members/43').set(rec('u_admin', 43, { nome: 'Rossi' })));
+    });
+  });
+
   describe('email: storico invii e impostazioni', () => {
     it('storico invii: lo leggono solo gli amministratori del condominio, nessuno lo scrive', async () => {
       await seedDoc('buildings/1/invii/x', { tipo: 'avviso', buildingId: '1' });

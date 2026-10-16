@@ -35,6 +35,18 @@ test.describe('Accesso e ruoli', () => {
     await expect(page.locator('.sidebar [data-page="condomini"]')).toHaveCount(0);
   });
 
+  // Privacy (decisione del 2026-10-15): i contatti stanno in buildings/{b}/contatti.
+  test('privacy: un condomino semplice non riceve le email degli altri condomini', async ({ page }) => {
+    await accedi(page, 'member1@qa.test');
+    expect(await page.evaluate(() => state.condomini.length)).toBeGreaterThan(3);
+    expect(await page.evaluate(() => state.condomini.filter((c) => c.email || c.emailLower).length)).toBe(0);
+  });
+
+  test('privacy: amministratore ed editor vedono le email dei condomini', async ({ page }) => {
+    await accedi(page, 'editor1@qa.test');
+    expect(await page.evaluate(() => state.condomini.find((c) => c.id === 103)?.email)).toBe('member1@qa.test');
+  });
+
   test('password sbagliata: messaggio, nessun accesso', async ({ page }) => {
     await page.goto('/qa/out/harness.html');
     await page.locator('#inp-login').fill('admin1@qa.test');

@@ -212,12 +212,34 @@ service cloud.firestore {
       // Condomini: solo adminEdificio/superAdmin. Un adminEdificio non può
       // impostare il flag superAdmin né cambiare l'account collegato (uid):
       // stessa protezione che saveBuildingData applicava al blob.
+      // Privacy (decisione del 2026-10-15): tutto il condominio legge nomi,
+      // appartamenti e quote, ma email e telefono non stanno qui (le regole
+      // non nascondono singoli campi): sono in contatti/, più sotto.
       match /members/{docId} {
         allow read: if inBuilding(buildingId);
         allow create, update: if canAdmin(buildingId) && validRecord(buildingId, docId)
+          && !request.resource.data.keys().hasAny(['email', 'emailLower', 'telefono'])
           && (isSuperAdmin() || (
                 request.resource.data.get('superAdmin', false) == (resource == null ? false : resource.data.get('superAdmin', false))
              && request.resource.data.get('uid', null) == (resource == null ? null : resource.data.get('uid', null))));
+        allow delete: if isSuperAdmin();
+      }
+
+      // Contatti dei condomini (email, telefono), stesso id del condomino: li
+      // leggono solo amministratori ed editor del condominio, li scrive
+      // l'amministratore (js/core/dati.js). emailLower serve a whoami per
+      // riconoscere chi accede e deve coincidere con l'email.
+      match /contatti/{docId} {
+        allow read: if canEdit(buildingId);
+        allow create, update: if canAdmin(buildingId) && validRecord(buildingId, docId)
+          && request.resource.data.keys().hasOnly(['id', 'edificioId', 'email', 'emailLower', 'telefono',
+               '_createdBy', '_createdAt', '_updatedBy', '_updatedAt', '_deleted', '_deletedBy', '_restoredAt'])
+          && (request.resource.data.get('email', null) == null
+              ? request.resource.data.get('emailLower', null) == null
+              : (request.resource.data.email is string && request.resource.data.email.size() <= 200
+                 && request.resource.data.get('emailLower', null) == request.resource.data.email.lower()))
+          && (request.resource.data.get('telefono', null) == null
+              || (request.resource.data.telefono is string && request.resource.data.telefono.size() <= 40));
         allow delete: if isSuperAdmin();
       }
 

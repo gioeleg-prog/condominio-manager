@@ -83,10 +83,17 @@ function motivoEsclusione(m, oggi = oggiRoma()) {
   return null;
 }
 
+// Condomini con la loro email, che sta in buildings/{b}/contatti/{id} (privacy,
+// decisione del 2026-10-15); per un record non ancora migrato
+// (scripts/separa-contatti.js) vale quella rimasta nel condomino.
 async function condomini(buildingId) {
-  const snap = await db().collection(`buildings/${buildingId}/members`).get();
+  const [snap, contatti] = await Promise.all([
+    db().collection(`buildings/${buildingId}/members`).get(),
+    db().collection(`buildings/${buildingId}/contatti`).get(),
+  ]);
+  const email = new Map(contatti.docs.filter((d) => !d.data()._deleted && d.data().email).map((d) => [String(d.id), d.data().email]));
   const mappa = new Map();
-  snap.forEach((d) => mappa.set(String(d.id), d.data()));
+  snap.forEach((d) => mappa.set(String(d.id), email.has(String(d.id)) ? { ...d.data(), email: email.get(String(d.id)) } : d.data()));
   return mappa;
 }
 

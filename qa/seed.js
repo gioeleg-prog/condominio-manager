@@ -10,6 +10,7 @@ const { initializeApp, getApps } = req('firebase-admin/app');
 const { getAuth } = req('firebase-admin/auth');
 const { getFirestore } = req('firebase-admin/firestore');
 const { backfill } = require('../scripts/lib/buildings-migration');
+const { separaContatti } = require('../scripts/lib/contatti-migration');
 
 const PROJECT = 'demo-qa';
 const PASSWORD = 'QaTest-2026!';
@@ -99,7 +100,8 @@ async function seed({ legacyOnly = false } = {}) {
     db.collection('appdata').doc('cm_config').set({ superAdminUid: 'u-super', superAdminEmail: 'superadmin@qa.test' }),
   ]);
   // Il modello per edificio si ottiene con la VERA migrazione: ogni seed la collauda.
-  if (!legacyOnly) await backfill(db);
+  // Poi la separazione dei contatti (privacy), come in produzione.
+  if (!legacyOnly) { await backfill(db); await separaContatti(db); }
 }
 module.exports = { seed, USERS, PASSWORD, PROJECT };
 if (require.main === module) seed().then(() => { console.log('Seed completato'); process.exit(0); }, (e) => { console.error(e); process.exit(1); });

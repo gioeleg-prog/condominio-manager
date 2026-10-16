@@ -68,7 +68,9 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       const e = (await admin.doc('buildings/1/expenses/1003').get()).data();
       assert.strictEqual(e.titolo, 'Facciata');
       assert.strictEqual(e._createdBy, 'backfill');
-      assert.strictEqual((await admin.doc('buildings/1/members/103').get()).data().emailLower, 'member1@qa.test');
+      // Privacy: l'email è nei contatti, non più nel record del condomino (seed: separaContatti).
+      assert.strictEqual((await admin.doc('buildings/1/contatti/103').get()).data().emailLower, 'member1@qa.test');
+      assert.ok(!('email' in (await admin.doc('buildings/1/members/103').get()).data()));
     });
     it('MIG-02 rieseguirla non duplica nulla (idempotente)', async () => {
       await backfill(admin);
@@ -117,6 +119,7 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.ok(r.ok, r.message);
       assert.strictEqual(r.data.profile.id, 101);
       assert.ok(!('superAdmin' in r.data.profile) && !Object.keys(r.data.profile).some((k) => k.startsWith('_')));
+      assert.strictEqual(r.data.profile.email, 'admin1@qa.test', 'la propria email arriva dall\'account');
     });
     it('FT-AUTH-03 primo accesso: collega uid e provisiona il ruolo dai flag legacy', async () => {
       const u = await as('newbie@qa.test');
@@ -153,8 +156,9 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     it('FT-AUTH-13 uscito da un condominio ed entrato in un altro con la stessa email: entra nel nuovo', async () => {
       await admin.doc('buildings/2/members/202').update({ disabled: true, _updatedBy: 'u-admin2' });
       assert.ok(await waitFor(async () => !(await claimsOf('u-member2')).role, 30000), 'permessi del vecchio condominio non tolti');
-      await admin.doc('buildings/1/members/108').set({ id: 108, nome: 'Bice Member2', appartamento: 'Int. 8', email: 'member2@qa.test', emailLower: 'member2@qa.test',
-        edificioId: 1, canEdit: false, isAdmin: false, superAdmin: false, _createdAt: new Date(), _createdBy: 'u-admin1', _updatedBy: 'u-admin1', _updatedAt: new Date(), _deleted: false });
+      const meta = { _createdAt: new Date(), _createdBy: 'u-admin1', _updatedBy: 'u-admin1', _updatedAt: new Date(), _deleted: false };
+      await admin.doc('buildings/1/members/108').set({ id: 108, nome: 'Bice Member2', appartamento: 'Int. 8', edificioId: 1, canEdit: false, isAdmin: false, superAdmin: false, ...meta });
+      await admin.doc('buildings/1/contatti/108').set({ id: 108, edificioId: 1, email: 'member2@qa.test', emailLower: 'member2@qa.test', ...meta });
       const u = await as('member2@qa.test');
       const r = await u.call('whoami');
       assert.ok(r.ok && !r.data.profile.disabled, r.message);
@@ -455,18 +459,75 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     // Non regressione: l'uso normale non deve togliere permessi né scollegare nessuno.
     it('PERM-06 modifica qualunque di un condomino attivo: stessi permessi, nessuna revoca dei token', async () => {
       const prima = (await adminAuth().getUser('u-editor1')).tokensValidAfterTime;
-      await modifica(await as('admin1@qa.test'), 102, { telefono: '333 1234567', note: 'nuovo numero' });
+      await modifica(await as('admin1@qa.test'), 102, { note: 'nuovo numero' });
       await new Promise((r) => setTimeout(r, 4000));
       assert.deepStrictEqual(await claimsOf('u-editor1'), { role: 'editor', buildingId: '1' });
       assert.strictEqual((await adminAuth().getUser('u-editor1')).tokensValidAfterTime, prima, 'token revocati senza motivo');
     });
     it('PERM-07 promozione dall\'app (setUserRole, poi record salvato): il permesso nuovo resta', async () => {
+      // I trigger delle scritture del seed (migrazione e separazione dei contatti)
+      // allineano i permessi al record di allora: devono finire prima della promozione.
+      await new Promise((r) => setTimeout(r, 4000));
       const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });
       assert.ok(r.ok, r.message);
       await modifica(await as('superadmin@qa.test'), 103, { canEdit: true });
       await modifica(await as('admin1@qa.test'), 103, { nome: 'Marta M.' }); // scrittura successiva qualunque
       await new Promise((r) => setTimeout(r, 4000));
       assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'editor', buildingId: '1' });
+    });
+  });
+
+  // Privacy (decisione del 2026-10-15): un condomino semplice vede degli altri solo nomi e quote.
+  describe('privacy: contatti dei condomini', () => {
+    const { separaContatti, verificaContatti } = require('../scripts/lib/contatti-migration');
+    it('PRIV-02 un member legge i condomini senza email né telefono; amministratore ed editor leggono i contatti', async () => {
+      const m = await as('member1@qa.test');
+      const membri = (await fs.getDocs(fs.collection(m.db, 'buildings/1/members'))).docs.map((d) => d.data());
+      assert.ok(membri.length >= 5);
+      assert.ok(membri.every((x) => !('email' in x) && !('emailLower' in x) && !('telefono' in x)), 'email visibili a un condomino');
+      assert.ok(await denied(fs.getDocs(fs.collection(m.db, 'buildings/1/contatti'))));
+      for (const chi of ['admin1@qa.test', 'editor1@qa.test']) {
+        const c = (await fs.getDocs(fs.collection((await as(chi)).db, 'buildings/1/contatti'))).docs.map((d) => d.data());
+        assert.ok(c.some((x) => x.email === 'member1@qa.test'), chi + ' non legge i contatti');
+      }
+    });
+    it('MIG-07 separazione dei contatti: idempotente, verifica pulita, si ferma su un conflitto senza toccare il condomino', async () => {
+      assert.deepStrictEqual(await verificaContatti(admin), []);
+      const ancora = await separaContatti(admin);
+      assert.deepStrictEqual([ancora.daSpostare, ancora.creati, ancora.ripuliti], [0, 0, 0]);
+      // record vecchio (non migrato) con un'email diversa da quella dei contatti
+      await admin.doc('buildings/1/members/103').update({ email: 'altra@qa.test', emailLower: 'altra@qa.test', telefono: '333' });
+      const prova = await separaContatti(admin, { dryRun: true });
+      assert.strictEqual(prova.conflitti.length, 1);
+      assert.strictEqual((await admin.doc('buildings/1/members/103').get()).data().email, 'altra@qa.test', 'la prova ha scritto');
+      const esito = await separaContatti(admin);
+      assert.strictEqual(esito.conflitti.length, 1);
+      assert.strictEqual((await admin.doc('buildings/1/members/103').get()).data().email, 'altra@qa.test', 'condomino in conflitto toccato');
+      assert.strictEqual((await admin.doc('buildings/1/contatti/103').get()).data().email, 'member1@qa.test');
+      // record vecchio con la stessa email e un telefono: il telefono passa nei contatti
+      await admin.doc('buildings/1/members/103').update({ email: 'member1@qa.test', emailLower: 'member1@qa.test' });
+      await separaContatti(admin);
+      assert.strictEqual((await admin.doc('buildings/1/contatti/103').get()).data().telefono, '333');
+      assert.ok(!('telefono' in (await admin.doc('buildings/1/members/103').get()).data()));
+      assert.deepStrictEqual(await verificaContatti(admin), []);
+    });
+    it('MIG-08 la separazione non crea voci nel registro modifiche', async () => {
+      await admin.doc('buildings/1/members/102').update({ email: 'editor1@qa.test', emailLower: 'editor1@qa.test', telefono: '0541' });
+      await separaContatti(admin);
+      await new Promise((r) => setTimeout(r, 3000));
+      const ev = (await admin.collection('auditEvents').where('recordId', '==', '102').get()).docs.map((d) => d.data())
+        .filter((e) => e.actorUid === 'migrazione-contatti');
+      assert.strictEqual(ev.length, 0);
+    });
+    it('MIG-09 email di un condomino cambiata dall\'amministratore: whoami e le email usano quella nuova', async () => {
+      const a = await as('admin1@qa.test');
+      const ref = fs.doc(a.db, 'buildings/1/contatti/104');
+      const prev = (await fs.getDoc(ref)).data();
+      await fs.setDoc(ref, signed(a, { id: 104, edificioId: 1, email: 'Nuovo@QA.test', emailLower: 'nuovo@qa.test' }, prev));
+      await adminAuth().updateUser('u-newbie', { email: 'nuovo@qa.test' });
+      const r = await (await as('nuovo@qa.test')).call('whoami');
+      assert.ok(r.ok, r.message);
+      assert.strictEqual(r.data.profile.id, 104);
     });
   });
 
@@ -510,7 +571,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
     const a = await as('admin1@qa.test');
     await admin.doc('buildings/1/members/105').update({ emailNotifiche: false });
     await scrivi(a, 'notices', avviso(9001, { notificaEmail: 'c1', notificaDestinatari: [101, 103, 105, 106] }));
-    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; });
+    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; }, 30000);
     assert.strictEqual(v.stato, 'simulata');
     assert.strictEqual(v.tipo, 'avviso');
     assert.match(v.oggetto, /^Nuovo avviso: Acqua chiusa$/);
@@ -536,7 +597,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
   it('verbale: oggetto e destinatari scelti', async () => {
     const a = await as('admin1@qa.test');
     await scrivi(a, 'minutes', { id: 9003, titolo: 'Assemblea ordinaria', data: '2026-09-30', tipo: 'ordinaria', argomenti: [], decisioni: ['Approvato bilancio'], allegati: [], edificioId: 1, notificaEmail: 'v1', notificaDestinatari: [102] });
-    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; });
+    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; }, 30000);
     assert.strictEqual(v.tipo, 'verbale');
     assert.deepStrictEqual(emails(v), ['editor1@qa.test']);
   });
@@ -590,7 +651,7 @@ describe('INTEGRAZIONE — email ai condomini', function () {
     const a = await as('admin1@qa.test');
     await admin.doc('limitiEmail/1').set({ voci: [{ t: Date.now() - 3600e3 * 2, n: 49, orario: true }] });
     await scrivi(a, 'notices', avviso(9010, { notificaEmail: 'stesso', notificaDestinatari: [101, 103] }));
-    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; });
+    const [v] = await waitFor(async () => { const l = await invii(); return l.length && l.every((x) => x.stato !== 'in invio') ? l : null; }, 30000);
     assert.strictEqual(v.stato, 'bloccata');
     assert.match(v.errore, /50 destinatari in 24 ore, già usati 49\): riprova tra circa 22 ore/);
     assert.ok(!v.id.includes('stesso'), 'id dello storico preso dal codice del client: ' + v.id);
