@@ -11,7 +11,7 @@ function bindModal() {
   const mca = document.getElementById('modal-cancel');
   if (mca) mca.onclick = close;
   const ms = document.getElementById('modal-save');
-  if (ms) ms.onclick = () => saveModal();
+  if (ms) ms.onclick = () => unClicAllaVolta(ms, () => saveModal());
   // Dropzone
   bindDropzone();
   bindSchedaPassword();
@@ -28,9 +28,10 @@ function bindModal() {
 }
 
 function saveModal() {
-  // Smista il salvataggio alla sezione della scheda aperta.
+  // Smista il salvataggio alla sezione della scheda aperta (la scheda condomino
+  // aspetta il server: la promessa serve a unClicAllaVolta).
   const m = state.modal;
-  if (m.type === 'spesa') salvaSchedaSpesa(m);
-  else if (m.type === 'entrata') salvaSchedaEntrata(m);
-  else if (m.type === 'cond') salvaSchedaCondomino(m);
+  if (m.type === 'spesa') return salvaSchedaSpesa(m);
+  if (m.type === 'entrata') return salvaSchedaEntrata(m);
+  if (m.type === 'cond') return salvaSchedaCondomino(m);
 }

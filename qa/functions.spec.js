@@ -390,9 +390,24 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
   });
 
   describe('setUserRole', () => {
-    it('SEC-ROLE-01 un adminEdificio non può assegnare ruoli', async () => {
-      const r = await (await as('admin1@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'adminEdificio', buildingId: '1' });
-      assert.strictEqual(r.code, 'functions/permission-denied');
+    // Decisione del 2026-10-15: l'amministratore nomina nel proprio condominio, con limiti.
+    it('SEC-ROLE-01 un adminEdificio assegna ruoli solo nel suo condominio, mai superAdmin, mai a chi sta altrove', async () => {
+      const a = await as('admin1@qa.test');
+      const ok = await a.call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });
+      assert.ok(ok.ok, ok.message);
+      assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'editor', buildingId: '1' });
+      const ev = (await admin.collection('auditEvents').where('targetUid', '==', 'u-member1').where('type', '==', 'role.assigned').get()).docs[0]?.data();
+      assert.strictEqual(ev?.actorUid, 'u-admin1');
+      const negato = async (dati) => (await a.call('setUserRole', dati)).code;
+      assert.strictEqual(await negato({ targetUid: 'u-member1', role: 'superAdmin' }), 'functions/permission-denied');
+      assert.strictEqual(await negato({ targetUid: 'u-member2', role: 'editor', buildingId: '2' }), 'functions/permission-denied');
+      assert.strictEqual(await negato({ targetUid: 'u-member2', role: 'editor', buildingId: '1' }), 'functions/permission-denied');
+      assert.strictEqual(await negato({ targetUid: 'u-super', role: 'member', buildingId: '1' }), 'functions/permission-denied');
+      assert.strictEqual(await negato({ targetUid: 'u-disabled', role: 'editor', buildingId: '1' }), 'functions/permission-denied');
+      assert.strictEqual(await negato({ targetUid: 'u-admin1', role: 'member', buildingId: '1' }), 'functions/permission-denied');
+      assert.strictEqual((await claimsOf('u-admin1')).role, 'adminEdificio');
+      const m = await (await as('editor1@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'adminEdificio', buildingId: '1' });
+      assert.strictEqual(m.code, 'functions/permission-denied');
     });
     it('FT-ROLE-02 il superAdmin assegna un ruolo e lascia traccia', async () => {
       const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });

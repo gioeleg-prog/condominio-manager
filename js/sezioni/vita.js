@@ -153,10 +153,10 @@ function renderVerbaleCard(v, canManage) {
         </div>` : ''}
       </div>
       ${allegati.length ? `<div style="margin-top:10px" class="allegati-list">
-        ${primiAllegati.map(a => renderAllegatoItem(a,false)).join('')}
+        ${primiAllegati.map(a => renderAllegatoItem(a,false,canManage)).join('')}
         ${altriAllegati.length ? `<details style="margin-top:4px">
           <summary style="cursor:pointer;font-size:12px;color:var(--accent);padding:4px 0">+ ${altriAllegati.length} altri allegati</summary>
-          <div class="allegati-list" style="margin-top:6px">${altriAllegati.map(a => renderAllegatoItem(a,false)).join('')}</div>
+          <div class="allegati-list" style="margin-top:6px">${altriAllegati.map(a => renderAllegatoItem(a,false,canManage)).join('')}</div>
         </details>` : ''}
       </div>` : ''}
     </div>
@@ -645,7 +645,7 @@ function bindAzioniVita() {
 function bindSchedaVita() {
   // Salva avviso bacheca (crea/modifica)
   const bSaveAv = document.getElementById('btn-save-avviso');
-  if (bSaveAv) bSaveAv.onclick = async () => {
+  if (bSaveAv) bSaveAv.onclick = () => unClicAllaVolta(bSaveAv, async () => {
     const titolo   = document.getElementById('av-titolo')?.value?.trim();
     const testo    = document.getElementById('av-testo')?.value?.trim();
     const scadenza = document.getElementById('av-scadenza')?.value || '';
@@ -680,10 +680,10 @@ function bindSchedaVita() {
     save('cm_bacheca', bacheca);
     setState({bacheca, modal:null});
     avvisaEmail(email);
-  };
+  });
   // Salva verbale (crea/modifica)
   const bSaveVb = document.getElementById('btn-save-verbale');
-  if (bSaveVb) bSaveVb.onclick = async () => {
+  if (bSaveVb) bSaveVb.onclick = () => unClicAllaVolta(bSaveVb, async () => {
     const titolo = document.getElementById('vb-titolo')?.value?.trim();
     const data = document.getElementById('vb-data')?.value;
     const tipo = document.getElementById('vb-tipo')?.value || 'ordinaria';
@@ -719,7 +719,7 @@ function bindSchedaVita() {
     save('cm_verbali', verbali);
     setState({verbali, modal:null, pendingFiles:[]});
     avvisaEmail(email);
-  };
+  });
   // Salva lavoro (crea/modifica) — lo storico è append-only: la nota nuova
   // si aggiunge, non sostituisce mai quelle già salvate (vedi criticità
   // "race condition su storico lavori" nel blueprint).

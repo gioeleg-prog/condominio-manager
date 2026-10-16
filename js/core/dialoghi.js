@@ -75,6 +75,19 @@ function chiediTesto(testo, opz = {}) {
     conferma: opz.conferma || 'Conferma', campo: { etichetta: opz.etichetta, segnaposto: opz.segnaposto } });
 }
 
+// Doppio clic su un pulsante che salva: fn parte una volta sola finché non ha
+// finito, con il pulsante disattivato. Serve ai salvataggi che aspettano il
+// server prima di chiudere la scheda (verifica dei limiti email, verifica
+// dell'email del condomino): prima un secondo clic creava un secondo record.
+// Se alla fine il pulsante c'è ancora (scheda rimasta aperta) torna attivo.
+async function unClicAllaVolta(btn, fn) {
+  if (!btn || btn.dataset.inCorso) return;
+  btn.dataset.inCorso = '1';
+  btn.disabled = true;
+  try { return await fn(); }
+  finally { delete btn.dataset.inCorso; btn.disabled = false; }
+}
+
 // Messaggi brevi: riquadro in basso che sparisce da solo. Messaggi lunghi o su
 // più paragrafi (spiegazioni, elenchi): finestra con "Ho capito".
 function avvisa(testo, tipo) {

@@ -187,7 +187,10 @@ function renderPendingFiles() {
   });
 }
 
-function renderAllegatoItem(f, isPending=false) {
+// puoEliminare: false dove chi guarda non può modificare il record (es. verbali
+// per chi non amministra): niente cestino, che prima cancellava il file anche
+// quando poi il salvataggio del record veniva rifiutato.
+function renderAllegatoItem(f, isPending=false, puoEliminare=true) {
   const cls = fileIconClass(f.mime);
   return `<div class="allegato-item">
     <div class="allegato-icon ${cls}">${fileEmoji(f.mime)}</div>
@@ -200,7 +203,7 @@ function renderAllegatoItem(f, isPending=false) {
         ? `<button class="allegato-btn danger" data-remove-pending="${esc(f.id)}" title="Rimuovi">🗑</button>`
         : `<button class="allegato-btn" data-view-allegato='${attrJson({id:f.id})}' title="Visualizza">👁</button>
            <button class="allegato-btn" data-dl-allegato='${attrJson({id:f.id})}' title="Scarica">⬇</button>
-           <button class="allegato-btn danger" data-del-allegato='${attrJson({id:f.id})}' title="Elimina">🗑</button>`}
+           ${puoEliminare ? `<button class="allegato-btn danger" data-del-allegato='${attrJson({id:f.id})}' title="Elimina">🗑</button>` : ''}`}
     </div>
   </div>`;
 }
@@ -257,26 +260,32 @@ function bindAllegatiInTable(sources) {
       const {id} = JSON.parse(btn.dataset.delAllegato);
       const { found: toDelete, src } = findIn(id);
       if (!toDelete || !src) return;
-      if (toDelete.storagePath) {
-        try {
-          const { storage, ref, deleteObject } = window._fb;
-          await deleteObject(ref(storage, toDelete.storagePath));
-        } catch (err) {
-          // File già assente: si toglie comunque il riferimento. Qualunque altro
-          // errore (permessi, rete): ci si ferma, altrimenti il record perderebbe
-          // il collegamento a un file che invece esiste ancora.
-          if (err.code !== 'storage/object-not-found') {
-            avvisa('Impossibile eliminare l’allegato: ' + (err.code === 'storage/unauthorized'
-              ? 'non hai i permessi per eliminarlo.' : (err.message || err)));
-            return;
-          }
-        }
-      }
       const nuoviRecords = state[src.stateKey].map(r => ({
         ...r,
         allegati: (r.allegati||[]).filter(a=>a.id!==id)
       }));
-      save(src.appdataKey, nuoviRecords);
+      // Prima il record, poi il file: se il server rifiuta la modifica (permessi,
+      // conflitto) il file resta e il collegamento pure. Prima si cancellava il
+      // file per primo e, con il record rifiutato, restava un allegato senza file.
+      const mdPrima = state.modal?.data;
+      save(src.appdataKey, nuoviRecords).then(async (ok) => {
+        // Salvataggio rifiutato: anche la scheda aperta torna a mostrare l'allegato
+        // (il record e il file ci sono ancora).
+        if (!ok && mdPrima && state.modal && state.modal.data?.id === mdPrima.id) { state.modal = { ...state.modal, data: mdPrima }; render(); }
+        if (!ok || !toDelete.storagePath) return;
+        try {
+          const { storage, ref, deleteObject } = window._fb;
+          await deleteObject(ref(storage, toDelete.storagePath));
+        } catch (err) {
+          // File già assente: va bene. Altro errore: il file resta nello spazio
+          // dell'app ma non è più collegato a nulla; si avvisa senza rimettere il collegamento.
+          if (err.code !== 'storage/object-not-found') {
+            reportClientError('Allegato tolto ma file non cancellato: ' + (err.code || err.message || err), err.stack);
+            avvisa('Allegato tolto, ma il file non è stato cancellato dallo spazio dell\'app: ' + (err.code === 'storage/unauthorized'
+              ? 'permessi insufficienti.' : (err.message || err)));
+          }
+        }
+      });
       // Se l'allegato è stato eliminato dalla scheda di modifica aperta, anche la
       // copia del record usata dalla scheda va aggiornata: prima restava, l'allegato
       // sembrava non eliminato e un successivo "Salva" lo rimetteva (con il file

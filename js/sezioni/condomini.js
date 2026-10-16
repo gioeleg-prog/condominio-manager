@@ -386,7 +386,7 @@ function bindWizard() {
     if (step > 1) setState({wizardStep: step - 1});
   };
 
-  wNext.onclick = async () => {
+  wNext.onclick = () => unClicAllaVolta(wNext, async () => {
     const step = state.wizardStep || 1;
     const wd   = state.wizardData || {};
     const showErr = (id, msg) => {
@@ -451,7 +451,7 @@ function bindWizard() {
       }
       setState({condomini, modal: window._fb && nuovoUtente.email ? {type:'firebase-user-created', data: nuovoUtente} : null, wizardStep:1, wizardData:{}});
     }
-  };
+  });
 }
 
 // Gestione di condomini e utenti: modifica, ruoli, disattivazione, reset password. Chiamata da bindPageActions() (azioni.js).
@@ -551,9 +551,10 @@ function bindAzioniCondomini() {
     };
   });
   // Elimina utente definitivamente
-  document.querySelectorAll('[data-delete-cond]').forEach(btn => {
+  // (il pulsante ha data-del-cond: prima il gestore cercava data-delete-cond e "🗑 Elimina" non faceva nulla)
+  document.querySelectorAll('[data-del-cond]').forEach(btn => {
     btn.onclick = async () => {
-      const id = parseInt(btn.dataset.deleteCond);
+      const id = parseInt(btn.dataset.delCond);
       const cond = state.condomini.find(c=>c.id===id);
       if (!cond) return;
       const hasData = state.entrate.some(e=>e.condominoId===id) ||
@@ -640,6 +641,22 @@ async function salvaSchedaCondomino(m) {
     if (dataIngresso && dataUscita && dataUscita <= dataIngresso) { avvisa('La data di uscita deve venire dopo quella di ingresso.'); return; }
     const emailPrima = m.data?.id ? String(state.condomini.find(c => c.id === m.data.id)?.email || '') : '';
     if (email && email.toLowerCase() !== emailPrima.toLowerCase() && !await emailUsabileQui(email, edificioId)) return;
+    // I permessi veri sono sul server (setUserRole): se la persona ha già fatto
+    // il primo accesso e il ruolo cambia, si cambia prima lì. Prima si salvava
+    // solo la scheda: l'app le mostrava i pulsanti, ma ogni salvataggio falliva.
+    const condPrima = m.data?.id ? state.condomini.find(c => c.id === m.data.id) : null;
+    if (condPrima?.uid && !condPrima.superAdmin && window._fb?.httpsCallable
+        && (!!condPrima.isAdmin !== isAdminNew || !!condPrima.canEdit !== canEditNew)) {
+      try {
+        const { functionsInstance, httpsCallable } = window._fb;
+        await httpsCallable(functionsInstance, 'setUserRole')({ targetUid: condPrima.uid,
+          role: isAdminNew ? 'adminEdificio' : (canEditNew ? 'editor' : 'member'),
+          buildingId: String(condPrima.edificioId || state.edificioAttivo) });
+      } catch (e) {
+        avvisa('⚠️ Ruolo non cambiato: ' + (e.message || e));
+        return;
+      }
+    }
     const date = { dataIngresso, ...(dataUscita !== undefined ? { dataUscita } : {}),
       emailNotifiche: document.getElementById('m-email-notifiche') ? document.getElementById('m-email-notifiche').checked : true };
     let condomini;
@@ -749,7 +766,7 @@ function renderModalSubentro(d) {
 function bindSchedaSubentro() {
   const b = document.getElementById('btn-sub-conferma');
   if (!b || state.modal?.type !== 'subentro' || !canUserAdmin(state.user)) return;
-  b.onclick = async () => {
+  b.onclick = () => unClicAllaVolta(b, async () => {
     const err = (t) => { const e = document.getElementById('sub-err'); e.textContent = t; e.style.display = 'block'; };
     if (!canUserAdmin(state.user)) return err('Solo l\'amministratore può registrare un subentro.');
     const vecchio = state.condomini.find(c => c.id === Number(b.dataset.cond));
@@ -787,5 +804,5 @@ function bindSchedaSubentro() {
     avvisa('✅ Subentro registrato: ' + nome + ' dal ' + dataPdf(data)
       + (daPassare.size ? ', con le quote di ' + daPassare.size + ' spese future.' : '.'));
     if (!email) avvisa('Ricorda di aggiungere l\'email di ' + nome + ' per l\'accesso.');
-  };
+  });
 }

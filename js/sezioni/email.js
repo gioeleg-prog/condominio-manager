@@ -284,6 +284,10 @@ function bindSchedeEmail() {
 // ─── Impostazioni: promemoria automatici e storico invii ───────────
 let _storicoEmail = null;   // { at, voci } — ricaricato al massimo ogni minuto
 let _impEmail = null;
+// Di chi e di quale condominio sono i due dati qui sopra ("uid/edificio"):
+// cambiando condominio (superAdmin) o utente si rileggono. Prima si vedevano
+// impostazioni e storico del condominio di prima, e Salva li copiava nel nuovo.
+let _emailDi = null;
 
 function renderSezioneEmail() {
   return `<div class="section-divider"><h3>📧 Email ai condomini</h3></div>
@@ -347,13 +351,20 @@ async function bindSezioneEmail() {
   if (!document.getElementById('email-storico') || !window._fb?.getDocs) return;
   const { db, collection, doc, getDoc, getDocs, query, orderBy, limit } = window._fb;
   const b = String(edificioEmail());
+  const chi = (window._fb.auth?.currentUser?.uid || '') + '/' + b;
+  if (_emailDi !== chi) { _impEmail = null; _storicoEmail = null; _emailDi = chi; }
   const agg = document.getElementById('btn-email-storico-aggiorna');
   if (agg) agg.onclick = () => { _storicoEmail = null; bindSezioneEmail(); };
   try {
-    if (!_impEmail) _impEmail = (await getDoc(doc(db, 'buildings', b, 'impostazioni', 'email'))).data() || { promemoriaAuto: false, giorniPreavviso: 3 };
+    if (!_impEmail) {
+      const imp = (await getDoc(doc(db, 'buildings', b, 'impostazioni', 'email'))).data() || { promemoriaAuto: false, giorniPreavviso: 3 };
+      if (_emailDi !== chi) return; // nel frattempo è cambiato condominio o utente
+      _impEmail = imp;
+    }
     disegnaImpostazioniEmail();
     if (!_storicoEmail || Date.now() - _storicoEmail.at > 60000) {
       const snap = await getDocs(query(collection(db, 'buildings', b, 'invii'), orderBy('creatoIl', 'desc'), limit(50)));
+      if (_emailDi !== chi) return;
       _storicoEmail = { at: Date.now(), voci: snap.docs.map(d => d.data()) };
     }
     disegnaStoricoEmail();
