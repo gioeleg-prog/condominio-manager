@@ -7,8 +7,8 @@
 //      - errori dell'app (clientErrors) nelle ultime 24 ore: almeno 10, oppure
 //        almeno 5 e il triplo della media giornaliera dei 7 giorni prima;
 //      - email ai condomini non partite nelle ultime 24 ore (storico invii:
-//        "errore", "in parte", o ferme "in invio" da più di un'ora; queste
-//        ultime anche se create prima delle 24 ore).
+//        "errore", "in parte", "bloccata" dai limiti (limiti.js), o ferme "in
+//        invio" da più di un'ora; queste ultime anche se create prima delle 24 ore).
 //    Un controllo che non riesce a leggere i dati diventa a sua volta un problema,
 //    senza fermare gli altri. Con almeno un problema scrive ai Super Admin, al
 //    massimo una volta al giorno; se l'email non parte l'esecuzione pianificata
@@ -94,7 +94,7 @@ async function controllaEmail(ora) {
     for (const d of docs) {
       const v = d.data();
       const ferma = v.stato === 'in invio' && ora - ms(v.creatoIl) > ORA;
-      if (!['errore', 'in parte'].includes(v.stato) && !ferma) continue;
+      if (!['errore', 'in parte', 'bloccata'].includes(v.stato) && !ferma) continue;
       if (nome === null) nome = ((await e.get()).data() || {}).nome || 'Condominio ' + e.id;
       const dettaglio = v.errore || v.errori?.[0]?.errore || (ferma ? 'rimasta in invio' : '');
       righe.push(`${nome}: «${unaRiga(v.oggetto || v.tipo || 'email', 80)}» ${v.stato}${dettaglio ? ' — ' + unaRiga(dettaglio, 160) : ''}`);

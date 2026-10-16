@@ -645,7 +645,7 @@ function bindAzioniVita() {
 function bindSchedaVita() {
   // Salva avviso bacheca (crea/modifica)
   const bSaveAv = document.getElementById('btn-save-avviso');
-  if (bSaveAv) bSaveAv.onclick = () => {
+  if (bSaveAv) bSaveAv.onclick = async () => {
     const titolo   = document.getElementById('av-titolo')?.value?.trim();
     const testo    = document.getElementById('av-testo')?.value?.trim();
     const scadenza = document.getElementById('av-scadenza')?.value || '';
@@ -661,7 +661,8 @@ function bindSchedaVita() {
       ? (state.bacheca.find(a=>a.id===parseInt(origId))?.edificioId || getUserEdificio(state.user))
       : getUserEdificio(state.user);
 
-    const email = richiestaEmail('av-email');
+    const email = await verificaLimiteEmail(richiestaEmail('av-email'));
+    if (!email) return;
     let bacheca;
     if (origId) {
       bacheca = state.bacheca.map(a => a.id===parseInt(origId)
@@ -682,7 +683,7 @@ function bindSchedaVita() {
   };
   // Salva verbale (crea/modifica)
   const bSaveVb = document.getElementById('btn-save-verbale');
-  if (bSaveVb) bSaveVb.onclick = () => {
+  if (bSaveVb) bSaveVb.onclick = async () => {
     const titolo = document.getElementById('vb-titolo')?.value?.trim();
     const data = document.getElementById('vb-data')?.value;
     const tipo = document.getElementById('vb-tipo')?.value || 'ordinaria';
@@ -699,7 +700,8 @@ function bindSchedaVita() {
     const allegati = [...(existing?.allegati||[]), ...state.pendingFiles];
     const edificioIdVerbale = existing?.edificioId || getUserEdificio(state.user);
 
-    const email = richiestaEmail('vb-email');
+    const email = await verificaLimiteEmail(richiestaEmail('vb-email'));
+    if (!email) return;
     let verbali;
     if (origId) {
       verbali = state.verbali.map(v => v.id===parseInt(origId)

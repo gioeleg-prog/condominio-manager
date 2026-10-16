@@ -189,6 +189,7 @@ const GUIDA = {
     sapere: [
       'Un avviso con scadenza serve per comunicazioni a tempo (es. lavori in cortile fino al…).',
       'Le email arrivano da notifichecondominio@gmail.com: se non le trovi, guarda nella posta indesiderata e segna l\'indirizzo come attendibile.',
+      ['admin', 'Per evitare abusi e il blocco della casella, ogni condominio può mandare al massimo 5 invii all\'ora e 50 destinatari in 24 ore (contano avvisi, verbali, rendiconti, estratti conto e promemoria). Se il limite è raggiunto l\'app te lo dice prima di pubblicare, con il tempo di attesa: puoi pubblicare senza email e usare "Invia di nuovo per email" più tardi.'],
     ],
   },
   condomini: {
@@ -212,6 +213,9 @@ const GUIDA = {
     ],
     sapere: [
       '<b>Lettura</b>: solo consultazione. <b>Modifica</b>: inserisce spese, entrate e fornitori. <b>Amm. Edificio</b>: gestisce anche persone e comunicazioni.',
+      ['admin', 'Un amministratore del condominio può nominare altri amministratori o dare "Modifica": ogni nomina resta nel registro delle modifiche del servizio, con chi l\'ha fatta. Per una persona che usa già l\'app il nuovo ruolo vale dopo la conferma del Super Admin; per chi entra per la prima volta vale dal primo accesso.'],
+      ['super', 'Le nomine fatte dagli amministratori compaiono in Impostazioni › Stato del servizio › Registro modifiche come "Nomina", con chi l\'ha fatta. Per chi ha già fatto il primo accesso, confermale scegliendo il ruolo dal menu della sua scheda utente in Impostazioni.'],
+      ['admin', 'Un\'email vale per un solo condominio: se è già usata da una persona di un altro condominio, al salvataggio l\'app ti avvisa. Puoi salvare lo stesso (le email le riceverà), ma con quell\'email la persona continuerà a entrare nell\'altro condominio.'],
       'Eliminare definitivamente si può solo dall\'archivio: preferisci archiviare.',
       'Chi viene archiviato, o arriva alla data di uscita, non entra più; chi passa a un ruolo più basso perde i permessi in più. Se in quel momento ha l\'app aperta, i vecchi permessi smettono di valere entro un\'ora.',
       'Le spese senza ripartizione si dividono tra chi abitava nel condominio alla data della spesa: chi è uscito non paga quelle successive, chi è entrato non paga quelle precedenti. Rendiconto, bilancio ed estratto conto di un anno includono anche chi c\'era solo per una parte dell\'anno.',
@@ -232,9 +236,9 @@ const GUIDA = {
       ['admin', 'Disabilitare un utente', 'Il pulsante con l\'omino barrato sulla riga; "Riabilita" (omino con la spunta) lo riattiva.'],
       ['super', 'Aggiungere o modificare categorie', 'Nella sezione Categorie; "↩ Ripristina categorie default" torna a quelle iniziali.'],
       ['super', 'Aggiungere un condominio', 'Sezione "🏢 Gestione condomini".'],
-      ['admin', 'Email ai condomini', 'Sezione "📧 Email ai condomini": accendi o spegni i promemoria automatici delle rate (e quanti giorni prima) e consulta lo storico delle email inviate, con chi le ha ricevute.'],
+      ['admin', 'Email ai condomini', 'Sezione "📧 Email ai condomini": accendi o spegni i promemoria automatici delle rate (e quanti giorni prima) e consulta lo storico delle email inviate, con chi le ha ricevute. Le email fermate dal limite di invii compaiono come "bloccata dal limite", con il motivo.'],
       ['admin', 'Tabelle millesimali', 'Sezione "⚖️ Tabelle millesimali": accendi "Usa i millesimi" con la data da cui valgono, inserisci i millesimi di ogni appartamento (il totale deve fare 1000), aggiungi altre tabelle (Scale, Ascensore…) e scegli quale proporre per ogni categoria. Le spese già inserite non cambiano; per quelle dell\'anno in corso non consuntivate c\'è "Applica…" con l\'anteprima di prima e dopo.'],
-      ['super', 'Ricevere gli avvisi quando qualcosa non va', 'Sono già attivi: ogni mattina alle 7:30 un controllo verifica backup notturno, errori dell\'app ed email ai condomini non partite, e se trova un problema scrive al Super Admin (al massimo una volta al giorno). Segnala anche un backup saltato la notte stessa, una copia su Drive rimasta a metà, copie vecchie che il Drive non ha cancellato, email ai condomini bloccate "in invio" anche da più di un giorno e un controllo che non è riuscito a leggere i dati. Se l\'avviso del giorno non è partito, il controllo successivo riprova. In "Stato del servizio › 🔔 Avvisi automatici" vedi l\'esito dell\'ultimo controllo; "📧 Invia email di prova" lo esegue subito e ti scrive anche se è tutto a posto (se l\'email non parte, ti mostra il motivo).'],
+      ['super', 'Ricevere gli avvisi quando qualcosa non va', 'Sono già attivi: ogni mattina alle 7:30 un controllo verifica backup notturno, errori dell\'app ed email ai condomini non partite, e se trova un problema scrive al Super Admin (al massimo una volta al giorno). Segnala anche un backup saltato la notte stessa, una copia su Drive rimasta a metà, copie vecchie che il Drive non ha cancellato, email ai condomini bloccate "in invio" anche da più di un giorno o fermate dal limite di invii e un controllo che non è riuscito a leggere i dati. Se l\'avviso del giorno non è partito, il controllo successivo riprova. In "Stato del servizio › 🔔 Avvisi automatici" vedi l\'esito dell\'ultimo controllo; "📧 Invia email di prova" lo esegue subito e ti scrive anche se è tutto a posto (se l\'email non parte, ti mostra il motivo).'],
       ['admin', 'Appartamenti in affitto', 'Sezione "🔑 Appartamenti in affitto": di base sono tutti del proprietario; spunta quelli affittati. Nell\'estratto conto del proprietario comparirà "Da recuperare dall\'inquilino": le quote delle spese ordinarie (le straordinarie restano sue). Verso il condominio paga sempre il proprietario.'],
     ],
     sapere: [
