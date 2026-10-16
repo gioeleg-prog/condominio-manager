@@ -214,7 +214,7 @@ const GUIDA = {
     ],
     sapere: [
       '<b>Lettura</b>: solo consultazione. <b>Modifica</b>: inserisce spese, entrate e fornitori. <b>Amm. Edificio</b>: gestisce anche persone e comunicazioni.',
-      ['admin', 'Un amministratore del condominio può nominare altri amministratori o dare "Modifica": ogni nomina resta nel registro delle modifiche del servizio, con chi l\'ha fatta. Il ruolo si cambia dalla scheda (Modifica) o dal menu Ruolo in Impostazioni e vale subito sul server: chi ha l\'app aperta lo vede al prossimo accesso, o al più tardi entro un\'ora. Puoi assegnare solo Lettura, Modifica e Amm. Edificio, e solo a persone del tuo condominio.'],
+      ['admin', 'Un amministratore del condominio può nominare altri amministratori o dare "Modifica": ogni nomina resta nel registro delle modifiche del servizio, con chi l\'ha fatta. Il ruolo si cambia dalla scheda (Modifica) o dal menu Ruolo in Impostazioni e vale subito sul server: chi ha l\'app aperta lo vede al prossimo accesso, o al più tardi entro un\'ora. Puoi assegnare solo Lettura, Modifica e Amm. Edificio, e solo a persone del tuo condominio; il tuo ruolo lo cambia un altro amministratore o il Super Admin.'],
       ['super', 'Le nomine fatte dagli amministratori compaiono in Impostazioni › Stato del servizio › Registro modifiche come "Nomina" e "Ruolo assegnato", con chi le ha fatte.'],
       ['admin', 'Un\'email vale per un solo condominio: se è già usata da una persona di un altro condominio, al salvataggio l\'app ti avvisa. Puoi salvare lo stesso (le email le riceverà), ma con quell\'email la persona continuerà a entrare nell\'altro condominio.'],
       'Eliminare definitivamente si può solo dall\'archivio: preferisci archiviare.',

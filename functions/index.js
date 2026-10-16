@@ -90,6 +90,9 @@ exports.setUserRole = onCall(async (request) => {
 async function controllaNomina(request, targetUid, role, buildingId) {
   const no = (msg) => { throw new HttpsError('permission-denied', msg); };
   if (role === 'superAdmin') no('Solo il Super Admin può nominare un Super Admin.');
+  // Un amministratore non cambia il proprio ruolo: togliersi i permessi per
+  // sbaglio lo chiuderebbe fuori dal condominio.
+  if (String(targetUid) === request.auth.uid) no('Non puoi cambiare il tuo ruolo: chiedi a un altro amministratore o al Super Admin.');
   if (buildingId !== String(request.auth.token.buildingId)) no('Puoi assegnare ruoli solo nel tuo condominio.');
   const profili = await db.collection(`buildings/${buildingId}/members`).where('uid', '==', String(targetUid)).get();
   if (!profili.docs.some((d) => !d.data()._deleted && permessi.membroAttivo(d.data()))) {

@@ -267,7 +267,11 @@ function bindAllegatiInTable(sources) {
       // Prima il record, poi il file: se il server rifiuta la modifica (permessi,
       // conflitto) il file resta e il collegamento pure. Prima si cancellava il
       // file per primo e, con il record rifiutato, restava un allegato senza file.
+      const mdPrima = state.modal?.data;
       save(src.appdataKey, nuoviRecords).then(async (ok) => {
+        // Salvataggio rifiutato: anche la scheda aperta torna a mostrare l'allegato
+        // (il record e il file ci sono ancora).
+        if (!ok && mdPrima && state.modal && state.modal.data?.id === mdPrima.id) { state.modal = { ...state.modal, data: mdPrima }; render(); }
         if (!ok || !toDelete.storagePath) return;
         try {
           const { storage, ref, deleteObject } = window._fb;

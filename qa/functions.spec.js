@@ -404,6 +404,8 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.strictEqual(await negato({ targetUid: 'u-member2', role: 'editor', buildingId: '1' }), 'functions/permission-denied');
       assert.strictEqual(await negato({ targetUid: 'u-super', role: 'member', buildingId: '1' }), 'functions/permission-denied');
       assert.strictEqual(await negato({ targetUid: 'u-disabled', role: 'editor', buildingId: '1' }), 'functions/permission-denied');
+      assert.strictEqual(await negato({ targetUid: 'u-admin1', role: 'member', buildingId: '1' }), 'functions/permission-denied');
+      assert.strictEqual((await claimsOf('u-admin1')).role, 'adminEdificio');
       const m = await (await as('editor1@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'adminEdificio', buildingId: '1' });
       assert.strictEqual(m.code, 'functions/permission-denied');
     });
