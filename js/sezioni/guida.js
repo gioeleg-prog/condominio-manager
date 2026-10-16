@@ -51,7 +51,7 @@ const GUIDA = {
       ['mod', 'Modificare o fermare una serie', 'Nella scheda di una spesa ricorrente, il riquadro "🔁 Serie" applica le modifiche anche alle occorrenze successive non consuntivate, oppure le elimina con "Elimina le … successive".'],
       ['mod', 'Decidere chi paga quanto', 'Nella ripartizione assegna le percentuali; "↔ Parti uguali" divide in modo uguale, 🔒 blocca una quota. Il totale deve fare 100%. Chi nel frattempo è stato archiviato resta con la sua quota ("non più attivo"); con un "🔁 Subentro" le quote future passano al nuovo condomino.'],
       ['mod', 'Ripartire per millesimi', 'Solo se il condominio li ha accesi: una spesa nuova propone già la ripartizione dalla tabella della sua categoria (es. Ascensore). Scegli un\'altra tabella e premi "⚖️ Millesimi", oppure modifica le quote a mano; "↔ Parti uguali" resta sempre disponibile.'],
-      ['mod', 'Eliminare', 'il cestino rosso sulla riga, oppure seleziona più righe e "Elimina selezionate".'],
+      ['mod', 'Eliminare', 'il cestino rosso sulla riga, oppure seleziona più righe e "Elimina selezionate". Cambiando anno, filtri o ricerca la selezione tiene solo le righe ancora visibili.'],
       ['lettura', 'Chiedere una modifica', 'Puoi consultare spese e allegati; per correzioni rivolgiti all\'amministratore.'],
     ],
     sapere: [
@@ -214,8 +214,8 @@ const GUIDA = {
     ],
     sapere: [
       '<b>Lettura</b>: solo consultazione. <b>Modifica</b>: inserisce spese, entrate e fornitori. <b>Amm. Edificio</b>: gestisce anche persone e comunicazioni.',
-      ['admin', 'Un amministratore del condominio può nominare altri amministratori o dare "Modifica": ogni nomina resta nel registro delle modifiche del servizio, con chi l\'ha fatta. Per una persona che usa già l\'app il nuovo ruolo vale dopo la conferma del Super Admin; per chi entra per la prima volta vale dal primo accesso.'],
-      ['super', 'Le nomine fatte dagli amministratori compaiono in Impostazioni › Stato del servizio › Registro modifiche come "Nomina", con chi l\'ha fatta. Per chi ha già fatto il primo accesso, confermale scegliendo il ruolo dal menu della sua scheda utente in Impostazioni.'],
+      ['admin', 'Un amministratore del condominio può nominare altri amministratori o dare "Modifica": ogni nomina resta nel registro delle modifiche del servizio, con chi l\'ha fatta. Il ruolo si cambia dalla scheda (Modifica) o dal menu Ruolo in Impostazioni e vale subito sul server: chi ha l\'app aperta lo vede al prossimo accesso, o al più tardi entro un\'ora. Puoi assegnare solo Lettura, Modifica e Amm. Edificio, e solo a persone del tuo condominio.'],
+      ['super', 'Le nomine fatte dagli amministratori compaiono in Impostazioni › Stato del servizio › Registro modifiche come "Nomina" e "Ruolo assegnato", con chi le ha fatte.'],
       ['admin', 'Un\'email vale per un solo condominio: se è già usata da una persona di un altro condominio, al salvataggio l\'app ti avvisa. Puoi salvare lo stesso (le email le riceverà), ma con quell\'email la persona continuerà a entrare nell\'altro condominio.'],
       'Eliminare definitivamente si può solo dall\'archivio: preferisci archiviare.',
       'Privacy: email e telefoni dei condomini li vedono solo l\'amministratore e chi ha "Modifica". Gli altri condomini vedono solo nomi, appartamenti e quote.',

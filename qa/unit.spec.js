@@ -194,6 +194,66 @@ describe('UNIT — contatti dei condomini separati al salvataggio', () => {
   });
 });
 
+// Correzioni dell'audit dei percorsi di clic (2026-10-16).
+describe('UNIT — percorsi di clic', () => {
+  it('doppio clic: unClicAllaVolta esegue una volta sola finché non ha finito, poi riattiva il pulsante', async () => {
+    const app = loadApp();
+    const btn = { dataset: {}, disabled: false };
+    let n = 0, fine;
+    const lavoro = () => new Promise((r) => { n++; fine = r; });
+    const primo = app.unClicAllaVolta(btn, lavoro);
+    await app.unClicAllaVolta(btn, lavoro);
+    assert.strictEqual(n, 1);
+    assert.strictEqual(btn.disabled, true);
+    fine(); await primo;
+    assert.strictEqual(btn.disabled, false);
+    await app.unClicAllaVolta(btn, async () => { n++; });
+    assert.strictEqual(n, 2);
+  });
+  it('"🗑 Elimina" dei condomini ha un gestore', () => {
+    const app = loadApp();
+    const btn = { dataset: { delCond: '7' } };
+    app.document.querySelectorAll = (sel) => (sel === '[data-del-cond]' ? [btn] : []);
+    app.document.getElementById = () => null;
+    app.bindAzioniCondomini();
+    assert.strictEqual(typeof btn.onclick, 'function');
+  });
+  it('allegati: senza permesso niente cestino; con permesso sì', () => {
+    const app = loadApp();
+    const f = { id: 1, nome: 'v.pdf', mime: 'application/pdf', size: 10 };
+    assert.ok(!app.renderAllegatoItem(f, false, false).includes('data-del-allegato'));
+    assert.ok(app.renderAllegatoItem(f, false, true).includes('data-del-allegato'));
+    assert.ok(app.renderAllegatoItem(f, false).includes('data-del-allegato'));
+  });
+  it('allegati: il file si cancella solo dopo che il record è stato salvato', async () => {
+    const app = loadApp();
+    const cancellati = [];
+    app._fb = { storage: {}, ref: (_s, p) => p, deleteObject: async (p) => { cancellati.push(p); } };
+    const verbale = { id: 5, allegati: [{ id: 9, nome: 'a.pdf', mime: 'application/pdf', storagePath: 'x/a.pdf' }] };
+    app.__set('state', { ...app.__get('state'), verbali: [verbale], modal: null });
+    const btn = { dataset: { delAllegato: '{"id":9}' } };
+    app.document.querySelectorAll = (sel) => (sel === '[data-del-allegato]' ? [btn] : []);
+    for (const esito of [false, true]) {
+      app.save = () => Promise.resolve(esito);
+      app.setState = () => {};
+      app.bindAllegatiInTable([{ records: [verbale], stateKey: 'verbali', appdataKey: 'cm_verbali' }]);
+      await btn.onclick();
+      await new Promise((r) => setTimeout(r, 0));
+      assert.deepStrictEqual(cancellati, esito ? ['x/a.pdf'] : [], 'salvataggio ' + (esito ? 'riuscito' : 'rifiutato'));
+    }
+  });
+  it('spese: la selezione tiene solo le righe visibili con i filtri attuali', () => {
+    const app = loadApp();
+    const Y = new Date().getFullYear();
+    app.__set('state', { ...app.__get('state'), page: 'spese', user: { id: 1, nome: 'A', isAdmin: true, canEdit: true, edificioId: 1 }, edificioAttivo: 1,
+      spese: [{ id: 1, titolo: 'Luce', categoria: 'luce', data: Y + '-02-01', edificioId: 1, preventivo: '10' },
+        { id: 2, titolo: 'Acqua', categoria: 'acqua', data: Y + '-03-01', edificioId: 1, preventivo: '10' }],
+      speseSelezionate: new Set([1, 2]), searchQ: 'luce' });
+    app.renderSpese();
+    assert.deepStrictEqual([...app.__get('state').speseSelezionate], [1]);
+  });
+});
+
 describe('UNIT — segnalazione errori (reportClientError)', () => {
   it('non lancia mai eccezioni, anche senza Firebase o senza utente', () => {
     const app = loadApp();

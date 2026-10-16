@@ -81,10 +81,13 @@ function load(key, def) {
   return _cache[key] !== undefined ? _cache[key] : def;
 }
 
+// Salva in memoria e su Firestore in background. Restituisce una promessa con
+// l'esito (true = confermato dal server, false = rifiutato e già annullato):
+// chi deve fare qualcosa SOLO dopo un salvataggio riuscito (es. cancellare il
+// file di un allegato) la aspetta; gli altri possono ignorarla.
 function save(key, val) {
   _cache[key] = val;
-  // scrivi su Firestore in background (non blocking)
-  fbSaveKey(key, val);
+  return fbSaveKey(key, val);
 }
 
 let state = {

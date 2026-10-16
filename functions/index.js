@@ -30,12 +30,20 @@ const permessi = require('./permessi');
 // ═══════════════════════════════════════════════════════════════
 // setUserRole
 // Unico punto autorizzato ad assegnare superAdmin / adminEdificio /
-// editor / member. Il chiamante deve già avere il claim role=='superAdmin'.
+// editor / member.
+//  • superAdmin: qualunque ruolo, in qualunque condominio.
+//  • adminEdificio (decisione del 2026-10-15: gli amministratori nominano
+//    altri amministratori, con traccia nel registro): solo member, editor o
+//    adminEdificio, solo nel proprio condominio, solo a un condomino attivo di
+//    quel condominio e mai a chi è superAdmin o ha i permessi di un altro
+//    condominio. Prima la funzione era riservata al superAdmin: il ruolo
+//    scelto dall'amministratore restava solo nella scheda e il server non lo
+//    applicava a chi aveva già fatto il primo accesso.
 // ═══════════════════════════════════════════════════════════════
 exports.setUserRole = onCall(async (request) => {
   const callerRole = request.auth?.token?.role;
-  if (callerRole !== 'superAdmin') {
-    throw new HttpsError('permission-denied', 'Solo un superAdmin può assegnare ruoli.');
+  if (callerRole !== 'superAdmin' && callerRole !== 'adminEdificio') {
+    throw new HttpsError('permission-denied', 'Solo un amministratore può assegnare ruoli.');
   }
 
   const { targetUid, role, buildingId } = request.data || {};
@@ -54,6 +62,7 @@ exports.setUserRole = onCall(async (request) => {
       throw new HttpsError('invalid-argument', `Edificio ${buildingId} inesistente.`);
     }
   }
+  if (callerRole === 'adminEdificio') await controllaNomina(request, targetUid, role, String(buildingId));
 
   const claims = role === 'superAdmin' ? { role } : { role, buildingId: String(buildingId) };
   await auth.setCustomUserClaims(targetUid, claims);
@@ -76,6 +85,20 @@ exports.setUserRole = onCall(async (request) => {
 
   return { ok: true };
 });
+
+// Limiti di un amministratore di condominio che assegna un ruolo (vedi setUserRole).
+async function controllaNomina(request, targetUid, role, buildingId) {
+  const no = (msg) => { throw new HttpsError('permission-denied', msg); };
+  if (role === 'superAdmin') no('Solo il Super Admin può nominare un Super Admin.');
+  if (buildingId !== String(request.auth.token.buildingId)) no('Puoi assegnare ruoli solo nel tuo condominio.');
+  const profili = await db.collection(`buildings/${buildingId}/members`).where('uid', '==', String(targetUid)).get();
+  if (!profili.docs.some((d) => !d.data()._deleted && permessi.membroAttivo(d.data()))) {
+    no('Questa persona non è un condomino attivo del tuo condominio.');
+  }
+  const claims = (await auth.getUser(String(targetUid)).catch(() => null))?.customClaims || {};
+  if (claims.role === 'superAdmin') no('Non puoi cambiare il ruolo del Super Admin.');
+  if (claims.role && String(claims.buildingId) !== buildingId) no('Questa persona accede a un altro condominio.');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // whoami

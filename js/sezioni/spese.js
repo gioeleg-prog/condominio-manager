@@ -171,6 +171,14 @@ function renderSpese() {
   if (state.filterStato === 'definitiva')   items = items.filter(s=>parseFloat(s.consuntivo||0)>0);
   if (state.filterStato === 'previsionale') items = items.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
   if (state.filterFornitore !== 'all')      items = items.filter(s=>String(s.fornitoreId)===state.filterFornitore);
+  // La selezione per "Elimina selezionate" vale solo per le spese visibili: cambiando
+  // anno, filtri, ricerca o condominio quelle nascoste escono dalla selezione.
+  // Prima restavano selezionate e venivano cancellate senza che si vedessero.
+  if (state.speseSelezionate?.size) {
+    const visibili = new Set(items.map(s => s.id));
+    const restano = [...state.speseSelezionate].filter(id => visibili.has(id));
+    if (restano.length !== state.speseSelezionate.size) state.speseSelezionate = new Set(restano);
+  }
 
   // ── Ordinamento ──────────────────────────────────────────────────────────
   const col = state.sortCol || 'data';
@@ -800,8 +808,10 @@ function bindAzioniSpese() {
   // Elimina selezionate
   const bDelSel = document.getElementById('btn-del-sel');
   if (bDelSel) bDelSel.onclick = async () => {
-    const sel = state.speseSelezionate;
-    if (!sel || sel.size === 0) return;
+    // Solo le spese selezionate E visibili a schermo (come l'esportazione).
+    const idsVisibili = new Set([...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId)));
+    const sel = new Set([...(state.speseSelezionate || [])].filter(id => idsVisibili.has(id)));
+    if (sel.size === 0) return;
     // Mostra dettaglio di cosa si sta eliminando
     const toDelete = state.spese.filter(s=>sel.has(s.id));
     const msg = 'Eliminare ' + sel.size + ' spese?\n\n' +

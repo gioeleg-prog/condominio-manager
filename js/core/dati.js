@@ -97,7 +97,7 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 }
 
 function fbSaveKey(key, val) {
-  if (!window._fb) return Promise.resolve();
+  if (!window._fb) return Promise.resolve(true);
   _salvataggiInCorso++;
   const run = () => fbSaveKeyNow(key, val);
   const p = (_saveQueue[key] || Promise.resolve()).then(run, run).finally(() => { _salvataggiInCorso--; });
@@ -266,6 +266,7 @@ async function fbSaveKeyNow(key, val) {
       await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
     }
     setServerSnap(key, val);
+    return true;
   } catch(e) {
     // Dopo un rifiuto si torna all'ultimo stato confermato dal server, invece
     // di lasciare a schermo un dato che non è stato salvato.
@@ -281,6 +282,7 @@ async function fbSaveKeyNow(key, val) {
       ? 'Non hai i permessi per questa modifica, oppure l’app è stata aggiornata: ricarica la pagina.'
       : (e.message || e);
     avvisa('⚠️ Salvataggio non riuscito: ' + msg + '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.');
+    return false;
   }
 }
 
