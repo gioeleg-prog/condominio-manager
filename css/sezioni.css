@@ -160,6 +160,29 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
   .bil-condo-grid { grid-template-columns:1fr !important; }
 }
 
+/* --- DASHBOARD: LA TUA SITUAZIONE (js/sezioni/dashboard.js, renderSituazionePersonale) --- */
+.sit-card { padding: 1.1rem 1.25rem; }
+.sit-testa { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; flex-wrap: wrap; }
+.sit-etichetta { font-size: 12.5px; color: var(--text2); }
+.sit-stato { font-size: 1.35rem; font-weight: 700; margin-top: 2px; }
+.sit-stato.ok { color: var(--green); }
+.sit-stato.no { color: var(--red); }
+.sit-frase { font-size: 14px; color: var(--text2); margin-top: 2px; }
+.sit-ok { color: var(--green); }
+.sit-no { color: var(--red); }
+.sit-barra { height: 8px; border-radius: 4px; background: var(--surface2); overflow: hidden; margin-top: .9rem; }
+.sit-barra-piena { height: 100%; border-radius: 4px; background: var(--green); }
+.sit-barra-piena.no { background: var(--amber); }
+.sit-nota { font-size: 12px; color: var(--text2); margin: 4px 0 .75rem; }
+.sit-voci { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: .6rem; margin-top: .75rem; }
+.sit-voce { background: var(--surface2); border-radius: var(--radius-sm); padding: .65rem .85rem; }
+.sit-voce .sit-valore { font-size: 1.25rem; font-weight: 700; margin-top: 2px; }
+.sit-voce.ok { background: var(--green-light); }
+.sit-voce.ok .sit-valore, .sit-voce.ok .sit-etichetta { color: var(--green); }
+.sit-voce.no { background: var(--red-light); }
+.sit-voce.no .sit-valore, .sit-voce.no .sit-etichetta { color: var(--red); }
+.sit-voce.rata .sit-valore { font-size: 1rem; margin-top: 5px; }
+
 /* --- DASHBOARD KPI / CASHFLOW --- */
 .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: .75rem; margin-bottom: 1.25rem; }
 .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .875rem 1rem; position: relative; overflow: hidden; }

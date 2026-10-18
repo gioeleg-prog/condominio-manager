@@ -411,7 +411,8 @@ describe('UNIT — più anni (anno passato, corrente, prossimo)', () => {
     const d = app.renderDashboard();
     const i = d.indexOf('La tua situazione');
     assert.ok(i > 0);
-    assert.ok(!d.slice(i, i + 1500).includes('400,00'), 'rata prevista contata come versata');
+    assert.ok(new RegExp('Versato ' + Y + '</div><div class="sit-valore">€ 0,00').test(d), 'rata prevista contata come versata');
+    assert.ok(/Prossima rata<\/div><div class="sit-valore">€ 400,00/.test(d),'la rata prevista compare come prossima rata');
   });
 });
 

@@ -189,42 +189,8 @@ function renderDashboard() {
       </select>
     </div>
 
-    <!-- LAVORI & DELIBERE -->
-    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
-      <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
-        <div class="card-header">
-          <h3>🛠️ Lavori in corso${dashVitaCount(lavoriInCorso.length)}</h3>
-          <a onclick="setState({page:'vita',vitaTab:'lavori',sidebarOpen:false})" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
-        </div>
-        <div style="padding:.25rem 1.25rem .75rem">
-          ${lavoriInCorso.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessun lavoro in corso</div>` :
-          lavoriInCorso.slice(0, DASH_VITA_MAX).map(l => { const pct = Math.max(0, Math.min(100, parseInt(l.percentuale)||0)); return `
-          <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
-            <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
-              <span style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.titolo)}</span>
-              <span style="font-size:11px;color:var(--text2);flex-shrink:0">${pct}%</span>
-            </div>
-            <div class="progress-wrap" style="margin-top:4px"><div class="progress-fill" style="width:${pct}%;background:var(--accent-fill)"></div></div>
-          </div>`; }).join('')}
-          ${dashVitaAltri(lavoriInCorso.length, 'lavori')}
-        </div>
-      </div>
-      <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
-        <div class="card-header">
-          <h3>📜 Decisioni in attesa${dashVitaCount(decisioniInAttesa.length)}</h3>
-          <a onclick="setState({page:'vita',vitaTab:'delibere',sidebarOpen:false})" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
-        </div>
-        <div style="padding:.25rem 1.25rem .75rem">
-          ${decisioniInAttesa.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessuna decisione in attesa</div>` :
-          decisioniInAttesa.slice(0, DASH_VITA_MAX).map(d => `
-          <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
-            <div style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.descrizioneSintetica)}</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">${DELIBERE_STATO_LABEL[d.stato]||esc(d.stato)}${d.responsabile ? ' · '+esc(d.responsabile) : ''}</div>
-          </div>`).join('')}
-          ${dashVitaAltri(decisioniInAttesa.length, 'delibere')}
-        </div>
-      </div>
-    </div>
+    <!-- SITUAZIONE PERSONALE (non admin): la prima cosa che un condomino cerca -->
+    ${!state.user.isAdmin ? renderSituazionePersonale({ anno, quotaPersonale, pagatoUtente, riportoUtente }) : ''}
 
     <!-- KPI STRIP -->
     <div class="kpi-strip">
@@ -276,6 +242,43 @@ function renderDashboard() {
       </div>
     </div>
 
+    <!-- LAVORI & DELIBERE -->
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem">
+      <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
+        <div class="card-header">
+          <h3>🛠️ Lavori in corso${dashVitaCount(lavoriInCorso.length)}</h3>
+          <a onclick="setState({page:'vita',vitaTab:'lavori',sidebarOpen:false})" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+        </div>
+        <div style="padding:.25rem 1.25rem .75rem">
+          ${lavoriInCorso.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessun lavoro in corso</div>` :
+          lavoriInCorso.slice(0, DASH_VITA_MAX).map(l => { const pct = Math.max(0, Math.min(100, parseInt(l.percentuale)||0)); return `
+          <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
+              <span style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.titolo)}</span>
+              <span style="font-size:11px;color:var(--text2);flex-shrink:0">${pct}%</span>
+            </div>
+            <div class="progress-wrap" style="margin-top:4px"><div class="progress-fill" style="width:${pct}%;background:var(--accent-fill)"></div></div>
+          </div>`; }).join('')}
+          ${dashVitaAltri(lavoriInCorso.length, 'lavori')}
+        </div>
+      </div>
+      <div class="card" style="flex:1;min-width:260px;margin-bottom:0">
+        <div class="card-header">
+          <h3>📜 Decisioni in attesa${dashVitaCount(decisioniInAttesa.length)}</h3>
+          <a onclick="setState({page:'vita',vitaTab:'delibere',sidebarOpen:false})" style="font-size:12px;color:var(--accent);cursor:pointer;text-decoration:none">Vedi tutti →</a>
+        </div>
+        <div style="padding:.25rem 1.25rem .75rem">
+          ${decisioniInAttesa.length === 0 ? `<div style="font-size:13px;color:var(--text2);padding:.5rem 0">Nessuna decisione in attesa</div>` :
+          decisioniInAttesa.slice(0, DASH_VITA_MAX).map(d => `
+          <div style="padding:.5rem 0;border-bottom:1px solid var(--border)">
+            <div style="font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.descrizioneSintetica)}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${DELIBERE_STATO_LABEL[d.stato]||esc(d.stato)}${d.responsabile ? ' · '+esc(d.responsabile) : ''}</div>
+          </div>`).join('')}
+          ${dashVitaAltri(decisioniInAttesa.length, 'delibere')}
+        </div>
+      </div>
+    </div>
+
     <!-- ALERT CASHFLOW -->
     ${saldoRiporto !== 0 ? `
     <div style="display:flex;align-items:center;gap:10px;background:${saldoRiporto>=0?'var(--green-light)':'var(--red-light)'};border:1px solid ${saldoRiporto>=0?'var(--green-border)':'var(--red-border)'};border-radius:var(--radius-sm);padding:.625rem .875rem;margin-bottom:.75rem;font-size:13px;flex-wrap:wrap">
@@ -319,19 +322,6 @@ function renderDashboard() {
         <span>? Proiezione futura</span>
       </div>
     </div>
-
-    <!-- SITUAZIONE PERSONALE (non admin) -->
-    ${!state.user.isAdmin ? `
-    <div class="card" style="margin-bottom:1.25rem">
-      <div class="card-header"><h3>La tua situazione</h3></div>
-      <div style="padding:1rem 1.25rem;display:flex;gap:1.5rem;flex-wrap:wrap">
-        ${Math.abs(riportoUtente) > 0.005 ? `<div><div style="font-size:12px;color:var(--text2)">Dagli anni precedenti</div><div style="font-size:1.3rem;font-weight:700;color:${riportoUtente>=0?'var(--green)':'var(--red)'}">${riportoUtente>=0?'+':''}${fmt(riportoUtente)}</div></div>` : ''}
-        <div><div style="font-size:12px;color:var(--text2)">Quota dovuta ${anno}</div><div style="font-size:1.3rem;font-weight:700;color:var(--red)">${fmt(quotaPersonale)}</div></div>
-        <div><div style="font-size:12px;color:var(--text2)">Versato ${anno}</div><div style="font-size:1.3rem;font-weight:700;color:var(--green)">${fmt(pagatoUtente)}</div></div>
-        <div><div style="font-size:12px;color:var(--text2)">${Math.abs(riportoUtente) > 0.005 ? 'Saldo (con riporto)' : 'Differenza'}</div><div style="font-size:1.3rem;font-weight:700;color:${riportoUtente+pagatoUtente>=quotaPersonale?'var(--green)':'var(--red)'}">${fmt(riportoUtente+pagatoUtente-quotaPersonale)}</div></div>
-        ${isSuperAdmin(state.user) ? '' : `<div style="align-self:center;margin-left:auto"><button class="btn btn-secondary btn-sm" data-estratto-cond="${state.user.id}">📄 Il mio estratto conto</button></div>`}
-      </div>
-    </div>` : ''}
 
     <!-- ULTIME OPERAZIONI -->
 
@@ -429,6 +419,47 @@ function renderDashboard() {
 }
 
 // Pulsanti e filtri della Dashboard. Chiamata da bindPageActions() (azioni.js).
+// Riquadro "La tua situazione" in cima alla dashboard (solo per chi non
+// amministra): lo stato in una frase, quanto della quota è coperto, i numeri e
+// la prossima rata prevista. Saldo = riporto degli anni prima + versato - quota
+// delle spese sostenute nell'anno (stessi calcoli dell'estratto conto).
+function renderSituazionePersonale({ anno, quotaPersonale, pagatoUtente, riportoUtente }) {
+  const conRiporto = Math.abs(riportoUtente) > 0.005;
+  const saldo = riportoUtente + pagatoUtente - quotaPersonale;
+  const inRegola = saldo > -0.005;
+  const copertura = quotaPersonale > 0.005 ? Math.max(0, Math.round((riportoUtente + pagatoUtente) / quotaPersonale * 100)) : null;
+  // Prossima rata prevista (versamento previsionale da oggi in poi), solo per l'anno in corso.
+  const oggiYmd = ymdLocale(new Date());
+  const rata = anno !== new Date().getFullYear() ? null : state.entrate
+    .filter(e => e.condominoId === state.user.id && e.previsionale && String(e.data || '') >= oggiYmd)
+    .sort((a, b) => String(a.data).localeCompare(String(b.data)))[0] || null;
+  const voce = (etichetta, valore, extra = '') => `<div class="sit-voce${extra}"><div class="sit-etichetta">${etichetta}</div><div class="sit-valore">${valore}</div></div>`;
+  const frase = inRegola
+    ? (saldo > 0.005 ? `Hai versato <strong class="sit-ok">${fmt(saldo)} in più</strong> della tua quota delle spese sostenute nel ${anno}.` : `I tuoi versamenti coprono la tua quota delle spese sostenute nel ${anno}.`)
+    : `Per coprire la tua quota delle spese sostenute nel ${anno} mancano <strong class="sit-no">${fmt(-saldo)}</strong>.`;
+  return `
+    <div class="card sit-card" style="margin-bottom:1.25rem">
+      <div class="sit-testa">
+        <div>
+          <div class="sit-etichetta">La tua situazione ${anno}</div>
+          <div class="sit-stato ${inRegola ? 'ok' : 'no'}"><span aria-hidden="true">${inRegola ? '✅' : '⚠️'}</span> ${inRegola ? 'Sei in regola' : 'Da versare ' + fmt(-saldo)}</div>
+          <div class="sit-frase">${frase}</div>
+        </div>
+        ${isSuperAdmin(state.user) ? '' : `<button class="btn btn-secondary btn-sm" data-estratto-cond="${state.user.id}">📄 Il mio estratto conto</button>`}
+      </div>
+      ${copertura !== null ? `
+      <div class="sit-barra" role="img" aria-label="Quota coperta al ${copertura}%"><div class="sit-barra-piena ${inRegola ? 'ok' : 'no'}" style="width:${Math.min(100, copertura)}%"></div></div>
+      <div class="sit-nota">${copertura}% della quota coperta${conRiporto ? ', riporto compreso' : ''}</div>` : ''}
+      <div class="sit-voci">
+        ${conRiporto ? voce('Dagli anni precedenti', (riportoUtente >= 0 ? '+' : '') + fmt(riportoUtente)) : ''}
+        ${voce('Quota dovuta ' + anno, fmt(quotaPersonale))}
+        ${voce('Versato ' + anno, fmt(pagatoUtente))}
+        ${voce(inRegola ? 'A tuo credito' : 'Da versare', (inRegola ? '+' : '') + fmt(Math.abs(saldo)), inRegola ? ' ok' : ' no')}
+        ${rata ? voce('Prossima rata', fmt(parseFloat(rata.importo) || 0) + '<div class="sit-nota" style="margin:2px 0 0">il ' + esc(dataPdf(rata.data)) + '</div>', ' rata') : ''}
+      </div>
+    </div>`;
+}
+
 function bindAzioniDashboard() {
   // Anno filter dashboard
   const ad = document.getElementById('anno-filter');
