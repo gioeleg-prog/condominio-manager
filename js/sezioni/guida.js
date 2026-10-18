@@ -12,11 +12,11 @@ const GUIDA = {
     titolo: 'Dashboard',
     breve: 'La pagina iniziale: in un colpo d\'occhio come stanno i conti del condominio nell\'anno scelto.',
     trovi: [
-      'Entrate, uscite e saldo dell\'anno.',
+      ['noadmin', 'In cima, "La tua situazione": se sei in regola o quanto resta da versare, quanta parte della tua quota è coperta (la barra), quota dovuta, versato, credito o debito, il riporto dagli anni precedenti se c\'è e la prossima rata prevista. "📄 Il mio estratto conto" scarica il dettaglio in PDF.'],
+      'Subito sotto, i numeri del condominio: entrate, uscite, saldo di cassa, quota pro-capite, spese ordinarie e straordinarie, copertura dei prossimi mesi.',
       'Il grafico mese per mese: per ogni mese una colonna blu per le entrate e una arancio per le uscite; la parte piena è reale, quella più tenue è prevista.',
       'Ultimi versamenti, spese confermate e spese previste.',
       'Avvisi, lavori e delibere più recenti, con il collegamento "Vedi tutti".',
-      ['lettura', '"La tua situazione": quanto ti spetta pagare nell\'anno, quanto hai già versato e il saldo, compreso ciò che arriva dagli anni precedenti. "📄 Il mio estratto conto" scarica il dettaglio in PDF.'],
     ],
     fare: [
       ['Vedere un altro anno', 'Usa il menu dell\'anno in alto a destra.'],
