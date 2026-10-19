@@ -356,6 +356,37 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
     });
   });
 
+  describe('WhatsApp: impostazioni e messaggi aperti', () => {
+    const cfg = (uid, extra = {}) => ({ modelli: { avviso: 'Ciao {nome}' }, firma: 'L\'amministratore', eventiSpenti: ['promemoria'], aggiornatoDa: uid, aggiornatoIl: now(), ...extra });
+    it('impostazioni: solo l\'amministratore le legge e le scrive, con forma controllata', async () => {
+      await assertSucceeds(admin().doc('buildings/1/impostazioni/whatsapp').set(cfg('u_admin')));
+      await assertSucceeds(admin().doc('buildings/1/impostazioni/whatsapp').get());
+      await assertFails(editor().doc('buildings/1/impostazioni/whatsapp').get());
+      await assertFails(member().doc('buildings/1/impostazioni/whatsapp').get());
+      await assertFails(editor().doc('buildings/1/impostazioni/whatsapp').set(cfg('u_editor')));
+      await assertFails(ctx('u_admin2', { role: 'adminEdificio', buildingId: '2' }).doc('buildings/1/impostazioni/whatsapp').set(cfg('u_admin2')));
+      await assertFails(admin().doc('buildings/1/impostazioni/whatsapp').set(cfg('u_admin', { altro: 1 })));
+      await assertFails(admin().doc('buildings/1/impostazioni/whatsapp').set(cfg('u_admin', { modelli: { sconosciuto: 'x' } })));
+      await assertFails(admin().doc('buildings/1/impostazioni/whatsapp').set(cfg('u_admin', { modelli: { avviso: 'x'.repeat(1001) } })));
+      await assertFails(admin().doc('buildings/1/impostazioni/whatsapp').set(cfg('u_admin', { eventiSpenti: ['tutto'] })));
+      await assertFails(admin().doc('buildings/1/impostazioni/whatsapp').set(cfg('u_editor')));
+    });
+    it('messaggi aperti: l\'amministratore crea la voce e la allunga; nessuno la cancella o la riscrive', async () => {
+      const voce = (extra = {}) => ({ evento: 'avviso', titolo: 'Acqua', aperti: [{ id: 1, nome: 'Mario', ora: '2026-10-19T10:00:00Z' }], autoreUid: 'u_admin', creatoIl: now(), aggiornatoIl: now(), ...extra });
+      await assertSucceeds(admin().doc('buildings/1/inviiWhatsapp/a').set(voce()));
+      await assertSucceeds(admin().doc('buildings/1/inviiWhatsapp/a').update({ aperti: [{ id: 1 }, { id: 2 }], aggiornatoIl: now() }));
+      await assertFails(admin().doc('buildings/1/inviiWhatsapp/a').update({ titolo: 'Altro', aggiornatoIl: now() }));
+      await assertFails(admin().doc('buildings/1/inviiWhatsapp/a').delete());
+      await assertSucceeds(admin().doc('buildings/1/inviiWhatsapp/a').get());
+      await assertFails(editor().doc('buildings/1/inviiWhatsapp/a').get());
+      await assertFails(member().collection('buildings/1/inviiWhatsapp').get());
+      await assertFails(editor().doc('buildings/1/inviiWhatsapp/b').set(voce({ autoreUid: 'u_editor' })));
+      await assertFails(admin().doc('buildings/1/inviiWhatsapp/c').set(voce({ autoreUid: 'u_altro' })));
+      await assertFails(admin().doc('buildings/1/inviiWhatsapp/d').set(voce({ evento: 'spam' })));
+      await assertFails(admin().doc('buildings/1/inviiWhatsapp/e').set(voce({ extra: 1 })));
+    });
+  });
+
   describe('millesimi: configurazione del condominio', () => {
     const cfg = (uid, extra = {}) => ({ attivo: true, dal: '2026-01-01', tabelle: [{ id: 'generale', nome: 'Generale', valori: { 'int. 1': 500, 'int. 2': 500 } }], categorie: {}, aggiornatoDa: uid, aggiornatoIl: now(), ...extra });
     it('solo l\'amministratore li modifica; tutto il condominio li legge, un altro condominio no', async () => {

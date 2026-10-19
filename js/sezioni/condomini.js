@@ -344,6 +344,15 @@ function renderModalCond(d) {
           <input type="checkbox" id="m-email-notifiche" ${d?.emailNotifiche === false ? '' : 'checked'}>
           <span><strong>Riceve le email</strong><span class="hint" style="display:block;margin-top:2px">Avvisi, verbali e promemoria delle rate all'indirizzo qui sopra.</span></span>
         </label>
+        <div class="field">
+          <label for="m-tel">Cellulare (WhatsApp)</label>
+          <input type="tel" id="m-tel" value="${esc(d?.telefono||'')}" maxlength="40" placeholder="333 123 4567" autocomplete="off">
+          <p class="hint">Facoltativo. Senza prefisso vale +39; per un numero estero scrivi il prefisso (es. +41…). Lo vedono solo amministratori ed editor.</p>
+        </div>
+        <label class="casella-email" for="m-wa-notifiche">
+          <input type="checkbox" id="m-wa-notifiche" ${d?.whatsappNotifiche === false ? '' : 'checked'}>
+          <span><strong>Riceve WhatsApp</strong><span class="hint" style="display:block;margin-top:2px">Compare tra i condomini a cui mandare avvisi, verbali, rendiconto e promemoria su WhatsApp.</span></span>
+        </label>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
@@ -641,6 +650,9 @@ async function salvaSchedaCondomino(m) {
     if (dataIngresso && dataUscita && dataUscita <= dataIngresso) { avvisa('La data di uscita deve venire dopo quella di ingresso.'); return; }
     const emailPrima = m.data?.id ? String(state.condomini.find(c => c.id === m.data.id)?.email || '') : '';
     if (email && email.toLowerCase() !== emailPrima.toLowerCase() && !await emailUsabileQui(email, edificioId)) return;
+    const telefono = (document.getElementById('m-tel')?.value || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    const telPrima = m.data?.id ? String(state.condomini.find(c => c.id === m.data.id)?.telefono || '') : '';
+    if (telefono && telefono !== telPrima && !numeroWa(telefono) && !await chiedi('Il numero "' + telefono + '" non sembra un cellulare: WhatsApp non si potrà aprire per questo condomino.\n\nSalvare lo stesso?', { titolo: 'Cellulare da controllare', conferma: 'Salva lo stesso' })) return;
     // I permessi veri sono sul server (setUserRole): se la persona ha già fatto
     // il primo accesso e il ruolo cambia, si cambia prima lì. Prima si salvava
     // solo la scheda: l'app le mostrava i pulsanti, ma ogni salvataggio falliva.
@@ -658,7 +670,8 @@ async function salvaSchedaCondomino(m) {
       }
     }
     const date = { dataIngresso, ...(dataUscita !== undefined ? { dataUscita } : {}),
-      emailNotifiche: document.getElementById('m-email-notifiche') ? document.getElementById('m-email-notifiche').checked : true };
+      emailNotifiche: document.getElementById('m-email-notifiche') ? document.getElementById('m-email-notifiche').checked : true,
+      whatsappNotifiche: document.getElementById('m-wa-notifiche') ? document.getElementById('m-wa-notifiche').checked : true };
     let condomini;
     if (m.data?.id) {
       const username = (document.getElementById('m-username')?.value || '').trim().replace(/\s+/g, ' ').slice(0, 40); // nickname, testo libero
@@ -684,7 +697,7 @@ async function salvaSchedaCondomino(m) {
         return edificioId;  // nessuna transazione → spostamento libero
       })();
       condomini = state.condomini.map(c=>c.id===m.data.id
-        ? {...c, nome, appartamento:apt, email, username, canEdit:canEditNew, isAdmin:isAdminNew, superAdmin:c.superAdmin||false, edificioId:edificioIdFinale, ...date}
+        ? {...c, nome, appartamento:apt, email, telefono, username, canEdit:canEditNew, isAdmin:isAdminNew, superAdmin:c.superAdmin||false, edificioId:edificioIdFinale, ...date}
         : c);
       // Se il ruolo dell'utente loggato è cambiato, aggiornare anche state.user
       if (state.user && state.user.id === m.data.id) {
@@ -693,7 +706,7 @@ async function salvaSchedaCondomino(m) {
     } else {
       const nextIdx = state.condomini.length % COLORS.length;
       const usernameNew = (document.getElementById('m-username')?.value || '').trim().replace(/\s+/g, ' ').slice(0, 40); // nickname, facoltativo e non univoco
-      condomini = [...state.condomini, {id:newId(),nome,appartamento:apt,email,username:usernameNew,canEdit:canEditNew,isAdmin:isAdminNew,superAdmin:false,edificioId,color:COLORS[nextIdx],...date}];
+      condomini = [...state.condomini, {id:newId(),nome,appartamento:apt,email,telefono,username:usernameNew,canEdit:canEditNew,isAdmin:isAdminNew,superAdmin:false,edificioId,color:COLORS[nextIdx],...date}];
     }
     save('cm_condomini', condomini);
     setState({condomini, modal:null});

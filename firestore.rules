@@ -74,6 +74,10 @@ function validAllegati(l) {
     && (l.size() <= 16 || validAllegato(l[16])) && (l.size() <= 17 || validAllegato(l[17]))
     && (l.size() <= 18 || validAllegato(l[18])) && (l.size() <= 19 || validAllegato(l[19])));
 }
+// Testo di un messaggio WhatsApp in impostazioni/whatsapp.
+function testoWa(v) {
+  return v is string && v.size() <= 1000;
+}
 // Forma e firma di ogni record scritto dal client (vedi match /buildings).
 function validRecord(b, docId) {
   let d = request.resource.data;
@@ -250,8 +254,30 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // Messaggi WhatsApp aperti dall'app (js/sezioni/whatsapp.js): l'invio lo fa
+      // l'amministratore dal suo telefono, qui resta a chi è stato aperto. Lo
+      // scrive l'amministratore (una voce per scheda, che si allunga), nessuno
+      // lo cancella.
+      match /inviiWhatsapp/{docId} {
+        allow read: if canAdmin(buildingId);
+        allow create: if canAdmin(buildingId)
+          && request.resource.data.keys().hasOnly(['evento', 'titolo', 'aperti', 'autoreUid', 'creatoIl', 'aggiornatoIl'])
+          && request.resource.data.evento in ['rendiconto', 'avviso', 'verbale', 'promemoria']
+          && request.resource.data.titolo is string && request.resource.data.titolo.size() <= 200
+          && request.resource.data.aperti is list && request.resource.data.aperti.size() <= 300
+          && request.resource.data.autoreUid == request.auth.uid
+          && request.resource.data.creatoIl == request.time
+          && request.resource.data.aggiornatoIl == request.time;
+        allow update: if canAdmin(buildingId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['aperti', 'aggiornatoIl'])
+          && request.resource.data.aperti is list && request.resource.data.aperti.size() <= 300
+          && request.resource.data.aggiornatoIl == request.time;
+        allow delete: if false;
+      }
+
       // Impostazioni del condominio, modificabili solo dagli amministratori:
       //  - email: promemoria automatici delle rate (letti solo dagli amministratori);
+      //  - whatsapp: testi dei messaggi, firma ed eventi spenti (solo amministratori);
       //  - millesimi: tabelle millesimali (lette da tutto il condominio, per l'anagrafica);
       //  - affitti: appartamenti in affitto (letti da tutto il condominio, per l'estratto conto).
       match /impostazioni/{docId} {
@@ -264,6 +290,17 @@ service cloud.firestore {
                 && request.resource.data.promemoriaAuto is bool
                 && request.resource.data.giorniPreavviso is int
                 && request.resource.data.giorniPreavviso >= 1 && request.resource.data.giorniPreavviso <= 15)
+            || (docId == 'whatsapp'
+                && request.resource.data.keys().hasOnly(['modelli', 'firma', 'eventiSpenti', 'aggiornatoDa', 'aggiornatoIl'])
+                && request.resource.data.modelli is map
+                && request.resource.data.modelli.keys().hasOnly(['rendiconto', 'avviso', 'verbale', 'promemoria'])
+                && testoWa(request.resource.data.modelli.get('rendiconto', ''))
+                && testoWa(request.resource.data.modelli.get('avviso', ''))
+                && testoWa(request.resource.data.modelli.get('verbale', ''))
+                && testoWa(request.resource.data.modelli.get('promemoria', ''))
+                && request.resource.data.firma is string && request.resource.data.firma.size() <= 100
+                && request.resource.data.eventiSpenti is list
+                && request.resource.data.eventiSpenti.hasOnly(['rendiconto', 'avviso', 'verbale', 'promemoria']))
             || (docId == 'affitti'
                 && request.resource.data.keys().hasOnly(['appartamenti', 'aggiornatoDa', 'aggiornatoIl'])
                 && request.resource.data.appartamenti is map && request.resource.data.appartamenti.size() <= 300)

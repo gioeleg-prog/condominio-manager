@@ -77,6 +77,7 @@ function renderAvvisoCard(a, canManage, oggi) {
       </div>
       ${canManage ? `
       <div style="display:flex;gap:6px;flex-shrink:0">
+        ${waAttivo('avviso') ? `<button class="btn btn-secondary btn-sm" data-wa-avviso="${a.id}" title="Avvisa su WhatsApp">💬</button>` : ''}
         <button class="btn btn-secondary btn-sm" data-edit-avviso="${a.id}">✏️</button>
         <button class="btn btn-danger btn-sm" data-del-avviso="${a.id}">🗑</button>
       </div>` : ''}
@@ -148,6 +149,7 @@ function renderVerbaleCard(v, canManage) {
         </div>
         ${canManage ? `
         <div style="display:flex;gap:6px;flex-shrink:0">
+          ${waAttivo('verbale') ? `<button class="btn btn-secondary btn-sm" data-wa-verbale="${v.id}" title="Avvisa su WhatsApp">💬</button>` : ''}
           <button class="btn btn-secondary btn-sm" data-edit-verbale="${v.id}">✏️</button>
           <button class="btn btn-danger btn-sm" data-del-verbale="${v.id}">🗑</button>
         </div>` : ''}
@@ -545,6 +547,19 @@ function bindAzioniVita() {
       const id = parseInt(btn.dataset.editAvviso);
       const a = state.bacheca.find(x=>x.id===id);
       if (a) setState({modal:{type:'avviso', data:{...a}}});
+    };
+  });
+  // Avviso o verbale su WhatsApp (js/sezioni/whatsapp.js)
+  document.querySelectorAll('[data-wa-avviso]').forEach(btn => {
+    btn.onclick = () => {
+      const a = state.bacheca.find(x => x.id === parseInt(btn.dataset.waAvviso));
+      if (a) apriWhatsApp('avviso', { titolo: a.titolo, testo: a.testo, scadenza: a.scadenza }, a.titolo);
+    };
+  });
+  document.querySelectorAll('[data-wa-verbale]').forEach(btn => {
+    btn.onclick = () => {
+      const v = state.verbali.find(x => x.id === parseInt(btn.dataset.waVerbale));
+      if (v) apriWhatsApp('verbale', { titolo: v.titolo, data: v.data, decisioni: v.decisioni || [] }, v.titolo);
     };
   });
   // Elimina avviso bacheca

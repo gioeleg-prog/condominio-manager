@@ -78,6 +78,7 @@ const GUIDA = {
       ['mod', 'Confermare una rata pagata', 'Tocca "✅ Valida" sulla riga: diventa un versamento effettivo. Se era prevista per una data futura viene registrata con la data di oggi; per un\'altra data usa la matita.'],
       ['mod', 'Usare il piano rate', '"➕ Crea versamenti previsionali" crea le rate proposte per tutti; "Rimuovili" le toglie.'],
       ['admin', 'Ricordare le rate', '"📧 Invia promemoria": ogni condomino scelto riceve un\'email personale con la sua prossima rata e, se è in ritardo, il saldo. Sono già spuntati quelli con una rata nei prossimi 15 giorni o con saldo negativo.'],
+      ['admin', 'Ricordare le rate su WhatsApp', '"💬 Promemoria WhatsApp": in cima chi ha una rata nei prossimi 15 giorni o il saldo negativo, ognuno con la sua rata. "💬 Apri" accanto al nome apre WhatsApp con il messaggio personale già scritto: controlla e premi Invia.'],
       ['lettura', 'Controllare la tua posizione', 'Cerca il tuo nome: vedi quanto hai versato e quanto resta.'],
     ],
     sapere: [
@@ -103,6 +104,7 @@ const GUIDA = {
       ['mod', 'Estratto conto di un condomino', 'Scheda "👥 Per condomino", "📄 Estratto conto" sotto il nome: PDF con saldo iniziale, quote delle spese, versamenti e saldo progressivo, poi le prossime scadenze.'],
       ['mod', 'Preparare il rendiconto da inviare', '"📄 Rendiconto PDF": scegli l\'anno, sintetico (cassa, categorie, riparto) o dettagliato (anche tutte le spese e i versamenti), aggiungi una nota e scarica il PDF da allegare all\'email. Per l\'anno prossimo diventa il bilancio preventivo.'],
       ['admin', 'Mandare rendiconto o estratti per email', 'Nella scheda del rendiconto o dell\'estratto conto, "📧 Scegli a chi inviare": si apre l\'elenco, scegli i destinatari dall\'elenco, scrivi un messaggio e invia. Il rendiconto parte in un\'unica email in copia nascosta; ogni estratto conto va solo al suo condomino. Con "📄 Scarica PDF" ne tieni una copia identica a quella allegata.'],
+      ['admin', 'Avvisare su WhatsApp che il rendiconto è arrivato', 'Dopo l\'invio per email l\'app chiede se avvisare anche su WhatsApp chi l\'ha ricevuto; oppure, nella scheda del rendiconto, "💬 WhatsApp". "💬 Apri" accanto a ogni nome apre WhatsApp con il messaggio già scritto; "📋 Copia per il gruppo" copia il testo per il gruppo del condominio.'],
     ],
     sapere: [
       '<b>ACTUALS</b> = solo dati reali confermati. <b>ACTUALS + FORECAST</b> = reali più previsioni.',
@@ -184,6 +186,7 @@ const GUIDA = {
       ['admin', 'Aggiornare un lavoro', 'La matita sul lavoro: cambia stato o percentuale e aggiungi una nota allo storico.'],
       ['admin', 'Collegare le cose', 'Un lavoro può citare la delibera che lo ha deciso, una delibera il suo verbale.'],
       ['admin', 'Avvisare per email', 'Pubblicando un avviso o un verbale, spunta "Avvisa i condomini per email" solo per le comunicazioni importanti: compare l\'elenco dei condomini, tutti spuntati; togli chi non serve (o "Nessuno" e scegli). L\'email parte in copia nascosta. Per rispedire dopo una modifica usa "Invia di nuovo per email".'],
+      ['admin', 'Avvisare su WhatsApp', '"💬" sull\'avviso o sul verbale: scegli chi avvisare con "💬 Apri" (WhatsApp si apre con il messaggio già scritto, lo mandi tu con Invia) oppure "📋 Copia per il gruppo" e incollalo nel gruppo del condominio.'],
       ['noadmin', 'Proporre un avviso', 'Puoi leggere tutto; per pubblicare rivolgiti all\'amministratore.'],
     ],
     sapere: [
@@ -207,6 +210,7 @@ const GUIDA = {
       ['admin', 'Chi ha lasciato il condominio', '"⏸ Archivia" con la data di uscita: non entra più, ma pagamenti e storico restano. "▶ Riattiva" lo riporta.'],
       ['admin', 'Date di ingresso e uscita', 'In "Modifica", "Nel condominio dal" (e "Uscito il" per gli archiviati). Lascia vuoto se c\'è da sempre.'],
       ['admin', 'Chi riceve le email', 'Nella scheda di ogni condomino, "Riceve le email": togli la spunta per chi non le vuole. Non comparirà più tra i destinatari selezionabili.'],
+      ['admin', 'Cellulare e WhatsApp', 'Nella scheda di ogni condomino, "Cellulare (WhatsApp)": senza prefisso vale +39, per un numero estero scrivi il prefisso. Un numero fisso non va bene per WhatsApp. Togli "Riceve WhatsApp" per chi non vuole messaggi.'],
       ['admin', 'Millesimi', 'Se il condominio li usa, sulla scheda di ogni condomino compaiono i millesimi del suo appartamento. Si modificano solo in Impostazioni → Tabelle millesimali; con un subentro passano da soli al nuovo proprietario.'],
       ['admin', 'In affitto', 'Sulla scheda di un appartamento affittato compare "🔑 In affitto": si imposta in Impostazioni → Appartamenti in affitto.'],
       ['admin', 'Password dimenticata', '"🔑 Reset PW" imposta una password temporanea da comunicare alla persona.'],
@@ -239,6 +243,7 @@ const GUIDA = {
       ['super', 'Aggiungere o modificare categorie', 'Nella sezione Categorie; "↩ Ripristina categorie default" torna a quelle iniziali.'],
       ['super', 'Aggiungere un condominio', 'Sezione "🏢 Gestione condomini".'],
       ['admin', 'Email ai condomini', 'Sezione "📧 Email ai condomini": accendi o spegni i promemoria automatici delle rate (e quanti giorni prima) e consulta lo storico delle email inviate, con chi le ha ricevute. Le email fermate dal limite di invii compaiono come "bloccata dal limite", con il motivo.'],
+      ['admin', 'WhatsApp ai condomini', 'Sezione "💬 WhatsApp ai condomini": per ogni evento (rendiconto inviato, nuovo avviso, nuovo verbale, promemoria rata) scegli se mostrare il pulsante 💬 e cambia il testo; le parole tra graffe, come {nome} o {rata}, si riempiono da sole. Imposta anche la firma. Sotto, i messaggi aperti con l\'elenco di chi: l\'app sa a chi ha aperto WhatsApp, non se poi hai premuto Invia. Nessun messaggio parte da solo: lo spedisci sempre tu dal tuo telefono o da WhatsApp Web.'],
       ['admin', 'Tabelle millesimali', 'Sezione "⚖️ Tabelle millesimali": accendi "Usa i millesimi" con la data da cui valgono, inserisci i millesimi di ogni appartamento (il totale deve fare 1000), aggiungi altre tabelle (Scale, Ascensore…) e scegli quale proporre per ogni categoria. Le spese già inserite non cambiano; per quelle dell\'anno in corso non consuntivate c\'è "Applica…" con l\'anteprima di prima e dopo.'],
       ['super', 'Ricevere gli avvisi quando qualcosa non va', 'Sono già attivi: ogni mattina alle 7:30 un controllo verifica backup notturno, errori dell\'app ed email ai condomini non partite, e se trova un problema scrive al Super Admin (al massimo una volta al giorno). Segnala anche un backup saltato la notte stessa, una copia su Drive rimasta a metà, copie vecchie che il Drive non ha cancellato, email ai condomini bloccate "in invio" anche da più di un giorno o fermate dal limite di invii e un controllo che non è riuscito a leggere i dati. Se l\'avviso del giorno non è partito, il controllo successivo riprova. In "Stato del servizio › 🔔 Avvisi automatici" vedi l\'esito dell\'ultimo controllo; "📧 Invia email di prova" lo esegue subito e ti scrive anche se è tutto a posto (se l\'email non parte, ti mostra il motivo).'],
       ['admin', 'Appartamenti in affitto', 'Sezione "🔑 Appartamenti in affitto": di base sono tutti del proprietario; spunta quelli affittati. Nell\'estratto conto del proprietario comparirà "Da recuperare dall\'inquilino": le quote delle spese ordinarie (le straordinarie restano sue). Verso il condominio paga sempre il proprietario.'],

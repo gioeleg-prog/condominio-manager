@@ -303,7 +303,9 @@ async function recordLogin(profile) {
 const MAX_VALUE_LEN = 500;
 
 exports.auditTrail = onDocumentWritten('buildings/{buildingId}/{coll}/{docId}', async (event) => {
-  if (event.params.coll === 'invii') return; // storico delle email: lo scrive il server
+  // Storici degli invii (email: lo scrive il server; WhatsApp: solo a chi è
+  // stato aperto il messaggio): non sono modifiche ai dati del condominio.
+  if (event.params.coll === 'invii' || event.params.coll === 'inviiWhatsapp') return;
   await registraModifica(event);
   // Condomini: allinea anche i permessi del loro account (permessi.js). Sta
   // in questo trigger, che scatta già a ogni scrittura, per non aggiungere

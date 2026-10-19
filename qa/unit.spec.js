@@ -1091,3 +1091,78 @@ describe('UNIT — appartamenti in affitto', () => {
     assert.strictEqual(app.datiEstratto(102, Y).affitto, null);
   });
 });
+
+describe('UNIT — WhatsApp ai condomini (link "Apri in WhatsApp")', () => {
+  const Y = new Date().getFullYear();
+  const base = (user = { id: 1, nome: 'Admin', isAdmin: true, canEdit: true, edificioId: 1 }) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'Via Neri 20' }], fornitori: [], user,
+      condomini: [
+        { id: 101, nome: 'Anna Rossi', appartamento: 'Int. 1', edificioId: 1, telefono: '333 123 4567' },
+        { id: 102, nome: '<b>Bruno</b>', appartamento: 'Int. 2', edificioId: 1, telefono: '0541 123456' },
+        { id: 103, nome: 'Carla', appartamento: 'Int. 3', edificioId: 1, telefono: '+41 79 123 45 67', whatsappNotifiche: false },
+        { id: 104, nome: 'Dario', appartamento: 'Int. 4', edificioId: 1 },
+      ],
+      spese: [], entrate: [{ id: 9, data: `${Y + 1}-01-15`, importo: '120', condominoId: 101, previsionale: true, edificioId: 1 }] });
+    return app;
+  };
+  it('numero per wa.me: prefisso 39 ai cellulari italiani, fissi e testo rifiutati', () => {
+    const app = base();
+    assert.strictEqual(app.numeroWa('333 123 4567'), '393331234567');
+    assert.strictEqual(app.numeroWa('+39 333-1234567'), '393331234567');
+    assert.strictEqual(app.numeroWa('0039 3331234567'), '393331234567');
+    assert.strictEqual(app.numeroWa('393331234567'), '393331234567');
+    assert.strictEqual(app.numeroWa('+41 79 123 45 67'), '41791234567');
+    assert.strictEqual(app.numeroWa('0541 123456'), null);
+    assert.strictEqual(app.numeroWa('chiamare in ufficio'), null);
+    assert.strictEqual(app.numeroWa(''), null);
+  });
+  it('chi non può riceverlo e perché: fisso, "Riceve WhatsApp" tolto, senza cellulare, archiviato', () => {
+    const app = base();
+    const st = app.__get('state');
+    assert.deepStrictEqual(st.condomini.map((c) => app.motivoNoWa(c)), [null, 'numero fisso o non valido', 'non vuole WhatsApp', 'senza cellulare']);
+    assert.strictEqual(app.motivoNoWa({ ...st.condomini[0], dataUscita: '2000-01-01' }), 'archiviato');
+  });
+  it('modello: variabili riempite, quelle sconosciute lasciate in vista, niente righe vuote in eccesso', () => {
+    const app = base();
+    assert.strictEqual(app.componiWa('Ciao {nome},\n\n\n\n{saldo}\n{firma} {nomee}', { nome: 'Anna', saldo: '', firma: 'L\'amm.' }), 'Ciao Anna,\n\nL\'amm. {nomee}');
+    assert.strictEqual(app.linkWa('393331234567', 'Rata & saldo?'), 'https://wa.me/393331234567?text=Rata%20%26%20saldo%3F');
+  });
+  it('valori: primo nome, "a tutti" per il gruppo, rata e saldo nel promemoria', () => {
+    const app = base();
+    const anna = app.__get('state').condomini[0];
+    assert.strictEqual(app.valoriWa('avviso', { titolo: 'Acqua' }, anna).nome, 'Anna');
+    assert.strictEqual(app.valoriWa('avviso', {}, null).nome, 'a tutti');
+    assert.strictEqual(app.valoriWa('rendiconto', app.contestoWaRendiconto(Y + 1), anna).documento, 'bilancio preventivo');
+    const v = app.valoriWa('promemoria', {}, anna);
+    assert.match(v.rata, /^la rata di € 120,00 prevista per il 15\/01\//);
+    const testo = app.componiWa(app.__get('EVENTI_WA').promemoria.modello, v);
+    assert.match(testo, /^Ciao Anna, ti ricordiamo la rata di € 120,00/);
+    assert.ok(!testo.includes('{'), testo);
+  });
+  it('scheda: solo agli amministratori, nomi protetti, un pulsante solo per chi ha il cellulare', () => {
+    const app = base();
+    const html = app.renderModalWhatsApp({ evento: 'avviso', contesto: {}, titolo: 'Acqua <i>', scelti: null });
+    assert.ok(html.includes('&lt;b&gt;Bruno') && !html.includes('<b>Bruno') && !html.includes('Acqua <i>'));
+    assert.deepStrictEqual([...html.matchAll(/data-wa-apri="(\d+)"/g)].map((m) => m[1]), ['101']);
+    assert.ok(html.includes('btn-wa-gruppo'));
+    assert.ok(!app.renderModalWhatsApp({ evento: 'promemoria', contesto: {}, titolo: 'P' }).includes('btn-wa-gruppo'), 'promemoria: personale, niente gruppo');
+    const membro = base({ id: 101, nome: 'Anna', edificioId: 1 });
+    assert.strictEqual(membro.renderModalWhatsApp({ evento: 'avviso', contesto: {}, titolo: 'A' }), '');
+    assert.strictEqual(membro.waAttivo('avviso'), false);
+    assert.strictEqual(app.waAttivo('avviso'), true);
+  });
+  it('il cellulare finisce nei contatti, mai nel record del condomino', async () => {
+    const app = base();
+    const scritte = [];
+    app._fb = { auth: { currentUser: { uid: 'u' } }, db: {}, doc: (_db, ...p) => ({ path: p.join('/'), id: p[p.length - 1] }),
+      serverTimestamp: () => 'ORA', deleteField: () => 'TOGLI', getDoc: async () => ({ exists: () => false }),
+      writeBatch: () => ({ set: (ref, data, opts) => scritte.push({ path: ref.path, data, merge: !!opts }), commit: async () => {} }) };
+    app.setServerSnap('cm_condomini', []);
+    await app.saveRecords('cm_condomini', [{ id: 7, nome: 'Eva', appartamento: 'Int. 5', edificioId: 1, telefono: '333 000 1111', whatsappNotifiche: false }]);
+    const m = scritte.find((s) => s.path === 'buildings/1/members/7');
+    const c = scritte.find((s) => s.path === 'buildings/1/contatti/7');
+    assert.ok(!('telefono' in m.data) && m.data.whatsappNotifiche === false);
+    assert.strictEqual(c.data.telefono, '333 000 1111');
+  });
+});

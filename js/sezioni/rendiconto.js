@@ -148,6 +148,7 @@ function renderModalRendiconto(d) {
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
         ${canUserAdmin(state.user) ? '<button class="btn btn-secondary" id="btn-rend-email" title="Apre la lista dei condomini: scegli a chi inviare, niente parte subito">📧 Scegli a chi inviare</button>' : ''}
+        ${waAttivo('rendiconto') ? '<button class="btn btn-secondary" id="btn-rend-wa" title="Avvisa su WhatsApp che il rendiconto è arrivato per email">💬 WhatsApp</button>' : ''}
         <button class="btn btn-primary" id="btn-rend-genera">📄 Scarica PDF</button>
       </div>
     </div>
@@ -164,6 +165,11 @@ function bindSchedaRendiconto() {
     riparto: document.getElementById('rend-riparto').checked,
     note: document.getElementById('rend-note').value.trim(),
   } } });
+  const bw = document.getElementById('btn-rend-wa');
+  if (bw) bw.onclick = () => {
+    const anno = parseInt(document.getElementById('rend-anno').value, 10);
+    apriWhatsApp('rendiconto', contestoWaRendiconto(anno), 'Rendiconto ' + anno);
+  };
   b.onclick = async () => {
     const opts = {
       anno: parseInt(document.getElementById('rend-anno').value, 10),

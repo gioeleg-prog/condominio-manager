@@ -272,6 +272,7 @@ function bindSchedeEmail() {
       _storicoEmail = null;
       setState({ modal: null });
       avvisa(esitoInvio(r));
+      if (tipo === 'emailRendiconto' && r.inviati) proponiWaDopoRendiconto(d.anno, ids.filter(id => !(r.esclusi || []).some(e => String(e.id) === String(id))));
     } catch (e) {
       reportClientError('Invio email: ' + (e.message || e), e.stack);
       err.textContent = 'Email non inviata: ' + (e.message || e);
