@@ -46,7 +46,7 @@ const GUIDA = {
     fare: [
       ['mod', 'Aggiungere una spesa', '"+ Aggiungi spesa", poi Titolo, Categoria, Data e almeno un importo. Infine "Salva".'],
       ['mod', 'Correggerla', 'Tocca la matita sulla riga, cambia e salva.'],
-      ['mod', 'Allegare fatture o foto', 'Nella scheda trascina i file nel riquadro Allegati (PDF, immagini, documenti, max 5 MB ciascuno, fino a 20 file per spesa).'],
+      ['mod', 'Allegare fatture o foto', 'Nella scheda trascina i file nel riquadro Allegati (PDF, immagini, documenti, max 5 MB ciascuno, fino a 10 file per spesa).'],
       ['mod', 'Spesa che si ripete', 'Spunta "🔁 Spesa ricorrente", scegli la frequenza e la data di fine: le spese future vengono create da sole. Se poi cambi frequenza o data di fine, cambiano solo le righe successive non ancora consuntivate.'],
       ['mod', 'Modificare o fermare una serie', 'Nella scheda di una spesa ricorrente, il riquadro "🔁 Serie" applica le modifiche anche alle occorrenze successive non consuntivate, oppure le elimina con "Elimina le … successive".'],
       ['mod', 'Decidere chi paga quanto', 'Nella ripartizione assegna le percentuali; "↔ Parti uguali" divide in modo uguale, 🔒 blocca una quota. Il totale deve fare 100%. Chi nel frattempo è stato archiviato resta con la sua quota ("non più attivo"); con un "🔁 Subentro" le quote future passano al nuovo condomino.'],

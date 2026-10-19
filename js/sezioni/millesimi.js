@@ -142,7 +142,7 @@ function disegnaMillesimi() {
         </div>
         <table class="mill-righe"><tbody>
           ${apt.map(a => `<tr><td><strong>${esc(a.etichetta)}</strong> <span class="hint">${esc(a.chi)}</span></td>
-            <td><input type="number" min="0" max="1000" step="0.001" inputmode="decimal" class="mill-val" data-ti="${ti}" data-apt="${esc(a.chiave)}" value="${t.valori?.[a.chiave] ?? ''}" aria-label="Millesimi ${esc(a.etichetta)} tabella ${esc(t.nome)}"></td></tr>`).join('')}
+            <td><input type="number" min="0" max="1000" step="0.001" inputmode="decimal" class="mill-val" data-ti="${ti}" data-apt="${esc(a.chiave)}" value="${esc(t.valori?.[a.chiave] ?? '')}" aria-label="Millesimi ${esc(a.etichetta)} tabella ${esc(t.nome)}"></td></tr>`).join('')}
         </tbody></table>
         ${Object.keys(t.valori || {}).filter(k => !apt.some(a => a.chiave === k) && parseFloat(t.valori[k])).length
           ? `<p class="hint" style="color:var(--amber)">Millesimi di appartamenti senza condomini attivi: ${esc(Object.keys(t.valori).filter(k => !apt.some(a => a.chiave === k) && parseFloat(t.valori[k])).join(', '))}. Restano nel totale ma non pagano finché non c'è qualcuno.</p>` : ''}

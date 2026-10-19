@@ -52,33 +52,54 @@ function isText(v) {
 function isList(v) {
   return v == null || v is list;
 }
+// Identificativi (id dei record e riferimenti ad altri record): finiscono in
+// attributi HTML senza escape (data-edit-spesa="${s.id}"…), quindi solo
+// lettere, cifre, punto, trattino e trattino basso. Audit 2026-10-19: un id
+// documento con virgolette e tag permetteva di eseguire codice nella sessione
+// di chi apriva la pagina, superAdmin compreso.
+function isId(v) {
+  return v is int || v is float || (v is string && v.matches('[A-Za-z0-9_.-]{1,64}'));
+}
+function isRef(v) {
+  return v == null || v == '' || isId(v);
+}
 // Un allegato (js/sezioni/allegati.js): id (numero o testo) senza apici né
 // caratteri HTML, nome e tipo testuali. L'id finisce in attributi HTML: audit
 // 2026-10-15, un id con un apice permetteva di iniettare codice nella pagina.
+// Audit 2026-10-19: il file sta nello spazio allegati di un condominio
+// (storagePath; che sia il proprio lo controllano le storage.rules alla
+// lettura) oppure, per i vecchi allegati incorporati, è un indirizzo data: in
+// base64 (data64). Un data64 "javascript:…" veniva eseguito dal visualizzatore.
+// id, storagePath e data64 in un'unica espressione regolare, separati da "<"
+// (che nessuno dei tre può contenere; "null" = campo assente): ogni
+// espressione in più per elemento conta per ciascun allegato.
 function validAllegato(a) {
-  return a.nome is string && a.mime is string && string(a.id).matches("[^'\"<>&]{1,100}");
+  return a.nome is string && a.mime is string
+    && (string(a.id) + '<' + string(a.get('storagePath', null)) + '<' + string(a.get('data64', null))).matches(
+         "[^'\"<>&]{1,100}<(null|buildings/[A-Za-z0-9_.-]{1,64}/allegati/[^/<]{1,300})<(null|data:[A-Za-z0-9.+/-]{1,100}(;[A-Za-z0-9=._-]{1,40})*;base64,[A-Za-z0-9+/=]*)");
 }
 // Le regole non hanno cicli: si controllano uno per uno gli elementi, fino a
-// 20 (di più supererebbe il limite di 1000 espressioni per richiesta); una
-// lista più lunga è rifiutata.
+// 10 (MAX_ALLEGATI in js/sezioni/allegati.js); una lista più lunga è
+// rifiutata. Erano 20, ma con i controlli del 2026-10-19 oltre i 12 allegati si
+// supera il limite di 1000 espressioni per richiesta (nei dati reali nessuna
+// scheda ne ha più di uno).
 function validAllegati(l) {
-  return l == null || (l is list && l.size() <= 20
-    && (l.size() <= 0 || validAllegato(l[0])) && (l.size() <= 1 || validAllegato(l[1]))
-    && (l.size() <= 2 || validAllegato(l[2])) && (l.size() <= 3 || validAllegato(l[3]))
-    && (l.size() <= 4 || validAllegato(l[4])) && (l.size() <= 5 || validAllegato(l[5]))
-    && (l.size() <= 6 || validAllegato(l[6])) && (l.size() <= 7 || validAllegato(l[7]))
-    && (l.size() <= 8 || validAllegato(l[8])) && (l.size() <= 9 || validAllegato(l[9]))
-    && (l.size() <= 10 || validAllegato(l[10])) && (l.size() <= 11 || validAllegato(l[11]))
-    && (l.size() <= 12 || validAllegato(l[12])) && (l.size() <= 13 || validAllegato(l[13]))
-    && (l.size() <= 14 || validAllegato(l[14])) && (l.size() <= 15 || validAllegato(l[15]))
-    && (l.size() <= 16 || validAllegato(l[16])) && (l.size() <= 17 || validAllegato(l[17]))
-    && (l.size() <= 18 || validAllegato(l[18])) && (l.size() <= 19 || validAllegato(l[19])));
+  let n = l is list ? l.size() : 99;
+  return l == null || (n <= 10
+    && (n <= 0 || validAllegato(l[0])) && (n <= 1 || validAllegato(l[1]))
+    && (n <= 2 || validAllegato(l[2])) && (n <= 3 || validAllegato(l[3]))
+    && (n <= 4 || validAllegato(l[4])) && (n <= 5 || validAllegato(l[5]))
+    && (n <= 6 || validAllegato(l[6])) && (n <= 7 || validAllegato(l[7]))
+    && (n <= 8 || validAllegato(l[8])) && (n <= 9 || validAllegato(l[9])));
 }
 // Forma e firma di ogni record scritto dal client (vedi match /buildings).
 function validRecord(b, docId) {
   let d = request.resource.data;
-  return string(d.id) == docId
+  return isId(d.id) && string(d.id) == docId
     && string(d.edificioId) == b
+    && isRef(d.get('condominoId', null)) && isRef(d.get('fornitoreId', null))
+    && isRef(d.get('ricGruppoId', null)) && isRef(d.get('tabellaMillesimi', null))
+    && isRef(d.get('delibereRifId', null)) && isRef(d.get('verbaleRifId', null))
     && d._updatedBy == request.auth.uid
     && d._updatedAt == request.time
     && (resource == null
@@ -296,11 +317,12 @@ service cloud.firestore {
       allow read: if isSuperAdmin();
     }
 
-    // Impostazioni globali (categorie condivise, feature flag di
-    // migrazione, residuo di cm_config): leggibili da chiunque sia
-    // autenticato, scrivibili solo dal superAdmin.
+    // Impostazioni globali: stato dei backup e dei controlli del servizio
+    // (functions/backup.js, controllo.js), mostrati solo al superAdmin in
+    // Stato del servizio. Audit 2026-10-19: prima le leggeva chiunque fosse
+    // autenticato, con nomi dei file ed errori interni.
     match /appSettings/{docId} {
-      allow read: if isSignedIn();
+      allow read: if isSuperAdmin();
       allow write: if isSuperAdmin();
     }
 

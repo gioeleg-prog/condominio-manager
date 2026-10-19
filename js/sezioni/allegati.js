@@ -38,6 +38,14 @@ async function fetchAllegatoBlobUrl(v) {
   return URL.createObjectURL(blob);
 }
 
+// Vecchi allegati incorporati (data64): si usano solo se sono davvero un
+// indirizzo data: in base64. Audit 2026-10-19: un data64 "javascript:…" in un
+// <iframe> o in un link da scaricare eseguiva codice nella pagina.
+function data64Sicuro(v) {
+  const s = typeof v?.data64 === 'string' ? v.data64 : '';
+  return /^data:[A-Za-z0-9.+\/-]{1,100}(;[A-Za-z0-9=._-]{1,40})*;base64,/.test(s) ? s : '';
+}
+
 function renderViewer() {
   const v = state.viewer;
   if (v.loading) {
@@ -45,9 +53,12 @@ function renderViewer() {
       <div class="viewer-content"><div style="color:white">Caricamento allegato…</div></div>
     </div>`;
   }
-  const isImg = v.mime.startsWith('image/');
-  const isPdf = v.mime === 'application/pdf';
-  const src = v.blobUrl || v.data64;
+  // Anteprima solo se il contenuto è del tipo dichiarato (un PDF nell'iframe,
+  // un'immagine nell'img); altrimenti resta il pulsante per scaricarlo.
+  const d64 = data64Sicuro(v);
+  const src = v.blobUrl || d64;
+  const isImg = v.mime.startsWith('image/') && (!!v.blobUrl || d64.startsWith('data:image/'));
+  const isPdf = v.mime === 'application/pdf' && (!!v.blobUrl || d64.startsWith('data:application/pdf;'));
   return `
   <div class="viewer-overlay" id="viewer-overlay">
     <div class="viewer-bar">
@@ -87,12 +98,13 @@ function bindViewer() {
 }
 
 async function downloadAllegato(v) {
-  let href = v.blobUrl || v.data64;
+  let href = v.blobUrl || data64Sicuro(v);
   let isTemp = false;
   if (!href && v.storagePath) {
     try { href = await fetchAllegatoBlobUrl(v); isTemp = true; }
     catch (err) { avvisa('Impossibile scaricare l\'allegato: ' + (err.message || err)); return; }
   }
+  if (!href) { avvisa('Impossibile scaricare l\'allegato: file non disponibile.'); return; }
   const a = document.createElement('a');
   a.href = href;
   a.download = v.nome;
@@ -125,7 +137,7 @@ function fmtSize(bytes) {
 
 // Massimo di allegati per record: lo stesso limite delle firestore.rules
 // (validAllegati), che oltre rifiuterebbero il salvataggio.
-const MAX_ALLEGATI = 20;
+const MAX_ALLEGATI = 10;
 
 // SEC-04: gli allegati vanno su Firebase Storage (buildings/{edificioId}/allegati/...)
 // invece di essere incorporati come Base64 nel blob Firestore appdata/cm_spese —
