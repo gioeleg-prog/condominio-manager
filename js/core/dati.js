@@ -299,10 +299,31 @@ async function fbLoadAll() {
   }));
 }
 
+// Id e riferimenti finiscono in attributi HTML senza escape
+// (data-edit-spesa="${s.id}"…): stessa forma che impongono le firestore.rules
+// (isId). Audit 2026-10-19: un record già salvato con un id "avvelenato" non
+// arriva alla pagina, un riferimento non valido diventa vuoto.
+const ID_SICURO = /^[A-Za-z0-9_.-]{1,64}$/;
+const CAMPI_RIF = ['edificioId', 'condominoId', 'fornitoreId', 'ricGruppoId', 'tabellaMillesimi', 'delibereRifId', 'verbaleRifId'];
+function idSicuro(v) {
+  return (typeof v === 'number' && Number.isFinite(v)) || (typeof v === 'string' && ID_SICURO.test(v));
+}
+function conIdSicuri(r) {
+  const o = { ...r };
+  CAMPI_RIF.forEach(k => { if (o[k] != null && o[k] !== '' && !idSicuro(o[k])) o[k] = null; });
+  if (Array.isArray(o.split)) o.split = o.split.filter(s => !s || typeof s !== 'object' || s.id == null || idSicuro(s.id));
+  return o;
+}
+
 // Toglie i metadati (_updatedAt, _createdBy, …) e scarta i record cancellati.
 function fromDocs(docs) {
-  return docs.map(d => d.data()).filter(d => !d._deleted)
-    .map(d => Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith('_') && k !== 'emailLower')));
+  return docs.filter(d => {
+    const id = d.data().id;
+    if (ID_SICURO.test(d.id) && (id == null || idSicuro(id))) return true;
+    console.warn('Record con id non valido ignorato:', d.ref.path.replace(/[^A-Za-z0-9_./-]/g, '?'));
+    return false;
+  }).map(d => d.data()).filter(d => !d._deleted)
+    .map(d => conIdSicuri(Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith('_') && k !== 'emailLower'))));
 }
 
 // Unisce ai condomini email e telefono letti da buildings/{b}/contatti (solo

@@ -26,6 +26,40 @@ describe('UNIT — utilità di formato e sicurezza', () => {
       assert.deepStrictEqual(JSON.parse(decoded), { id });
     }
   });
+  // Audit 2026-10-19
+  it('fromDocs(): record con id avvelenato scartato, riferimenti non validi svuotati', () => {
+    const bad = '1"><img src=x onerror=alert(1)>';
+    const snap = (id, data) => ({ id: String(id), ref: { path: 'buildings/1/expenses/' + id }, data: () => data });
+    const out = app.fromDocs([
+      snap(10, { id: 10, edificioId: 1, fornitoreId: 3, condominoId: bad, ricGruppoId: '', tabellaMillesimi: 'generale', split: [{ id: 5, perc: 50 }, { id: bad, perc: 1 }] }),
+      snap(bad, { id: bad, edificioId: 1 }),
+      snap(11, { id: bad, edificioId: 1 }),
+      snap('a-1_b.2', { id: 'a-1_b.2', edificioId: 1, _updatedBy: 'u' }),
+    ]);
+    assert.deepStrictEqual(out.map((r) => r.id), [10, 'a-1_b.2']);
+    assert.strictEqual(out[0].fornitoreId, 3);
+    assert.strictEqual(out[0].condominoId, null);
+    assert.strictEqual(out[0].ricGruppoId, '');
+    assert.strictEqual(out[0].tabellaMillesimi, 'generale');
+    assert.deepStrictEqual(out[0].split.map((s) => s.id), [5]);
+    assert.ok(!('_updatedBy' in out[1]));
+  });
+  it('visualizzatore: un vecchio allegato con data64 javascript: non finisce in iframe, img o link', () => {
+    const js = 'javascript:window.__xss=1';
+    assert.strictEqual(app.data64Sicuro({ data64: js }), '');
+    assert.strictEqual(app.data64Sicuro({ data64: ' data:application/pdf;base64,AA' }), '');
+    assert.strictEqual(app.data64Sicuro({ data64: 'data:image/jpeg;base64,/9j/' }), 'data:image/jpeg;base64,/9j/');
+    for (const mime of ['application/pdf', 'image/jpeg']) {
+      app.__set('state', { ...app.__get('state'), viewer: { nome: 'f', mime, size: 1, data64: js } });
+      const html = app.renderViewer();
+      assert.ok(!html.includes('javascript:') && !html.includes('<iframe') && !html.includes('<img'), html);
+    }
+    // PDF dichiarato ma contenuto di altro tipo: niente anteprima nell'iframe.
+    app.__set('state', { ...app.__get('state'), viewer: { nome: 'f', mime: 'application/pdf', size: 1, data64: 'data:text/html;base64,PHA+' } });
+    assert.ok(!app.renderViewer().includes('<iframe'));
+    app.__set('state', { ...app.__get('state'), viewer: { nome: 'f', mime: 'application/pdf', size: 1, data64: 'data:application/pdf;base64,JVBERi0=' } });
+    assert.ok(app.renderViewer().includes('<iframe src="data:application/pdf;base64,JVBERi0="'));
+  });
   it('fmt() formatta in euro con due decimali e gestisce valori non numerici', () => {
     assert.match(app.fmt(1234.5), /^€ 1\.?234,50$/);
     assert.strictEqual(app.fmt(undefined), '€ 0,00');

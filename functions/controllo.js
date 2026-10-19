@@ -22,8 +22,8 @@
 // funzione non rispedisce, a meno che l'invio precedente sia finito in errore o
 // sia rimasto "in invio" per più di 10 minuti (funzione interrotta prima di
 // spedire): allora riprova. L'esito per la schermata va in
-// appSettings/controlloServizio con i soli titoli dei problemi, perché
-// appSettings è leggibile da tutti gli utenti autenticati.
+// appSettings/controlloServizio con i soli titoli dei problemi (appSettings
+// lo legge solo il superAdmin dal 2026-10-19; prima chiunque fosse autenticato).
 // Sugli emulatori nessuna email parte (vedi notifiche.js).
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
