@@ -66,7 +66,7 @@ Da rieseguire dopo ogni modifica che mostra dati nell'interfaccia (i testi
 possono contenere `<` e `>`: la protezione è l'escape in pagina).
 
 ```bash
-node qa/seed-xss.js      # al posto di qa/seed.js: payload HTML in ogni campo di testo
+node qa/seed-xss.js      # al posto di qa/seed.js: payload HTML in ogni campo di testo, negli id, nei riferimenti, negli allegati incorporati e nei millesimi
 ```
 
 Nella pagina harness, dalla console:

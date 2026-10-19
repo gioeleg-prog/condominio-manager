@@ -500,13 +500,17 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
       await no({ id: 2, nome: 'senza-mime' });
       await no('non-un-oggetto');
     });
-    it('controllo anche in fondo alla lista; più di 20 allegati rifiutati', async () => {
-      const tanti = Array.from({ length: 20 }, (_, i) => all({ id: i + 1 }));
+    it('controllo anche in fondo alla lista; più di 10 allegati rifiutati', async () => {
+      const tanti = Array.from({ length: 10 }, (_, i) => all({ id: i + 1 }));
       await assertSucceeds(editor().doc('buildings/1/expenses/63').set(rec('u_editor', 63, { allegati: tanti })));
-      await assertFails(editor().doc('buildings/1/expenses/64').set(rec('u_editor', 64, { allegati: [...tanti.slice(0, 19), all({ id: "x'" })] })));
-      await assertFails(editor().doc('buildings/1/expenses/65').set(rec('u_editor', 65, { allegati: [...tanti, all({ id: 21 })] })));
+      // Caso peggiore per il limite di 1000 espressioni: 10 vecchi allegati incorporati e tutti i riferimenti.
+      const pesanti = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, nome: 'f.jpg', mime: 'image/jpeg', size: 1, data64: 'data:image/jpeg;base64,/9j/AA==' }));
+      await assertSucceeds(editor().doc('buildings/1/expenses/73').set(rec('u_editor', 73, { allegati: pesanti, fornitoreId: 1, ricGruppoId: 2, tabellaMillesimi: 'generale',
+        split: [], descrizione: 'd', note: 'n', data: '2026-01-01', testo: 't', nome: 'x', descrizioneSintetica: 's', argomenti: [], decisioni: [], storicoAggiornamenti: [] })));
+      await assertFails(editor().doc('buildings/1/expenses/64').set(rec('u_editor', 64, { allegati: [...tanti.slice(0, 9), all({ id: "x'" })] })));
+      await assertFails(editor().doc('buildings/1/expenses/65').set(rec('u_editor', 65, { allegati: [...tanti, all({ id: 11 })] })));
     });
-    it('allegati invariati non ricontrollati: si modifica un record vecchio con più di 20 allegati', async () => {
+    it('allegati invariati non ricontrollati: si modifica un record vecchio con più di 10 allegati', async () => {
       const vecchi = Array.from({ length: 25 }, (_, i) => all({ id: i + 1 }));
       await seedDoc('buildings/1/expenses/67', { id: 67, edificioId: 1, _createdBy: 'backfill', _createdAt: T0, allegati: vecchi });
       await assertSucceeds(editor().doc('buildings/1/expenses/67').set(rec('u_editor', 67, { _createdBy: 'backfill', _createdAt: T0, allegati: vecchi, titolo: 'Nuovo' })));
@@ -514,6 +518,45 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
     it('vale per tutte le collezioni con allegati, condomini compresi', async () => {
       for (const c of ['minutes', 'resolutions', 'notices', 'works', 'members']) {
         await assertFails(admin().doc(`buildings/1/${c}/66`).set(rec('u_admin', 66, { allegati: [all({ id: "'" })] })));
+      }
+    });
+    // Audit 2026-10-19
+    // (che lo spazio sia quello del proprio condominio lo controllano le storage.rules alla lettura)
+    it('file solo nello spazio allegati; data64 solo come data: in base64', async () => {
+      const no = async (a) => assertFails(editor().doc('buildings/1/expenses/68').set(rec('u_editor', 68, { allegati: [a] })));
+      await no(all({ storagePath: 'buildings/1/altro/x' }));
+      await no(all({ storagePath: 'javascript:alert(1)' }));
+      await no(all({ storagePath: 'buildings/1/allegati/../../2/allegati/x' }));
+      await no(all({ storagePath: 5 }));
+      const leg = (data64) => ({ id: 7, nome: 'vecchio.pdf', mime: 'application/pdf', size: 10, data64 });
+      await no(leg('javascript:alert(1)'));
+      await no(leg(' data:application/pdf;base64,JVBERi0='));
+      await no(leg('data:text/html,<script>alert(1)</script>'));
+      await assertSucceeds(editor().doc('buildings/1/expenses/69').set(rec('u_editor', 69, {
+        allegati: [leg('data:application/pdf;base64,JVBERi0='), leg('data:image/jpeg;base64,/9j/' + 'A'.repeat(700000)), all()] })));
+    });
+  });
+
+  // Audit 2026-10-19: id e riferimenti finiscono in attributi HTML.
+  describe('id dei record e riferimenti: solo caratteri sicuri', () => {
+    const bad = '1"><img src=x onerror=alert(1)>';
+    it('id numerici o testo semplice accettati', async () => {
+      await assertSucceeds(editor().doc('buildings/1/expenses/1789228019954').set(rec('u_editor', 1789228019954)));
+      await assertSucceeds(editor().doc('buildings/1/expenses/a-1_b.2').set(rec('u_editor', 'a-1_b.2')));
+    });
+    it('id con virgolette o tag rifiutato, anche al superAdmin', async () => {
+      await assertFails(editor().doc(`buildings/1/expenses/${bad}`).set(rec('u_editor', bad)));
+      await assertFails(admin().doc(`buildings/1/notices/${bad}`).set(rec('u_admin', bad)));
+      await assertFails(superA().doc(`buildings/1/members/${bad}`).set(rec('u_super', bad)));
+      await assertFails(editor().doc('buildings/1/expenses/a b').set(rec('u_editor', 'a b')));
+    });
+    it('riferimenti ad altri record: vuoti, numeri o testo semplice', async () => {
+      await assertSucceeds(editor().doc('buildings/1/expenses/70').set(rec('u_editor', 70, { fornitoreId: 12, ricGruppoId: null, tabellaMillesimi: 'generale' })));
+      await assertSucceeds(admin().doc('buildings/1/works/71').set(rec('u_admin', 71, { delibereRifId: '' })));
+      for (const [coll, campo] of [['expenses', 'fornitoreId'], ['expenses', 'ricGruppoId'], ['expenses', 'tabellaMillesimi'],
+        ['payments', 'condominoId'], ['works', 'delibereRifId'], ['resolutions', 'verbaleRifId']]) {
+        await assertFails(admin().doc(`buildings/1/${coll}/72`).set(rec('u_admin', 72, { [campo]: bad })));
+        await assertFails(admin().doc(`buildings/1/${coll}/72`).set(rec('u_admin', 72, { [campo]: { x: 1 } })));
       }
     });
   });
@@ -571,9 +614,14 @@ describe('appSettings/{docId} — categorie condivise, feature flag, config', ()
     await assertFails(db.doc('appSettings/categories').get());
   });
 
-  it('un member (o qualunque signed-in) PUÒ leggere', async () => {
-    const db = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
-    await assertSucceeds(db.doc('appSettings/categories').get());
+  // Audit 2026-10-19: stato dei backup e dei controlli, solo per il superAdmin.
+  it('member e adminEdificio NON possono leggere; il superAdmin sì', async () => {
+    const m = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
+    const a = testEnv.authenticatedContext('u_admin', { role: 'adminEdificio', buildingId: 'b1' }).firestore();
+    const s = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertFails(m.doc('appSettings/backupStatus').get());
+    await assertFails(a.doc('appSettings/controlloServizio').get());
+    await assertSucceeds(s.doc('appSettings/backupStatus').get());
   });
 
   it('un adminEdificio NON può scrivere appSettings', async () => {
