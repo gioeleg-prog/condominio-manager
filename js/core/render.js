@@ -21,6 +21,7 @@ function render() {
   }
   if (typeof assicuraMillesimi === 'function') assicuraMillesimi();
   if (typeof assicuraAffitti === 'function') assicuraAffitti();
+  if (typeof assicuraWhatsApp === 'function') assicuraWhatsApp();
   applyA11y(app);
   bindApp();
   if (focusKey) { const el = app.querySelector(`[data-focus-key="${focusKey}"]`); if (el) el.focus(); }
@@ -355,6 +356,7 @@ function renderModal() {
   if (m.type === 'emailRendiconto') return renderModalEmailRendiconto(m.data);
   if (m.type === 'emailEstratti') return renderModalEmailEstratti(m.data);
   if (m.type === 'emailPromemoria') return renderModalEmailPromemoria(m.data);
+  if (m.type === 'whatsapp') return renderModalWhatsApp(m.data);
   if (m.type === 'millesimiApplica') return renderModalMillesimiApplica(m.data);
   if (m.type === 'subentro') return renderModalSubentro(m.data);
   return '';

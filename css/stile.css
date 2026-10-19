@@ -222,6 +222,21 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 .scelta-dest-lista .sd-dett { grid-column: 2; font-size: 12.5px; color: var(--text2); min-width: 0; overflow-wrap: anywhere; }
 .scelta-dest-lista li.escluso label { cursor: not-allowed; opacity: .75; }
 .scelta-dest-lista li.escluso { padding: 0; }
+/* WhatsApp ai condomini (js/sezioni/whatsapp.js) */
+.wa-anteprima { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface2); max-height: 200px; overflow-y: auto; }
+.wa-lista { list-style: none; margin: 0; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 280px; overflow-y: auto; }
+.wa-lista li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 8px; border-radius: var(--radius-xs); font-size: 14px; }
+.wa-lista li + li { border-top: 1px solid var(--border); }
+.wa-lista .wa-chi { display: flex; flex-direction: column; min-width: 0; }
+.wa-lista .sd-nome { font-weight: 500; overflow-wrap: anywhere; }
+.wa-lista .sd-apt { color: var(--text2); font-weight: 400; font-size: 12.5px; margin-left: 4px; }
+.wa-lista .sd-dett { font-size: 12.5px; color: var(--text2); overflow-wrap: anywhere; }
+.wa-lista li.escluso .sd-nome { font-weight: 400; }
+.wa-lista li.aperto .sd-nome::after { content: ' ✓'; color: var(--green, #15803d); }
+.wa-lista .btn { flex-shrink: 0; }
+.wa-altri { margin-top: .5rem; font-size: 13px; }
+.wa-altri summary { cursor: pointer; color: var(--accent); margin-bottom: .4rem; }
+.wa-evento { padding-bottom: .75rem; margin-bottom: .75rem; border-bottom: 1px solid var(--border); }
 /* Storico delle email in Impostazioni */
 .storico-email { list-style: none; margin: 0; padding: 0; }
 .storico-email li { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }

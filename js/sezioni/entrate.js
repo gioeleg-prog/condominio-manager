@@ -86,6 +86,7 @@ function renderEntrate() {
       <div><div class="page-title">Entrate / Quote ${btnGuida()}</div><div class="page-sub">${items.length} versamenti</div></div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       ${canUserAdmin(state.user)?`<button class="btn btn-secondary" id="btn-email-promemoria">📧 Invia promemoria</button>`:''}
+      ${waAttivo('promemoria')?`<button class="btn btn-secondary" id="btn-wa-promemoria">💬 Promemoria WhatsApp</button>`:''}
       ${canEdit?`<button class="btn btn-primary" style="width:auto" id="btn-add-entrata">+ Registra versamento</button>`:''}
       </div>
     </div>
@@ -729,6 +730,8 @@ function bindAzioniEntrate() {
   if (se) se.oninput = e => setState({searchQ: e.target.value});
   const bProm = document.getElementById('btn-email-promemoria');
   if (bProm) bProm.onclick = () => setState({ modal: { type: 'emailPromemoria', data: {} } });
+  const bWaProm = document.getElementById('btn-wa-promemoria');
+  if (bWaProm) bWaProm.onclick = () => apriWhatsApp('promemoria', {}, 'Promemoria rate');
   const bAddEntrata = document.getElementById('btn-add-entrata');
   if (bAddEntrata) bAddEntrata.onclick = () => setState({modal:{type:'entrata',data:null}});
   // Delete entrate

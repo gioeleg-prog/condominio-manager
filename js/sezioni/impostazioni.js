@@ -374,6 +374,7 @@ function renderImpostazioni() {
     </div>` : ''; })()}
 
     ${canUserAdmin(state.user) ? renderSezioneEmail() : ''}
+    ${canUserAdmin(state.user) ? renderSezioneWhatsApp() : ''}
     ${canUserAdmin(state.user) ? renderSezioneMillesimi() : ''}
     ${canUserAdmin(state.user) ? renderSezioneAffitti() : ''}
 
@@ -759,6 +760,7 @@ function renderModalCategoria(d) {
 // Condomìni gestiti, categorie, account dell'amministratore, stato del servizio, marchio, svuotamento dati. Chiamata da bindPageActions() (azioni.js).
 function bindAzioniImpostazioni() {
   bindSezioneEmail();
+  bindSezioneWhatsApp();
   bindSezioneMillesimi();
   bindSezioneAffitti();
   // Gestione edifici

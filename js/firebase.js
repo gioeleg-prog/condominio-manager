@@ -1,6 +1,6 @@
 // Avvio di Firebase (modulo) ed esposizione delle funzioni all'app in window._fb.
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
-import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, deleteField, limit }
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, deleteField, limit, arrayUnion }
   from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider , sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential }
   from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
@@ -28,7 +28,7 @@ const storage = getStorage(app);
 window._fb = {
   db, auth,
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
-  onSnapshot, query, orderBy, serverTimestamp, writeBatch, deleteField, limit,
+  onSnapshot, query, orderBy, serverTimestamp, writeBatch, deleteField, limit, arrayUnion,
   signInWithEmailAndPassword, signOut, onAuthStateChanged,
   updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail,
   GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential,
