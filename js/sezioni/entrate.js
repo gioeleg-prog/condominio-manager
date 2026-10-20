@@ -5,8 +5,8 @@ function renderEntrateMobileCards(items, canEdit) {
   if (!items.length) return `<div class="empty">${svgEmpty()}<p>Nessun versamento registrato</p></div>`;
   return `<div class="mobile-card-list">
     ${items.map(e => {
-      const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'Sconosciuto',color:'var(--text2)'};
-      const cat  = getCategorie().find(c=>c.id===e.categoria)||{label:'—'};
+      const cond = trovaPerId(state.condomini, e.condominoId)||{nome:'Sconosciuto',color:'var(--text2)'};
+      const cat  = trovaPerId(getCategorie(), e.categoria)||{label:'—'};
       return `<div class="entrata-mobile-card ${e.previsionale?'previsionale-entrata':''}">
         <div class="avatar" style="${avatarStyle(cond.color)};width:38px;height:38px;font-size:13px;flex-shrink:0">${initials(cond.nome)}</div>
         <div class="emc-info">
@@ -37,10 +37,21 @@ function renderEntrate() {
   const anniSel = anniSelezionati();
   items = items.filter(e=>inAnniSelezionati(e.data, anniSel));
   if (state.searchQ) items = items.filter(e=>{
-    const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:''};
+    const cond = trovaPerId(state.condomini, e.condominoId)||{nome:''};
     return cond.nome.toLowerCase().includes(state.searchQ.toLowerCase())||e.descrizione?.toLowerCase().includes(state.searchQ.toLowerCase());
   });
   items = [...items].sort((a,b)=>new Date(b.data)-new Date(a.data));
+  // Totali per condomino in un solo passaggio sui versamenti, nello stesso
+  // ordine dei vecchi filter+reduce (stessa somma al centesimo): prima tre
+  // passaggi su tutti i versamenti per ogni condomino.
+  const totCond = new Map();
+  items.forEach(e => {
+    let t = totCond.get(e.condominoId);
+    if (!t) { t = { tot: 0, versato: 0, previsto: 0 }; totCond.set(e.condominoId, t); }
+    const v = parseFloat(e.importo||0);
+    t.tot = t.tot + v;
+    if (e.previsionale) t.previsto = t.previsto + v; else t.versato = t.versato + v;
+  });
   // Totale in verde = solo versamenti reali; le rate previste sono indicate a parte.
   const totale = items.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
   const totalePrevisto = items.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
@@ -48,8 +59,8 @@ function renderEntrate() {
   const anni = getAnni();
   // Chi ha fatto parte del condominio negli anni scelti (anche se poi è uscito per un subentro), o vi ha versamenti.
   const perCondomino = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.superAdmin
-    && ((anniSel.length ? anniSel.some(a=>attivoNellAnno(c,a)) : !c.disabled) || items.some(e=>e.condominoId===c.id))).map(c=>{
-    const tot = items.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    && ((anniSel.length ? anniSel.some(a=>attivoNellAnno(c,a)) : !c.disabled) || totCond.has(c.id))).map(c=>{
+    const tot = totCond.get(c.id)?.tot || 0;
     return {...c, totale:tot};
   });
   // ── Calcoli quota per condomino con split reali ──────────────────────────
@@ -111,8 +122,8 @@ function renderEntrate() {
 
         <div class="condomini-grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
           ${perCondomino.map(c=>{
-            const versato       = items.filter(e=>e.condominoId===c.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-            const versatoPrev   = items.filter(e=>e.condominoId===c.id &&  e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+            const versato       = totCond.get(c.id)?.versato || 0;
+            const versatoPrev   = totCond.get(c.id)?.previsto || 0;
             const q             = getQuotaCondomino(c.id);
             // Riporto per questo condomino: tutti gli anni NON scelti che vengono
             // prima dell'ultimo anno scelto. Con un anno solo sono gli anni precedenti;
@@ -246,7 +257,7 @@ function renderEntrate() {
 
     <div class="card">
       <div class="card-header"><h3>Tutti i versamenti</h3><div style="text-align:right"><strong style="color:var(--green)">${fmt(totale)}</strong>${totalePrevisto > 0 ? `<div style="font-size:11px;color:var(--purple)">+ ${fmt(totalePrevisto)} previsti</div>` : ''}</div></div>
-      ${renderEntrateMobileCards(items, canEdit)}
+      ${renderEntrateMobileCards(items.slice(0, righeMostrate('entrate')), canEdit)}
       <div class="table-wrap">
         ${items.length===0?`<div class="empty">${svgEmpty()}<p>Nessun versamento registrato</p></div>`:
         `<table>
@@ -255,9 +266,9 @@ function renderEntrate() {
             <th>Data</th><th>Condomino</th><th>Descrizione</th><th>Categoria</th><th>Importo</th><th>Stato</th>
           </tr></thead>
           <tbody>
-          ${items.map(e=>{
-            const cond = state.condomini.find(c=>c.id===e.condominoId)||{nome:'Sconosciuto',color:'var(--text2)'};
-            const cat  = getCategorie().find(c=>c.id===e.categoria)||{label:e.categoria||'—'};
+          ${items.slice(0, righeMostrate('entrate')).map(e=>{
+            const cond = trovaPerId(state.condomini, e.condominoId)||{nome:'Sconosciuto',color:'var(--text2)'};
+            const cat  = trovaPerId(getCategorie(), e.categoria)||{label:e.categoria||'—'};
             return `<tr style="${e.previsionale?'background:var(--amber-light);':''}">
               ${canEdit?`<td><div class="inline-actions">
                 <button class="btn btn-secondary btn-sm" data-edit-entrata="${e.id}" title="Modifica versamento">✏️</button>
@@ -287,6 +298,7 @@ function renderEntrate() {
           </tbody>
         </table>`}
       </div>
+      ${pulsanteAltreRighe('entrate', items.length)}
     </div>
   </div>`;
 }

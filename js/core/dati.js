@@ -251,7 +251,11 @@ async function controllaConflitti(key, writes) {
 async function aggiornaVersioni(key, writes) {
   const { getDoc } = window._fb;
   _versioni[key] = _versioni[key] || new Map();
-  await Promise.all(writes.map(async ([ref]) => {
+  // Un record appena cancellato non si modifica più da questa pagina: niente
+  // rilettura (era una richiesta in più per ogni cancellazione), basta
+  // dimenticarne la versione.
+  writes.filter(([, data]) => data && data._deleted === true).forEach(([ref]) => _versioni[key].delete(ref.path));
+  await Promise.all(writes.filter(([, data]) => !(data && data._deleted === true)).map(async ([ref]) => {
     try { const snap = await getDoc(ref); if (snap.exists()) _versioni[key].set(ref.path, versioneDi(snap.data())); }
     catch (e) { _versioni[key].delete(ref.path); } // versione sconosciuta: nessun controllo, come prima
   }));
@@ -291,7 +295,9 @@ async function fbSaveKeyNow(key, val) {
 async function fbLoadAll() {
   if (!window._fb) return;
   const { db, doc, getDoc } = window._fb;
-  await Promise.all(GLOBAL_KEYS.map(async (key) => {
+  // cm_config no: ha i campi superAdminUid/superAdminEmail e non un valore JSON
+  // (qui la lettura falliva sempre), lo legge loadSuperAdminConfig (avvio.js).
+  await Promise.all(GLOBAL_KEYS.filter(k => k !== 'cm_config').map(async (key) => {
     try {
       const snap = await getDoc(doc(db, 'appdata', key));
       if (snap.exists()) { _cache[key] = JSON.parse(snap.data().value); setServerSnap(key, _cache[key]); }
@@ -326,10 +332,12 @@ function fromDocs(docs) {
     .map(d => conIdSicuri(Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith('_') && k !== 'emailLower'))));
 }
 
-// Unisce ai condomini email e telefono letti da buildings/{b}/contatti (solo
-// per amministratori ed editor). Se la lettura non riesce i condomini restano
+// Email e telefono dei condomini da buildings/{b}/contatti (solo per
+// amministratori ed editor). Se la lettura non riesce i condomini restano
 // senza contatti: l'app funziona, ma senza email da mostrare o a cui scrivere.
-async function conContatti(lista, edifici) {
+// Contatti per "edificio/id" (null se la lettura non riesce): all'accesso la
+// lettura parte insieme alle altre collezioni, poi unisciContatti li aggiunge.
+async function leggiContatti(edifici) {
   const { db, getDocs, collection } = window._fb;
   const perId = new Map();
   try {
@@ -340,8 +348,12 @@ async function conContatti(lista, edifici) {
     }));
   } catch (e) {
     console.warn('Contatti dei condomini non letti:', e.code || e.message);
-    return lista;
+    return null;
   }
+  return perId;
+}
+function unisciContatti(lista, perId) {
+  if (!perId) return lista;
   return lista.map(m => {
     const c = perId.get(String(m.edificioId) + '/' + String(m.id));
     if (!c) return m;
@@ -368,6 +380,9 @@ async function fbLoadBuildings(profile) {
   }
   edifici.sort((a, b) => Number(a.id) - Number(b.id));
   const perKey = {};
+  // I contatti (solo amministratori ed editor) partono insieme alle altre
+  // collezioni: prima si aspettava la fine di tutte per leggerli.
+  const contattiP = canUserEdit(profile) ? leggiContatti(edifici) : Promise.resolve(null);
   await Promise.all(RECORD_KEYS.filter(k => APPDATA_CONFIG[k].coll).map(async (key) => {
     const parts = await Promise.all(edifici.map(async (ed) => {
       const docs = (await getDocs(collection(db, 'buildings', String(ed.id), APPDATA_CONFIG[key].coll))).docs;
@@ -376,7 +391,8 @@ async function fbLoadBuildings(profile) {
     }));
     perKey[key] = parts.flat();
   }));
-  if (perKey.cm_condomini && canUserEdit(profile)) perKey.cm_condomini = await conContatti(perKey.cm_condomini, edifici);
+  const contatti = await contattiP;
+  if (perKey.cm_condomini && canUserEdit(profile)) perKey.cm_condomini = unisciContatti(perKey.cm_condomini, contatti);
   _cache.cm_edifici = edifici;
   setServerSnap('cm_edifici', edifici);
   Object.entries(perKey).forEach(([key, arr]) => { _cache[key] = arr; setServerSnap(key, arr); });

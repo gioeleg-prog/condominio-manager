@@ -268,3 +268,6 @@ nav .section-label { padding: .75rem 1.25rem .35rem; letter-spacing: .06em; }
 .affitti-lista label { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; font-size: 14px; }
 .affitti-lista label:hover { background: var(--surface2); }
 .affitti-lista input { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* "Mostra altre" in fondo agli elenchi lunghi (Spese, Entrate) */
+.altre-righe { display: flex; gap: .75rem; align-items: center; justify-content: center; padding: .75rem 1rem; border-top: 1px solid var(--border); }

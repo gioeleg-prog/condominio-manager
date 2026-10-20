@@ -1200,3 +1200,45 @@ describe('UNIT — WhatsApp ai condomini (link "Apri in WhatsApp")', () => {
     assert.strictEqual(c.data.telefono, '333 000 1111');
   });
 });
+
+// Prestazioni 2026-10-21: la memoria del render (js/core/utils.js) cambia solo
+// quante volte si calcola, non il risultato. Stessi numeri, bit per bit.
+describe('UNIT — memoria del render: stessi risultati al centesimo', () => {
+  const app = loadApp();
+  let seme = 7;
+  const caso = () => { seme = (seme * 1103515245 + 12345) % 2147483648; return seme / 2147483648; };
+  const data = (a) => `${a}-${String(1 + Math.floor(caso() * 12)).padStart(2, '0')}-${String(1 + Math.floor(caso() * 28)).padStart(2, '0')}`;
+  const condomini = Array.from({ length: 23 }, (_, i) => ({
+    id: 100 + i, nome: 'C' + i, edificioId: 1, appartamento: 'Int. ' + i,
+    ...(i % 7 === 3 ? { dataIngresso: data(2023) } : {}), ...(i % 9 === 5 ? { dataUscita: data(2024) } : {}),
+    ...(i === 11 ? { disabled: true, disabledOn: data(2025) + 'T10:00:00' } : {}),
+  }));
+  const spese = Array.from({ length: 400 }, (_, i) => {
+    const conSplit = i % 5 === 0;
+    const quote = conSplit ? condomini.slice(0, 1 + (i % 9)) : [];
+    return { id: 1000 + i, titolo: 'S' + i, edificioId: 1, data: i % 37 === 0 ? 'non-una-data' : data(2022 + (i % 4)),
+      consuntivo: i % 3 ? String((caso() * 900).toFixed(2)) : '', preventivo: String((caso() * 1000).toFixed(2)),
+      tipoSpesa: i % 4 ? 'ordinaria' : 'straordinaria',
+      split: quote.map((c, k) => ({ id: c.id, perc: k === 0 ? 33.33 : (66.67 / Math.max(1, quote.length - 1)).toFixed(2) })) };
+  });
+  const entrate = Array.from({ length: 300 }, (_, i) => ({ id: 5000 + i, edificioId: 1, condominoId: 100 + (i % 23),
+    data: data(2022 + (i % 4)), importo: String((caso() * 300).toFixed(2)), previsionale: i % 6 === 0 }));
+
+  it('quote, riporti e partecipanti identici con e senza memoria', () => {
+    app.__set('state', { ...app.__get('state'), condomini, spese, entrate, edificioAttivo: 1 });
+    const calcola = () => condomini.map((c) => ({
+      quote: spese.map((s) => app.quotaSuSpesa(s, c.id, parseFloat(s.consuntivo || s.preventivo || 0), 20)),
+      riporto: app.riportoCondomino(c.id, (d) => app.annoDi(d) < 2025, 20),
+      perc: spese.filter((s) => s.split.length).map((s) => app.percEffettiva(s.split, s.split[0].perc)),
+    })).concat([spese.map((s) => app.condominiAllaData(s.data, 1).map((c) => c.id))]);
+    const senza = calcola();
+    const con = app.conMemoRender(calcola);
+    assert.deepStrictEqual(con, senza);
+    assert.strictEqual(app.__get('_memoRender'), null, 'la memoria si svuota alla fine del render');
+  });
+  it('trovaPerId restituisce il primo elemento con quell\'id, come find', () => {
+    const lista = [{ id: 1, n: 'a' }, { id: 2, n: 'b' }, { id: 1, n: 'c' }];
+    assert.strictEqual(app.conMemoRender(() => app.trovaPerId(lista, 1)).n, 'a');
+    assert.strictEqual(app.trovaPerId(lista, 3), undefined);
+  });
+});

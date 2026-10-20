@@ -117,7 +117,7 @@ function assicuraWhatsApp() {
   getDoc(doc(db, 'buildings', String(edificioWa()), 'impostazioni', 'whatsapp'))
     .then(s => { _impWa = s.data() || {}; _impWaDi = chi; })
     .catch(e => { console.warn('Impostazioni WhatsApp non lette:', e.code || e.message); _impWa = {}; _impWaDi = chi; })
-    .finally(() => { _impWaInCarico = false; if (typeof render === 'function' && !state.modal) render(); });
+    .finally(() => { _impWaInCarico = false; if (typeof renderPresto === 'function' && !state.modal) renderPresto(); });
 }
 
 // ─── Valori delle variabili per un condomino ────────────────────────

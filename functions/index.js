@@ -148,7 +148,11 @@ exports.whoami = onCall(async (request) => {
   // Non-superAdmin: cerca il profilo (vedi sceltaProfilo più sotto).
   const ref = await sceltaProfilo(uid, email);
   const buildingId = ref.parent.parent.id;
-  const record = await db.runTransaction(async (tx) => {
+  // Profilo già collegato a questo account (tutti gli accessi dopo il primo):
+  // basta leggerlo. La transazione serve solo a collegarlo la prima volta
+  // (prestazioni 2026-10-21: prima a ogni accesso, con due giri in più).
+  const gia = (await ref.get()).data();
+  const record = gia && gia.uid === uid ? { ...gia } : await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const data = snap.data();
     if (data.uid && data.uid !== uid) {
@@ -173,8 +177,11 @@ exports.whoami = onCall(async (request) => {
   }
 
   // Provisiona il ruolo se assente — mai superAdmin (vedi sopra).
-  const existingUser = await auth.getUser(uid).catch(() => null);
-  if (!existingUser?.customClaims?.role && record.edificioId != null) {
+  // Con un ruolo già nel token non c'è niente da assegnare: i permessi di un
+  // condomino attivo si tolgono solo a chi esce o viene disattivato (sopra,
+  // prima di qui). Altrimenti si controllano i permessi attuali dell'account.
+  const existingUser = request.auth.token.role ? null : await auth.getUser(uid).catch(() => null);
+  if (!request.auth.token.role && !existingUser?.customClaims?.role && record.edificioId != null) {
     const role = record.isAdmin ? 'adminEdificio' : (record.canEdit ? 'editor' : 'member');
     await auth.setCustomUserClaims(uid, { role, buildingId: String(record.edificioId) });
     await db.collection('roles').doc(uid).set({
