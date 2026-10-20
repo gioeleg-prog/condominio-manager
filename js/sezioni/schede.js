@@ -15,6 +15,7 @@ function bindModal() {
   // Dropzone
   bindDropzone();
   bindSchedaPassword();
+  bindSchedaProfilo();
   bindSchedaEntrate();
   bindSchedaImpostazioni();
   bindSchedaSpese();

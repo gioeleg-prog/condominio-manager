@@ -160,6 +160,7 @@ function renderApp() {
             </div>
           </div>
           <div style="display:flex;flex-direction:column;gap:4px">
+            ${haMioProfilo(user) ? '<button class="logout-btn" id="btn-profilo" title="Il mio profilo" aria-label="Il mio profilo" style="font-size:13px">👤</button>' : ''}
             <button class="logout-btn" id="btn-change-pw" title="Cambia password" style="font-size:13px">🔑</button>
             <button class="logout-btn" id="btn-logout" title="Esci">${svgLogout()}</button>
           </div>
@@ -197,6 +198,7 @@ function renderApp() {
             <span style="font-size:11px;color:var(--text2);margin-left:4px">· Cambia</span>
           </button>` : ''}
           <div class="mpm-sep"></div>
+          ${haMioProfilo(user) ? '<button class="mpm-item" id="mpm-profilo">👤 Il mio profilo</button>' : ''}
           <button class="mpm-item" id="mpm-change-pw">🔑 Cambia password</button>
           ${canUserSeeImpostazioni(user) ? '<button class="mpm-item" id="mpm-impostazioni">⚙️ Impostazioni</button>' : ''}
           <div class="mpm-sep"></div>
@@ -245,6 +247,8 @@ function bindApp() {
     }
     setState({user:null});
   };
+  const bpr = document.getElementById('btn-profilo');
+  if (bpr) bpr.onclick = () => apriMioProfilo();
   const bcp = document.getElementById('btn-change-pw');
   if (bcp) bcp.onclick = () => setState({modal:{type:'change-pw'}});
 
@@ -263,6 +267,8 @@ function bindApp() {
   const mpmImp  = document.getElementById('mpm-impostazioni');
   const mpmOut  = document.getElementById('mpm-logout');
   if (mpmCpw)  mpmCpw.onclick  = () => { mpm?.classList.remove('open'); setState({modal:{type:'change-pw'}}); };
+  const mpmPr = document.getElementById('mpm-profilo');
+  if (mpmPr) mpmPr.onclick = () => { mpm?.classList.remove('open'); apriMioProfilo(); };
   if (mpmImp)  mpmImp.onclick  = () => { mpm?.classList.remove('open'); setState({page:'impostazioni', sidebarOpen:false}); };
   if (mpmOut)  mpmOut.onclick  = async () => {
     mpm?.classList.remove('open');
@@ -350,6 +356,7 @@ function renderModal() {
   if (m.type === 'delibera') return renderModalDelibera(m.data);
   if (m.type === 'storico-fornitore') return renderModalStoricoFornitore(m.data);
   if (m.type === 'change-pw') return renderModalChangePw();
+  if (m.type === 'profilo') return renderModalProfilo(m.data);
   if (m.type === 'admin-reset-pw') return renderModalAdminResetPw(m.data);
   if (m.type === 'rendiconto') return renderModalRendiconto(m.data);
   if (m.type === 'estratto') return renderModalEstratto(m.data);

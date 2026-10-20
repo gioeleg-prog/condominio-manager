@@ -16,6 +16,8 @@ const db = getFirestore();
 const auth = getAuth();
 // Permessi di condomini disattivati, usciti o declassati: vedi permessi.js.
 const permessi = require('./permessi');
+// Il condomino corregge da solo i propri dati personali: vedi profilo.js.
+const profilo = require('./profilo');
 
 // ═══════════════════════════════════════════════════════════════
 // Modello dati (REB-01, fase 2 QA): un documento per record sotto
@@ -180,6 +182,11 @@ exports.whoami = onCall(async (request) => {
       updatedAt: FieldValue.serverTimestamp(), updatedBy: 'whoami-auto',
     }, { merge: true });
   }
+
+  // Cambio email chiesto dal condomino (profilo.js): entra con il nuovo
+  // indirizzo confermato, che passa ai contatti. Mai bloccante per l'accesso.
+  await profilo.allineaEmail(uid, request.auth.token, ref)
+    .catch((e) => console.error('whoami: allineamento email non riuscito', e.message));
 
   await recordLogin(profile);
   return { profile, isSuperAdmin: false };
@@ -436,3 +443,4 @@ const controllo = require('./controllo');
 exports.controlloServizio = controllo.controlloServizio;
 exports.provaAvvisi = controllo.provaAvvisi;
 exports.permessiUsciti = permessi.permessiUsciti;
+exports.mioProfilo = profilo.mioProfilo;
