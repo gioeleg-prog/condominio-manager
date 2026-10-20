@@ -1035,7 +1035,9 @@ describe('INTEGRAZIONE — il mio profilo (il condomino corregge i propri dati)'
   it('PROF-05 niente scheda per Super Admin, account senza profilo o archiviati', async () => {
     assert.strictEqual((await (await as('superadmin@qa.test')).call('mioProfilo')).code, 'functions/failed-precondition');
     assert.strictEqual((await (await as('stranger@qa.test')).call('mioProfilo')).code, 'functions/failed-precondition');
-    assert.strictEqual((await (await as('disabled@qa.test')).call('mioProfilo')).code, 'functions/not-found');
+    // Archiviato: rifiutato. Il codice dipende da quando auditTrail gli toglie i
+    // permessi dopo il seed (senza claim: failed-precondition, con: not-found).
+    assert.ok(['functions/not-found', 'functions/failed-precondition'].includes((await (await as('disabled@qa.test')).call('mioProfilo')).code));
     assert.strictEqual((await anonCall('mioProfilo')).code, 'functions/unauthenticated');
   });
   it('PROF-06 tocca solo la propria scheda, anche per un amministratore', async () => {
@@ -1062,6 +1064,16 @@ describe('INTEGRAZIONE — il mio profilo (il condomino corregge i propri dati)'
     assert.strictEqual(c.emailLower, 'marta.nuova@qa.test');
     assert.strictEqual(c._updatedBy, 'u-member1');
     assert.ok(!(await admin.doc('richiesteEmail/u-member1').get()).exists);
+  });
+  it('PROF-09 contatti cancellati: il nuovo cellulare non riporta in vita la vecchia email', async () => {
+    await admin.doc('buildings/1/contatti/103').set({ _deleted: true, telefono: '320 000 0000' }, { merge: true });
+    const u = await as('member1@qa.test');
+    assert.ok((await u.call('mioProfilo', { modifiche: { telefono: '333 999 8888' } })).ok);
+    const c = await contatti();
+    assert.strictEqual(c._deleted, false);
+    assert.strictEqual(c.telefono, '333 999 8888');
+    assert.ok(!('email' in c) && !('emailLower' in c), 'la vecchia email non deve tornare');
+    assert.strictEqual((await u.call('mioProfilo', { modifiche: 'nome' })).code, 'functions/invalid-argument');
   });
   it('PROF-08 un\'email confermata ma mai chiesta dal profilo non tocca i contatti', async () => {
     await adminAuth().updateUser('u-member1', { email: 'altra@qa.test', emailVerified: true });

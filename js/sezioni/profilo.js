@@ -192,7 +192,13 @@ function bindSchedaProfilo() {
       // Prima la richiesta (il server controlla l'indirizzo), poi il link:
       // whoami copierà nei contatti solo un indirizzo chiesto da qui e confermato.
       await chiamaMioProfilo({ nuovaEmail: nuova });
-      await verifyBeforeUpdateEmail(user, nuova);
+      try { await verifyBeforeUpdateEmail(user, nuova); }
+      catch (e) {
+        // Link non partito: si annulla la richiesta (la stessa email di adesso
+        // la cancella), così la scheda non dice "apri il link" per un link mai mandato.
+        await chiamaMioProfilo({ nuovaEmail: String(user.email || '').toLowerCase() }).catch(() => {});
+        throw e;
+      }
       okEl.innerHTML = `✅ Link di conferma inviato a <strong>${esc(nuova)}</strong>. Aprilo, poi esci e rientra con la nuova email. Se non lo trovi, guarda nello spam.`;
       okEl.style.display = 'block';
       document.getElementById('pr-email-pw').value = '';

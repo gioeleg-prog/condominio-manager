@@ -29,6 +29,7 @@ const riga = (v) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim(
 // Valida le modifiche richieste; restituisce solo i campi presenti.
 function modificheValide(m) {
   const no = (msg) => { throw new HttpsError('invalid-argument', msg); };
+  if (!m || typeof m !== 'object' || Array.isArray(m)) no('Richiesta non valida.');
   const out = {};
   if ('nome' in m) {
     out.nome = riga(m.nome);
@@ -75,6 +76,18 @@ function vista(m, c, emailAccesso, inAttesa) {
   };
 }
 
+// Documento contatti esistente e non cancellato.
+const vivo = (c) => c.exists && !c.data()._deleted;
+// Contatti da (ri)scrivere da zero: un documento cancellato logicamente
+// (es. dopo un subentro) può avere ancora la vecchia email o il vecchio
+// telefono, che non devono tornare visibili. Si conserva solo chi l'ha creato.
+function contattoNuovo(c, rec, uid, campi) {
+  const prima = c.exists ? c.data() : {};
+  return { id: rec.id, edificioId: rec.edificioId, ...campi, _deleted: false,
+    _createdBy: prima._createdBy || uid, _createdAt: prima._createdAt || FieldValue.serverTimestamp(),
+    _updatedBy: uid, _updatedAt: FieldValue.serverTimestamp() };
+}
+
 exports.mioProfilo = onCall(async (request) => {
   const uid = request.auth?.uid;
   const ref = (await mioRecord(request)).ref;
@@ -97,12 +110,8 @@ exports.mioProfilo = onCall(async (request) => {
     if ('telefono' in mod) {
       const prima = c.exists && !c.data()._deleted ? (c.data().telefono || '') : '';
       if (prima !== mod.telefono) {
-        const tel = mod.telefono || FieldValue.delete();
-        if (c.exists) tx.set(contattiRef, { telefono: tel, _deleted: false, ...firma }, { merge: true });
-        else if (mod.telefono) {
-          tx.set(contattiRef, { id: rec.id, edificioId: rec.edificioId, telefono: mod.telefono, _deleted: false,
-            _createdBy: uid, _createdAt: FieldValue.serverTimestamp(), ...firma });
-        }
+        if (vivo(c)) tx.set(contattiRef, { telefono: mod.telefono || FieldValue.delete(), ...firma }, { merge: true });
+        else if (mod.telefono) tx.set(contattiRef, contattoNuovo(c, rec, uid, { telefono: mod.telefono }));
       }
     }
     if ('nuovaEmail' in mod) {
@@ -131,9 +140,8 @@ async function allineaEmail(uid, token, memberRef) {
   const c = await contattiRef.get();
   const firma = { _updatedBy: uid, _updatedAt: FieldValue.serverTimestamp() };
   const batch = db().batch();
-  if (c.exists) batch.set(contattiRef, { email, emailLower: email, _deleted: false, ...firma }, { merge: true });
-  else batch.set(contattiRef, { id: rec.id, edificioId: rec.edificioId, email, emailLower: email, _deleted: false,
-    _createdBy: uid, _createdAt: FieldValue.serverTimestamp(), ...firma });
+  if (vivo(c)) batch.set(contattiRef, { email, emailLower: email, ...firma }, { merge: true });
+  else batch.set(contattiRef, contattoNuovo(c, rec, uid, { email, emailLower: email }));
   batch.delete(richiestaRef);
   await batch.commit();
   return true;
