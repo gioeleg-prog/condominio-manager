@@ -2,7 +2,7 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, deleteField, limit, arrayUnion }
   from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js';
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider , sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential }
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, reauthenticateWithCredential, EmailAuthProvider , sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential, verifyBeforeUpdateEmail }
   from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import { getFunctions, httpsCallable }
   from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js';
@@ -30,7 +30,7 @@ window._fb = {
   collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
   onSnapshot, query, orderBy, serverTimestamp, writeBatch, deleteField, limit, arrayUnion,
   signInWithEmailAndPassword, signOut, onAuthStateChanged,
-  updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail,
+  updatePassword, reauthenticateWithCredential, EmailAuthProvider, sendPasswordResetEmail, verifyBeforeUpdateEmail,
   GoogleAuthProvider, signInWithPopup, linkWithPopup, linkWithCredential,
   functionsInstance, httpsCallable,
   storage, ref, uploadBytes, getBytes, deleteObject

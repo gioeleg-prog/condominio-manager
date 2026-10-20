@@ -981,3 +981,103 @@ describe('INTEGRAZIONE — il controllo delle 7:30 segnala la copia su Drive', f
     assert.strictEqual(await _test.controllaBackup(Date.now()), null);
   });
 });
+
+describe('INTEGRAZIONE — il mio profilo (il condomino corregge i propri dati)', function () {
+  this.timeout(40000);
+  beforeEach(async () => { await seed(); });
+  afterEach(async () => { while (apps.length) await deleteApp(apps.pop()).catch(() => {}); });
+  const membro = async () => (await admin.doc('buildings/1/members/103').get()).data();
+  const contatti = async () => (await admin.doc('buildings/1/contatti/103').get()).data();
+
+  it('PROF-01 il condomino legge la propria scheda, anche i dati che non può cambiare', async () => {
+    const r = await (await as('member1@qa.test')).call('mioProfilo');
+    assert.ok(r.ok, r.message);
+    assert.strictEqual(r.data.profilo.nome, 'Marta Member');
+    assert.strictEqual(r.data.profilo.appartamento, 'Int. 3');
+    assert.strictEqual(r.data.profilo.emailAccesso, 'member1@qa.test');
+  });
+  it('PROF-02 salva nome, nickname, cellulare e preferenze, firmati a suo nome', async () => {
+    const r = await (await as('member1@qa.test')).call('mioProfilo', { modifiche: {
+      nome: '  Marta Rossi ', username: 'Marta del 3°', telefono: '333 123 4567', emailNotifiche: false, whatsappNotifiche: true } });
+    assert.ok(r.ok, r.message);
+    const m = await membro();
+    assert.strictEqual(m.nome, 'Marta Rossi');
+    assert.strictEqual(m.username, 'Marta del 3°');
+    assert.strictEqual(m.emailNotifiche, false);
+    assert.strictEqual(m._updatedBy, 'u-member1');
+    assert.ok(!('telefono' in m), 'il telefono non va nel record visibile a tutti');
+    const c = await contatti();
+    assert.strictEqual(c.telefono, '333 123 4567');
+    assert.strictEqual(c.emailLower, 'member1@qa.test', 'l\'email non cambia');
+    assert.strictEqual(r.data.profilo.telefono, '333 123 4567');
+    // nickname vuoto = tolto
+    await (await as('member1@qa.test')).call('mioProfilo', { modifiche: { username: '' } });
+    assert.ok(!('username' in await membro()));
+  });
+  it('PROF-03 appartamento, ruolo e altri campi non passano', async () => {
+    const r = await (await as('member1@qa.test')).call('mioProfilo', { modifiche: {
+      nome: 'Marta', appartamento: 'Attico', isAdmin: true, canEdit: true, dataUscita: '2000-01-01', superAdmin: true } });
+    assert.ok(r.ok, r.message);
+    const m = await membro();
+    assert.strictEqual(m.appartamento, 'Int. 3');
+    assert.ok(!m.isAdmin && !m.canEdit && !m.superAdmin && !m.dataUscita);
+    assert.strictEqual((await claimsOf('u-member1')).role, 'member');
+  });
+  it('PROF-04 rifiuta dati non validi', async () => {
+    const u = await as('member1@qa.test');
+    for (const modifiche of [{ nome: ' ' }, { nome: 'x'.repeat(101) }, { telefono: '333<script>' }, { telefono: '12' },
+      { emailNotifiche: 'no' }, { nuovaEmail: 'non-una-email' }, { username: 'x'.repeat(41) }]) {
+      const r = await u.call('mioProfilo', { modifiche });
+      assert.strictEqual(r.code, 'functions/invalid-argument', JSON.stringify(modifiche));
+    }
+    assert.strictEqual((await membro()).nome, 'Marta Member');
+  });
+  it('PROF-05 niente scheda per Super Admin, account senza profilo o archiviati', async () => {
+    assert.strictEqual((await (await as('superadmin@qa.test')).call('mioProfilo')).code, 'functions/failed-precondition');
+    assert.strictEqual((await (await as('stranger@qa.test')).call('mioProfilo')).code, 'functions/failed-precondition');
+    // Archiviato: rifiutato. Il codice dipende da quando auditTrail gli toglie i
+    // permessi dopo il seed (senza claim: failed-precondition, con: not-found).
+    assert.ok(['functions/not-found', 'functions/failed-precondition'].includes((await (await as('disabled@qa.test')).call('mioProfilo')).code));
+    assert.strictEqual((await anonCall('mioProfilo')).code, 'functions/unauthenticated');
+  });
+  it('PROF-06 tocca solo la propria scheda, anche per un amministratore', async () => {
+    const r = await (await as('admin1@qa.test')).call('mioProfilo', { modifiche: { nome: 'Anna Nuova' } });
+    assert.ok(r.ok, r.message);
+    assert.strictEqual((await admin.doc('buildings/1/members/101').get()).data().nome, 'Anna Nuova');
+    assert.strictEqual((await membro()).nome, 'Marta Member');
+  });
+  it('PROF-07 cambio email: i contatti cambiano solo al rientro con l\'indirizzo chiesto e confermato', async () => {
+    const u = await as('member1@qa.test');
+    assert.ok((await u.call('mioProfilo', { modifiche: { nuovaEmail: 'Marta.Nuova@qa.test' } })).ok);
+    assert.strictEqual((await admin.doc('richiesteEmail/u-member1').get()).data().email, 'marta.nuova@qa.test');
+    assert.ok(await denied(fs.getDoc(fs.doc(u.db, 'richiesteEmail', 'u-member1'))), 'la richiesta non è leggibile dall\'app');
+    // Firebase cambia l'email dopo il link (qui simulato), ma non ancora confermata: nulla cambia.
+    await adminAuth().updateUser('u-member1', { email: 'marta.nuova@qa.test', emailVerified: false });
+    assert.ok((await (await as('marta.nuova@qa.test')).call('whoami')).ok);
+    assert.strictEqual((await contatti()).emailLower, 'member1@qa.test');
+    await adminAuth().updateUser('u-member1', { emailVerified: true });
+    const w = await (await as('marta.nuova@qa.test')).call('whoami');
+    assert.ok(w.ok, w.message);
+    assert.strictEqual(w.data.profile.id, 103);
+    const c = await contatti();
+    assert.strictEqual(c.email, 'marta.nuova@qa.test');
+    assert.strictEqual(c.emailLower, 'marta.nuova@qa.test');
+    assert.strictEqual(c._updatedBy, 'u-member1');
+    assert.ok(!(await admin.doc('richiesteEmail/u-member1').get()).exists);
+  });
+  it('PROF-09 contatti cancellati: il nuovo cellulare non riporta in vita la vecchia email', async () => {
+    await admin.doc('buildings/1/contatti/103').set({ _deleted: true, telefono: '320 000 0000' }, { merge: true });
+    const u = await as('member1@qa.test');
+    assert.ok((await u.call('mioProfilo', { modifiche: { telefono: '333 999 8888' } })).ok);
+    const c = await contatti();
+    assert.strictEqual(c._deleted, false);
+    assert.strictEqual(c.telefono, '333 999 8888');
+    assert.ok(!('email' in c) && !('emailLower' in c), 'la vecchia email non deve tornare');
+    assert.strictEqual((await u.call('mioProfilo', { modifiche: 'nome' })).code, 'functions/invalid-argument');
+  });
+  it('PROF-08 un\'email confermata ma mai chiesta dal profilo non tocca i contatti', async () => {
+    await adminAuth().updateUser('u-member1', { email: 'altra@qa.test', emailVerified: true });
+    assert.ok((await (await as('altra@qa.test')).call('whoami')).ok);
+    assert.strictEqual((await contatti()).emailLower, 'member1@qa.test');
+  });
+});
