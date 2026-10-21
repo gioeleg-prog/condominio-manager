@@ -272,10 +272,12 @@ function bindAllegatiInTable(sources) {
       const {id} = JSON.parse(btn.dataset.delAllegato);
       const { found: toDelete, src } = findIn(id);
       if (!toDelete || !src) return;
-      const nuoviRecords = state[src.stateKey].map(r => ({
+      // Cambia solo il record che ha l'allegato: prima ogni record senza il campo
+      // allegati ne riceveva uno vuoto, e il salvataggio li riscriveva tutti.
+      const nuoviRecords = state[src.stateKey].map(r => (r.allegati||[]).some(a=>a.id===id) ? ({
         ...r,
-        allegati: (r.allegati||[]).filter(a=>a.id!==id)
-      }));
+        allegati: r.allegati.filter(a=>a.id!==id)
+      }) : r);
       // Prima il record, poi il file: se il server rifiuta la modifica (permessi,
       // conflitto) il file resta e il collegamento pure. Prima si cancellava il
       // file per primo e, con il record rifiutato, restava un allegato senza file.

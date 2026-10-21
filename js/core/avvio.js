@@ -54,9 +54,10 @@ async function initApp() {
   // per un utente non ancora loggato — non è un errore bloccante, serve solo
   // a velocizzare l'avvio quando possibile. Il caricamento AUTORITATIVO,
   // quello da cui dipende il login, avviene sempre dentro onAuthStateChanged qui sotto.
-  try { await fbLoadAll(); applyLoadedDataFromCache(); }
-  catch(e) { console.warn('Caricamento iniziale (pre-login) non riuscito, verrà ritentato dopo il login:', e.message); }
-  await loadSuperAdminConfig();
+  // Prestazioni (2026-10-21): qui si caricavano appdata e cm_config prima di
+  // sapere se c'è una sessione. Senza sessione le regole li negano (lettura
+  // solo per chi ha fatto l'accesso), con la sessione si rileggevano subito dopo
+  // in onAuthStateChanged: due giri di rete persi prima del form o della dashboard.
 
   // Ascolta cambiamenti auth
   const { auth, onAuthStateChanged } = window._fb;
@@ -78,9 +79,13 @@ async function initApp() {
       // richiedono l'auth, ogni primo login su un browser "pulito" fallisce
       // con "Account non configurato" perché state.condomini resta sui dati
       // demo di default invece dei condomini veri.
+      // whoami parte subito, insieme ad appdata e cm_config (non dipende da
+      // loro): prima erano tre attese in fila.
+      const tokenPrima = await firebaseUser.getIdTokenResult().catch(() => null);
+      const { functionsInstance, httpsCallable } = window._fb;
+      const whoamiP = httpsCallable(functionsInstance, 'whoami')().then(resp => ({ resp }), err => ({ err }));
       try {
-        await fbLoadAll();
-        applyLoadedDataFromCache();
+        await Promise.all([fbLoadAll().then(applyLoadedDataFromCache), loadSuperAdminConfig()]);
       } catch(e) {
         console.error('Caricamento dati dopo login fallito:', e.message);
         await window._fb.signOut(auth);
@@ -90,7 +95,6 @@ async function initApp() {
         showLoginErr('Impossibile caricare i dati dell\u0027app. Controlla la connessione e riprova.');
         return;
       }
-      await loadSuperAdminConfig();
 
       // Audit 2026-09 (lettura cross-edificio): il profilo non si cerca più
       // dentro l'intero cm_condomini (che le rules ora non lasciano leggere ai
@@ -99,14 +103,15 @@ async function initApp() {
       // provisiona il ruolo al primo accesso.
       let profile;
       try {
-        const { functionsInstance, httpsCallable } = window._fb;
-        const whoami = httpsCallable(functionsInstance, 'whoami');
-        const resp = await whoami();
+        const { resp, err } = await whoamiP;
+        if (err) throw err;
         profile = resp.data?.profile;
         // whoami può aver appena assegnato il custom claim (primo accesso): il
         // token in mano al client non lo riflette ancora e le rules negherebbero
-        // la lettura di buildings/** qui sotto. Forziamo il refresh.
-        await firebaseUser.getIdToken(true);
+        // la lettura di buildings/** qui sotto. Si rinnova solo in quel caso:
+        // whoami assegna i permessi solo a chi non ne ha (prima: sempre, un giro
+        // di rete in più a ogni accesso).
+        if (!tokenPrima?.claims?.role) await firebaseUser.getIdToken(true);
       } catch (err) {
         const code = err.code || err.message || '';
         await window._fb.signOut(auth);

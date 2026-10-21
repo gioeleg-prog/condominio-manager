@@ -59,4 +59,9 @@ describe('FILE DELLA PAGINA — css/ e js/', () => {
     assert.match(csp, /script-src 'self'/);
     assert.match(csp, /style-src 'self'/);
   });
+  it('gli SDK Firebase precaricati sono proprio quelli importati da js/firebase.js', () => {
+    const precaricati = [...read('index.html').matchAll(/rel="modulepreload" href="([^"]+)"/g)].map((m) => m[1]).sort();
+    const importati = [...read('js/firebase.js').matchAll(/from '(https:\/\/www\.gstatic\.com\/[^']+)'/g)].map((m) => m[1]).sort();
+    assert.deepStrictEqual(precaricati, importati);
+  });
 });

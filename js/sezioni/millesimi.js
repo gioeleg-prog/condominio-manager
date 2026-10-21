@@ -46,7 +46,7 @@ function assicuraMillesimi() {
   const ed = state.edificioAttivo;
   if (!state.user || !window._fb?.getDoc || ed in _millesimi || _millesimiInCarico[ed]) return;
   _millesimiInCarico[ed] = true;
-  caricaMillesimi(ed).finally(() => { _millesimiInCarico[ed] = false; if (typeof render === 'function') render(); });
+  caricaMillesimi(ed).finally(() => { _millesimiInCarico[ed] = false; if (typeof renderPresto === 'function') renderPresto(); });
 }
 
 function tabelleMillesimi(edId = state.edificioAttivo) { return configMillesimi(edId)?.tabelle || []; }
