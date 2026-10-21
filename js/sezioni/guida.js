@@ -195,6 +195,7 @@ const GUIDA = {
     sapere: [
       'Un avviso con scadenza serve per comunicazioni a tempo (es. lavori in cortile fino al…).',
       'Le email arrivano da notifichecondominio@gmail.com: se non le trovi, guarda nella posta indesiderata e segna l\'indirizzo come attendibile.',
+      ['admin', 'Se un invio dice che ha richiesto troppo tempo, una parte delle email può essere già partita: il pulsante resta spento. Guarda lo storico degli invii in Impostazioni prima di riprovare, per non mandarle due volte.'],
       ['admin', 'Per evitare abusi e il blocco della casella, ogni condominio può mandare al massimo 5 invii all\'ora e 50 destinatari in 24 ore (contano avvisi, verbali, rendiconti, estratti conto e promemoria). Se il limite è raggiunto l\'app te lo dice prima di pubblicare, con il tempo di attesa: puoi pubblicare senza email e usare "Invia di nuovo per email" più tardi.'],
     ],
   },
