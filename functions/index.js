@@ -31,10 +31,9 @@ const profilo = require('./profilo');
 //
 // Region: tutte le funzioni stanno in europe-west1, vicino a Firestore
 // (eur3). Le callable (onCall) e quelle a orario la dichiarano; il client
-// cerca le callable lì (js/firebase.js). Durante il passaggio le callable
-// restano anche in us-central1, per le pagine vecchie: functions/regioni.js. I trigger auditTrail e notificaVita
-// non la dichiarano: il CLI li crea nella region del database, già
-// europe-west1 in produzione.
+// cerca le callable lì (js/firebase.js; region in functions/regioni.js).
+// I trigger auditTrail e notificaVita non la dichiarano: il CLI li tiene
+// nella region in cui esistono già, europe-west1 in produzione.
 // ═══════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════
