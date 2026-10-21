@@ -28,11 +28,11 @@ const profilo = require('./profilo');
 // non servono più e sono state rimosse. Il blob appdata/cm_* resta in
 // sola lettura come copia di sicurezza della migrazione.
 //
-// Region: le funzioni chiamate dall'app (onCall) e quelle a orario stanno
-// in europe-west1, vicino a Firestore (eur3); il client le cerca lì
-// (js/firebase.js). I trigger auditTrail e notificaVita restano per ora in
-// us-central1: spostarli vuol dire cancellarli e ricrearli, con il rischio
-// di voci di registro o email doppie (o perse) nel passaggio.
+// Region: tutte le funzioni stanno in europe-west1, vicino a Firestore
+// (eur3). Le callable (onCall) e quelle a orario la dichiarano; il client
+// cerca le callable lì (js/firebase.js). I trigger auditTrail e notificaVita
+// non la dichiarano: il CLI li crea nella region del database, già
+// europe-west1 in produzione.
 // ═══════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════
