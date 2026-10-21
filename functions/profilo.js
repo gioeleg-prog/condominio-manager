@@ -19,6 +19,7 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { membroAttivo } = require('./permessi');
+const { REGIONI_CALLABLE } = require('./regioni');
 const { posta: { emailValida } } = require('./notifiche');
 
 const db = () => getFirestore();
@@ -88,7 +89,7 @@ function contattoNuovo(c, rec, uid, campi) {
     _updatedBy: uid, _updatedAt: FieldValue.serverTimestamp() };
 }
 
-exports.mioProfilo = onCall({ region: 'europe-west1' }, async (request) => {
+exports.mioProfilo = onCall({ region: REGIONI_CALLABLE }, async (request) => {
   const uid = request.auth?.uid;
   const ref = (await mioRecord(request)).ref;
   const contattiRef = ref.parent.parent.collection('contatti').doc(ref.id);

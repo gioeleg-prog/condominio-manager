@@ -3,6 +3,7 @@ const { onDocumentWritten } = require('firebase-functions/v2/firestore');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { getStorage } = require('firebase-admin/storage');
 const { backupNotturno } = require('./backup');
+const { REGIONI_CALLABLE } = require('./regioni');
 const { copiaSuDrive } = require('./drive');
 const { defineSecret } = require('firebase-functions/params');
 // Credenziali per la copia su Google Drive (scripts/drive-autorizza.js).
@@ -30,7 +31,8 @@ const profilo = require('./profilo');
 //
 // Region: tutte le funzioni stanno in europe-west1, vicino a Firestore
 // (eur3). Le callable (onCall) e quelle a orario la dichiarano; il client
-// cerca le callable lì (js/firebase.js). I trigger auditTrail e notificaVita
+// cerca le callable lì (js/firebase.js). Durante il passaggio le callable
+// restano anche in us-central1, per le pagine vecchie: functions/regioni.js. I trigger auditTrail e notificaVita
 // non la dichiarano: il CLI li crea nella region del database, già
 // europe-west1 in produzione.
 // ═══════════════════════════════════════════════════════════════
@@ -48,7 +50,7 @@ const profilo = require('./profilo');
 //    scelto dall'amministratore restava solo nella scheda e il server non lo
 //    applicava a chi aveva già fatto il primo accesso.
 // ═══════════════════════════════════════════════════════════════
-exports.setUserRole = onCall({ region: 'europe-west1' }, async (request) => {
+exports.setUserRole = onCall({ region: REGIONI_CALLABLE }, async (request) => {
   const callerRole = request.auth?.token?.role;
   if (callerRole !== 'superAdmin' && callerRole !== 'adminEdificio') {
     throw new HttpsError('permission-denied', 'Solo un amministratore può assegnare ruoli.');
@@ -122,7 +124,7 @@ async function controllaNomina(request, targetUid, role, buildingId) {
 // claim role già presente — mai dal flag superAdmin di un record, che un
 // adminEdificio potrebbe impostare.
 // ═══════════════════════════════════════════════════════════════
-exports.whoami = onCall({ region: 'europe-west1' }, async (request) => {
+exports.whoami = onCall({ region: REGIONI_CALLABLE }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
   const uid = request.auth.uid;
   const email = (request.auth.token.email || '').toLowerCase();
@@ -265,7 +267,7 @@ async function sceltaProfilo(uid, email) {
 // questo profilo non entrerà; l'email serve comunque per le notifiche. Non
 // dice quale condominio né chi.
 // ═══════════════════════════════════════════════════════════════
-exports.verificaEmail = onCall({ region: 'europe-west1' }, async (request) => {
+exports.verificaEmail = onCall({ region: REGIONI_CALLABLE }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
   const t = request.auth.token || {};
   const b = String(request.data?.buildingId || '');

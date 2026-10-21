@@ -30,6 +30,7 @@ const { defineSecret } = require('firebase-functions/params');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const nodemailer = require('nodemailer');
 const limiti = require('./limiti');
+const { REGIONI_CALLABLE } = require('./regioni');
 
 const GMAIL_APP_PASSWORD = defineSecret('GMAIL_APP_PASSWORD');
 const MITTENTE = 'notifichecondominio@gmail.com';
@@ -327,7 +328,7 @@ async function inviaDaApp(request) {
   throw new HttpsError('invalid-argument', 'Tipo di invio sconosciuto.');
 }
 
-exports.inviaEmail = onCall({ region: 'europe-west1', secrets: [GMAIL_APP_PASSWORD], timeoutSeconds: 120, memory: '512MiB' }, inviaDaApp);
+exports.inviaEmail = onCall({ region: REGIONI_CALLABLE, secrets: [GMAIL_APP_PASSWORD], timeoutSeconds: 120, memory: '512MiB' }, inviaDaApp);
 
 // ─── Promemoria automatici (spenti finché un amministratore non li accende) ──
 function dataTraGiorni(n) {
