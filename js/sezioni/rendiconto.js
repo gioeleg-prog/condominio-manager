@@ -106,6 +106,16 @@ function caricaLibrerieRendiconto() {
 }
 
 // ── Scheda di scelta ─────────────────────────────────────────────────────
+// Nome del documento: per l'anno prossimo è il bilancio preventivo.
+function nomeDocRendiconto(anno) {
+  return anno > new Date().getFullYear() ? 'Bilancio preventivo' : 'Rendiconto';
+}
+function descDettaglioRendiconto(anno) {
+  return anno > new Date().getFullYear()
+    ? 'Il sintetico più il registro di tutte le spese previste (data, fornitore, importo a preventivo) e di tutte le rate previste.'
+    : 'Il sintetico più il registro di tutte le spese (data, fornitore, preventivo, consuntivo) e di tutti i versamenti.';
+}
+
 function renderModalRendiconto(d) {
   const annoOggi = new Date().getFullYear();
   const anni = getAnni().filter(a => a <= annoOggi + 1);
@@ -115,7 +125,7 @@ function renderModalRendiconto(d) {
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal" style="max-width:560px">
       <div class="modal-header">
-        <h2>📄 Rendiconto in PDF</h2>
+        <h2>📄 <span id="rend-titolo">${nomeDocRendiconto(anno)}</span> in PDF</h2>
         <button class="modal-close" id="modal-close" aria-label="Chiudi">✕</button>
       </div>
       <div class="modal-body">
@@ -131,7 +141,7 @@ function renderModalRendiconto(d) {
             <label class="rend-scelta"><input type="radio" name="rend-tipo" value="sintetico" ${tipo === 'sintetico' ? 'checked' : ''}>
               <span><b>Sintetico</b> · 2–3 pagine<br><small>Riepilogo della cassa, spese per categoria divise tra ordinarie e straordinarie, riparto per condomino.</small></span></label>
             <label class="rend-scelta"><input type="radio" name="rend-tipo" value="dettagliato" ${tipo === 'dettagliato' ? 'checked' : ''}>
-              <span><b>Dettagliato</b><br><small>Il sintetico più il registro di tutte le spese (data, fornitore, preventivo, consuntivo) e di tutti i versamenti.</small></span></label>
+              <span><b>Dettagliato</b><br><small id="rend-det-desc">${descDettaglioRendiconto(anno)}</small></span></label>
           </div>
         </div>
         <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-bottom:1rem;cursor:pointer">
@@ -158,6 +168,12 @@ function renderModalRendiconto(d) {
 function bindSchedaRendiconto() {
   const b = document.getElementById('btn-rend-genera');
   if (!b || state.modal?.type !== 'rendiconto') return;
+  const sa = document.getElementById('rend-anno');
+  sa.onchange = () => {
+    const a = parseInt(sa.value, 10);
+    document.getElementById('rend-titolo').textContent = nomeDocRendiconto(a);
+    document.getElementById('rend-det-desc').textContent = descDettaglioRendiconto(a);
+  };
   const be = document.getElementById('btn-rend-email');
   if (be) be.onclick = () => setState({ modal: { type: 'emailRendiconto', data: {
     anno: parseInt(document.getElementById('rend-anno').value, 10),
@@ -328,12 +344,14 @@ function generaRendicontoPDF(opts, conFile = false) {
   let n = opts.riparto && d.riparto.length ? 4 : 3;
   if (dettagliato) {
     titolo(`${n++}. Registro delle spese`, `${d.registroSpese.length} movimenti in ordine di data.` + (d.preventivo ? '' : ' Consuntivo "—" = spesa non ancora consuntivata.'));
+    // Nel preventivo niente colonna Consuntivo: sarebbe sempre "—".
+    const conCons = !d.preventivo;
     tab({ ...stile, startY: y,
-      head: [['Data', 'Spesa', 'Categoria', 'Fornitore', 'Tipo', 'Preventivo', 'Consuntivo']],
-      body: d.registroSpese.map(s => [dataPdf(s.data), s.titolo + (s.descrizione ? '\n' + s.descrizione : '') + (s.allegati ? `\n${s.allegati} allegat${s.allegati === 1 ? 'o' : 'i'}` : ''), s.categoria, s.fornitore, s.tipo, s.preventivo ? euroPdf(s.preventivo) : '—', s.consuntivo ? euroPdf(s.consuntivo) : '—']),
-      foot: [['', 'Totale', '', '', '', euroPdf(d.preventivoTot), euroPdf(d.registroSpese.reduce((a, s) => a + s.consuntivo, 0))]],
+      head: [['Data', 'Spesa', 'Categoria', 'Fornitore', 'Tipo', 'Preventivo', ...(conCons ? ['Consuntivo'] : [])]],
+      body: d.registroSpese.map(s => [dataPdf(s.data), s.titolo + (s.descrizione ? '\n' + s.descrizione : '') + (s.allegati ? `\n${s.allegati} allegat${s.allegati === 1 ? 'o' : 'i'}` : ''), s.categoria, s.fornitore, s.tipo, s.preventivo ? euroPdf(s.preventivo) : '—', ...(conCons ? [s.consuntivo ? euroPdf(s.consuntivo) : '—'] : [])]),
+      foot: [['', 'Totale', '', '', '', euroPdf(d.preventivoTot), ...(conCons ? [euroPdf(d.registroSpese.reduce((a, s) => a + s.consuntivo, 0))] : [])]],
       styles: { ...stile.styles, fontSize: 7.8 },
-      columnStyles: { 0: { cellWidth: 17 }, 1: { cellWidth: 52 }, 2: { cellWidth: 28 }, 3: { cellWidth: 26 }, 4: { cellWidth: 14 }, 5: num, 6: num },
+      columnStyles: { 0: { cellWidth: 17 }, 1: { cellWidth: conCons ? 52 : 72 }, 2: { cellWidth: 28 }, 3: { cellWidth: 26 }, 4: { cellWidth: 14 }, 5: num, 6: num },
       didParseCell: (h) => { if (h.section === 'foot' && h.column.index >= 5) h.cell.styles.halign = 'right'; },
     });
     dopo();

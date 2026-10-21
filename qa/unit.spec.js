@@ -714,6 +714,13 @@ describe('UNIT — rendiconto annuale', () => {
     assert.strictEqual(d.uscite, 800);
     assert.strictEqual(d.riparto.find((r) => r.nome === 'Anna').dovuto, 400);
   });
+  it('la scheda si chiama "Bilancio preventivo" per l\'anno prossimo, senza consuntivo nel dettagliato', () => {
+    const app = loadApp();
+    assert.strictEqual(app.nomeDocRendiconto(Y + 1), 'Bilancio preventivo');
+    assert.strictEqual(app.nomeDocRendiconto(Y), 'Rendiconto');
+    assert.ok(!app.descDettaglioRendiconto(Y + 1).includes('consuntivo'));
+    assert.ok(app.descDettaglioRendiconto(Y - 1).includes('consuntivo'));
+  });
   it('importi nel PDF sempre con il punto delle migliaia e la virgola dei decimali', () => {
     const app = loadApp();
     assert.strictEqual(app.euroPdf(1234.5), '€ 1.234,50');
