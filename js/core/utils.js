@@ -143,7 +143,7 @@ function quotaSuSpesa(s, condId, importo, nAttivi) {
   // Senza ripartizione: parti uguali tra chi faceva parte del condominio alla
   // data della spesa (subentri: chi è entrato dopo o uscito prima non paga).
   const partecipanti = condominiAllaData(s.data, s.edificioId || state.edificioAttivo);
-  if (partecipanti.length) return partecipanti.some(c => c.id === condId) ? importo / partecipanti.length : 0;
+  if (partecipanti.length) return idsDi(partecipanti).has(condId) ? importo / partecipanti.length : 0;
   return importo / (nAttivi || 1);
 }
 
@@ -169,7 +169,61 @@ function attivoNellAnno(c, anno) {
   return (!inizio || inizio <= anno + '-12-31') && (!fine || fine > anno + '-01-01');
 }
 function condominiAllaData(data, edificioId = state.edificioAttivo) {
-  return state.condomini.filter(c => c.edificioId === edificioId && !c.superAdmin && attivoAllaData(c, data));
+  const calcola = () => state.condomini.filter(c => c.edificioId === edificioId && !c.superAdmin && attivoAllaData(c, data));
+  if (!_memoRender) return calcola();
+  const k = edificioId + '|' + (/^\d{4}-\d{2}-\d{2}/.test(data || '') ? String(data).slice(0, 10) : '');
+  let v = _memoRender.cond.get(k);
+  if (!v) { v = calcola(); _memoRender.cond.set(k, v); }
+  return v;
+}
+
+// ── Memoria di un render (prestazioni, 2026-10-21) ────────────────────────
+// Bilancio, Entrate, Confronto e Rendiconto chiedono migliaia di volte chi era
+// nel condominio a una data e il totale di una ripartizione: con 2000 spese e
+// 70 condomini erano milioni di filtri a ogni ridisegno (Entrate 10 s). Durante
+// un render() i dati non cambiano, quindi i risultati si tengono da parte e si
+// buttano alla fine del render: nessun valore vecchio fuori dal render, e le
+// formule sono le stesse di prima (cambia solo quante volte si calcolano).
+let _memoRender = null;
+function conMemoRender(fn) {
+  if (_memoRender) return fn();
+  _memoRender = { cond: new Map(), ids: new WeakMap(), split: new WeakMap(), idx: new WeakMap() };
+  try { return fn(); } finally { _memoRender = null; }
+}
+// Primo elemento con quell'id (come lista.find(x => x.id === id)), con un
+// indice costruito una volta per render invece di scorrere la lista a ogni riga.
+function trovaPerId(lista, id) {
+  if (!_memoRender) return lista.find(x => x.id === id);
+  let m = _memoRender.idx.get(lista);
+  if (!m) { m = new Map(); lista.forEach(x => { if (!m.has(x.id)) m.set(x.id, x); }); _memoRender.idx.set(lista, m); }
+  return m.get(id);
+}
+
+// Elenchi lunghi (Spese, Entrate): se ne disegnano RIGHE_PER_VOLTA alla volta,
+// con "Mostra altre" in fondo. Totali, selezione ed esportazione restano
+// sull'elenco intero. Prima con 2000 spese la pagina aveva 40.000 elementi e
+// ogni ridisegno durava secondi.
+const RIGHE_PER_VOLTA = 200;
+function righeMostrate(chiave) { return (state.righeMostrate && state.righeMostrate[chiave]) || RIGHE_PER_VOLTA; }
+function pulsanteAltreRighe(chiave, totale) {
+  const n = righeMostrate(chiave);
+  if (totale <= n) return '';
+  return `<div class="altre-righe"><button type="button" class="btn btn-secondary btn-sm" data-altre-righe="${chiave}">Mostra altre ${Math.min(RIGHE_PER_VOLTA, totale - n)}</button><span class="hint">${n} di ${totale}</span></div>`;
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('[data-altre-righe]');
+    if (!b) return;
+    const k = b.dataset.altreRighe;
+    setState({ righeMostrate: { ...(state.righeMostrate || {}), [k]: righeMostrate(k) + RIGHE_PER_VOLTA } });
+  });
+}
+// Insieme degli id di un elenco di condomini (memorizzato durante un render).
+function idsDi(lista) {
+  if (!_memoRender) return new Set(lista.map(c => c.id));
+  let v = _memoRender.ids.get(lista);
+  if (!v) { v = new Set(lista.map(c => c.id)); _memoRender.ids.set(lista, v); }
+  return v;
 }
 
 // Percentuale da usare nei calcoli: le caselle della ripartizione hanno due
@@ -177,7 +231,11 @@ function condominiAllaData(data, edificioId = state.edificioAttivo) {
 // (6 € in più su 30.000 €). Una ripartizione che per arrotondamento somma tra
 // 99,9% e 100,1% viene letta come 100% esatto, anche per le spese già salvate.
 function percEffettiva(split, perc) {
-  const tot = (split || []).reduce((a, x) => a + (parseFloat(x.perc) || 0), 0);
+  let tot = _memoRender && split ? _memoRender.split.get(split) : undefined;
+  if (tot === undefined) {
+    tot = (split || []).reduce((a, x) => a + (parseFloat(x.perc) || 0), 0);
+    if (_memoRender && split) _memoRender.split.set(split, tot);
+  }
   return tot > 99.9 && tot < 100.1 ? (parseFloat(perc) || 0) * 100 / tot : (parseFloat(perc) || 0);
 }
 

@@ -56,6 +56,7 @@ const GUIDA = {
       ['lettura', 'Chiedere una modifica', 'Puoi consultare spese e allegati; per correzioni rivolgiti all\'amministratore.'],
     ],
     sapere: [
+      'Elenchi lunghi: si vedono 200 spese alla volta, "Mostra altre" in fondo aggiunge le successive. Totali, "Seleziona tutte", esportazione ed eliminazione delle selezionate valgono per tutte le spese dei filtri scelti, anche quelle non ancora mostrate.',
       '<b>Preventivo</b> = importo stimato. <b>Consuntivo</b> = importo reale. Quando inserisci il consuntivo la spesa diventa <b>Definitiva</b>.',
       '<b>Ordinaria</b> o <b>straordinaria</b> dipende dalla categoria scelta.',
       ['mod', 'Prima di eliminare, l\'app chiede conferma in una finestra: "Annulla" (o il tasto Esc) torna indietro senza toccare nulla.'],
@@ -83,6 +84,7 @@ const GUIDA = {
       ['lettura', 'Controllare la tua posizione', 'Cerca il tuo nome: vedi quanto hai versato e quanto resta.'],
     ],
     sapere: [
+      'Si vedono 200 versamenti alla volta: "Mostra altre" in fondo all\'elenco aggiunge i successivi. Il totale in alto comprende sempre tutti i versamenti degli anni scelti.',
       'Le email partono solo quando decide l\'amministratore. I promemoria automatici delle rate sono spenti finché non vengono accesi in Impostazioni.',
       'I versamenti <b>previsionali</b> entrano nelle previsioni ma non nel saldo reale, finché non li validi.',
       '<b>Copertura</b> = quanto è stato versato rispetto a quanto dovuto.',

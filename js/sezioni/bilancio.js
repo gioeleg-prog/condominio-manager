@@ -144,7 +144,8 @@ function renderBilancio() {
   // STRICT: solo condomini con edificioId esatto dell'edificio attivo
   // Anche chi è stato archiviato, se ha movimenti nell'anno scelto (prima spariva
   // dagli anni in cui c'era). Il saldo comprende il riporto degli anni precedenti.
-  const condominiKPI = state.condomini
+  // Calcolati solo nella scheda "Per condomino", l'unica che li mostra (prima a ogni render di ogni scheda).
+  const calcolaCondominiKPI = () => state.condomini
     .filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin
       && (attivoNellAnno(c, anno) || entrate.some(e => e.condominoId === c.id) || spese.some(s => s.split?.some(x => x.id === c.id && (x.perc||0) > 0))))
     .map(c=>{
@@ -421,6 +422,7 @@ function renderBilancio() {
 
   // ── TAB: PER CONDOMINO ────────────────────────────────────────────────────
   function tabCondomini() {
+    const condominiKPI = calcolaCondominiKPI();
     const totVersato = condominiKPI.reduce((a,c)=>a+c.versato, 0);
     const inRegola   = condominiKPI.filter(c=>c.diff>=0).length;
     const inRitardo  = condominiKPI.filter(c=>c.diff<0).length;

@@ -13,7 +13,7 @@ function renderQuotaCell(spesa) {
   const condEd = condominiAllaData(spesa.data, edId);
   const nCond = condEd.length || 1;
   // Split valido = solo righe di condomini di questo edificio con quota > 0 (0% = escluso da questa spesa)
-  const validSplit = (spesa.split||[]).filter(s => condEd.some(c=>c.id===s.id) && (s.perc||0) > 0);
+  const validSplit = (spesa.split||[]).filter(s => idsDi(condEd).has(s.id) && (s.perc||0) > 0);
 
   if (user.isAdmin) {
     // Admin: mostra mini breakdown per tutti
@@ -50,11 +50,14 @@ function renderQuotaCell(spesa) {
 // ===========================
 // MOBILE CARD RENDERERS
 // ===========================
+// Id delle spese dell'elenco filtrato, aggiornati a ogni renderSpese.
+let _idsSpeseFiltrate = [];
+
 function renderSpeseMobileCards(items, canEdit) {
   if (!items.length) return `<div class="empty">${svgEmpty()}<p>Nessuna spesa trovata</p></div>`;
   return `<div class="mobile-card-list" style="padding:10px 10px 6px">
     ${items.map(s => {
-      const cat    = getCategorie().find(c=>c.id===s.categoria)||{label:s.categoria, icon:'📦'};
+      const cat    = trovaPerId(getCategorie(), s.categoria)||{label:s.categoria, icon:'📦'};
       const hasCons = s.consuntivo && parseFloat(s.consuntivo)>0;
       const hasPrev = s.preventivo && parseFloat(s.preventivo)>0;
       const amount  = s.consuntivo||s.preventivo;
@@ -86,7 +89,7 @@ function renderSpeseMobileCards(items, canEdit) {
           ${s.ricorrente ? `<span class="ricorrente-badge">🔁 ${esc(s.frequenza||'mensile')}</span>` : ''}
           ${(()=>{
             if (!s.fornitoreId) return '';
-            const forn = state.fornitori.find(f=>f.id===s.fornitoreId);
+            const forn = trovaPerId(state.fornitori, s.fornitoreId);
             if (!forn) return '';
             const catF = CATEGORIE_FORNITORE.find(c=>c.id===forn.categoria)||{icon:'📦'};
             return `<span class="badge badge-gray" style="font-size:10px">${esc(catF.icon)} ${esc(forn.nome)}</span>`;
@@ -111,7 +114,7 @@ function renderQuotaCellText(spesa) {
   // Chi faceva parte del condominio alla data della spesa (subentri).
   const condEd = condominiAllaData(spesa.data, edId);
   const nCond = condEd.length || 1;
-  const validSplit = (spesa.split||[]).filter(s => condEd.some(c=>c.id===s.id) && (s.perc||0) > 0);
+  const validSplit = (spesa.split||[]).filter(s => idsDi(condEd).has(s.id) && (s.perc||0) > 0);
   if (validSplit.length === 0) return fmt(importoRef/nCond);
   const mySplit = validSplit.find(s=>s.id===user.id);
   if (!mySplit) return ''; // escluso da questa spesa → nessuna riga "tua" mostrata
@@ -188,9 +191,9 @@ function renderSpese() {
     switch(col) {
       case 'data':       va = a.data||''; vb = b.data||''; break;
       case 'titolo':     va = (a.titolo||'').toLowerCase(); vb = (b.titolo||'').toLowerCase(); break;
-      case 'categoria':  { const ca=getCategorie().find(c=>c.id===a.categoria); const cb=getCategorie().find(c=>c.id===b.categoria); va=(ca?.label||'').toLowerCase(); vb=(cb?.label||'').toLowerCase(); break; }
+      case 'categoria':  { const ca=trovaPerId(getCategorie(), a.categoria); const cb=trovaPerId(getCategorie(), b.categoria); va=(ca?.label||'').toLowerCase(); vb=(cb?.label||'').toLowerCase(); break; }
       case 'tipo':       va = (a.tipoSpesa||'').toLowerCase(); vb = (b.tipoSpesa||'').toLowerCase(); break;
-      case 'fornitore':  { const fa=state.fornitori.find(f=>f.id===a.fornitoreId); const fb=state.fornitori.find(f=>f.id===b.fornitoreId); va=(fa?.nome||'zzz').toLowerCase(); vb=(fb?.nome||'zzz').toLowerCase(); break; }
+      case 'fornitore':  { const fa=trovaPerId(state.fornitori, a.fornitoreId); const fb=trovaPerId(state.fornitori, b.fornitoreId); va=(fa?.nome||'zzz').toLowerCase(); vb=(fb?.nome||'zzz').toLowerCase(); break; }
       case 'preventivo': va = parseFloat(a.preventivo||0); vb = parseFloat(b.preventivo||0); break;
       case 'consuntivo': va = parseFloat(a.consuntivo||0); vb = parseFloat(b.consuntivo||0); break;
       case 'stato':      va = parseFloat(a.consuntivo||0)>0?'1':'0'; vb = parseFloat(b.consuntivo||0)>0?'1':'0'; break;
@@ -200,6 +203,9 @@ function renderSpese() {
     if (va > vb) return dir==='asc' ?  1 : -1;
     return 0;
   });
+  // Elenco filtrato completo (anche le righe non ancora disegnate): lo usano
+  // "Seleziona tutte", l'esportazione e "Elimina selezionate" (bindAzioniSpese).
+  _idsSpeseFiltrate = items.map(s => parseInt(s.id)); // come gli id letti dalle caselle (parseInt)
 
   // Helper: intestazione cliccabile
   const thSort = (label, colId) => {
@@ -331,7 +337,7 @@ function renderSpese() {
     </div>
 
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:.5rem">
-      ${renderSpeseMobileCards(items, canEdit)}
+      ${renderSpeseMobileCards(items.slice(0, righeMostrate('spese')), canEdit)}
       <div class="table-wrap">
         ${items.length===0?`<div class="empty">${svgEmpty()}<p>Nessuna spesa trovata</p></div>`:
         `<table>
@@ -350,8 +356,8 @@ function renderSpese() {
             <th class="col-allegati">Allegati</th>
           </tr></thead>
           <tbody>
-          ${items.map(s=>{
-            const cat = getCategorie().find(c=>c.id===s.categoria)||{label:s.categoria};
+          ${items.slice(0, righeMostrate('spese')).map(s=>{
+            const cat = trovaPerId(getCategorie(), s.categoria)||{label:s.categoria};
             const hasPrev = s.preventivo && parseFloat(s.preventivo)>0;
             const hasCons = s.consuntivo && parseFloat(s.consuntivo)>0;
             const isSel = state.speseSelezionate?.has(s.id);
@@ -371,7 +377,7 @@ function renderSpese() {
               <td><span class="badge ${s.tipoSpesa==='straordinaria'?'badge-purple':'badge-blue'}">${s.tipoSpesa==='straordinaria'?'Str.':'Ord.'}</span></td>
               <td style="white-space:nowrap">${(()=>{
                 if (!s.fornitoreId) return '<span style="color:var(--text2);font-size:12px">—</span>';
-                const forn = state.fornitori.find(f=>f.id===s.fornitoreId);
+                const forn = trovaPerId(state.fornitori, s.fornitoreId);
                 if (!forn) return '<span style="color:var(--text2);font-size:12px">—</span>';
                 const catF = CATEGORIE_FORNITORE.find(c=>c.id===forn.categoria)||{icon:'📦'};
                 return '<span style="font-size:12px;font-weight:500">'+catF.icon+' '+esc(forn.nome)+'</span>';
@@ -388,6 +394,7 @@ function renderSpese() {
           </tbody>
         </table>`}
       </div>
+      ${pulsanteAltreRighe('spese', items.length)}
     </div>
   </div>`;
 }
@@ -769,22 +776,22 @@ function bindAzioniSpese() {
   });
   // Esporta Excel: le spese SELEZIONATE se ce n'è almeno una, altrimenti tutte quelle attualmente
   // visibili a schermo (rispettando i filtri correnti — ricerca, anno, tipo, stato, categoria, fornitore).
-  // Gli id vengono letti dal DOM (checkbox .chk-spesa realmente renderizzate), non ricalcolando i
-  // filtri qui: così l'export è sempre coerente al 100% con quello che si vede sullo schermo.
+  // Gli id sono quelli dell'elenco filtrato calcolato da renderSpese (_idsSpeseFiltrate), anche le
+  // righe non ancora disegnate ("Mostra altre"): stessi filtri di quello che si vede.
   const bExportSpese = document.getElementById('btn-export-spese');
   if (bExportSpese) bExportSpese.onclick = () => {
-    const idsVisibili = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
+    const idsVisibili = [..._idsSpeseFiltrate];
     const sel = state.speseSelezionate;
     const idsDaEsportare = (sel && sel.size > 0) ? idsVisibili.filter(id => sel.has(id)) : idsVisibili;
-    const speseDaEsportare = state.spese.filter(s => idsDaEsportare.includes(s.id));
+    const daEsportare = new Set(idsDaEsportare);
+    const speseDaEsportare = state.spese.filter(s => daEsportare.has(s.id));
     const nomeFile = 'spese-condominio-' + (sel && sel.size > 0 ? 'selezionate-' : '') + ymdLocale(new Date()) + '.csv';
     esportaSpeseCSV(speseDaEsportare, nomeFile);
   };
-  // Seleziona tutte — legge gli id direttamente dalle checkbox visibili a schermo (non da una
-  // variabile 'items' che qui non esiste: era un bug pre-esistente, il bottone non selezionava nulla)
+  // Seleziona tutte — tutte le spese dell'elenco filtrato (anche quelle sotto "Mostra altre")
   const bSelAll = document.getElementById('btn-sel-all');
   if (bSelAll) bSelAll.onclick = () => {
-    const ids = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
+    const ids = [..._idsSpeseFiltrate];
     state.speseSelezionate = new Set(ids);
     render();
   };
@@ -798,7 +805,7 @@ function bindAzioniSpese() {
   const chkAll = document.getElementById('chk-all-spese');
   if (chkAll) chkAll.onchange = () => {
     if (chkAll.checked) {
-      const ids = [...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId));
+      const ids = [..._idsSpeseFiltrate];
       state.speseSelezionate = new Set(ids);
     } else {
       state.speseSelezionate = new Set();
@@ -808,8 +815,8 @@ function bindAzioniSpese() {
   // Elimina selezionate
   const bDelSel = document.getElementById('btn-del-sel');
   if (bDelSel) bDelSel.onclick = async () => {
-    // Solo le spese selezionate E visibili a schermo (come l'esportazione).
-    const idsVisibili = new Set([...document.querySelectorAll('.chk-spesa')].map(chk => parseInt(chk.dataset.spesaId)));
+    // Solo le spese selezionate E nell'elenco filtrato (come l'esportazione).
+    const idsVisibili = new Set([..._idsSpeseFiltrate]);
     const sel = new Set([...(state.speseSelezionate || [])].filter(id => idsVisibili.has(id)));
     if (sel.size === 0) return;
     // Mostra dettaglio di cosa si sta eliminando

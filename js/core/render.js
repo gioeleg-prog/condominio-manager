@@ -4,7 +4,18 @@
 // ===========================
 // RENDER ENGINE
 // ===========================
-function render() {
+function render() { return conMemoRender(renderOra); } // memoria del render: js/core/utils.js
+
+// Un solo render per più dati arrivati insieme (millesimi, affitti, WhatsApp
+// dopo l'accesso): prima ognuno ridisegnava tutta la pagina.
+let _renderInAttesa = null;
+function renderPresto() {
+  if (_renderInAttesa) return;
+  _renderInAttesa = setTimeout(() => { _renderInAttesa = null; render(); }, 30);
+}
+
+function renderOra() {
+  if (_renderInAttesa) { clearTimeout(_renderInAttesa); _renderInAttesa = null; }
   const app = document.getElementById('app');
   const nomeProdotto = getBranding().nomeProdotto;
   if (!state.user) { document.title = nomeProdotto; app.innerHTML = renderLogin(); applyA11y(app); bindLogin(); return; }
@@ -46,9 +57,16 @@ function applyA11y(root) {
     if (ctrl.id) label.htmlFor = ctrl.id;
     else if (!ctrl.getAttribute('aria-label')) ctrl.setAttribute('aria-label', label.textContent.replace('*', '').trim());
   });
+  // Titoli delle spese per id, costruiti una volta sola (prima una ricerca in
+  // tutte le spese per ogni casella: con 2000 spese, milioni di confronti).
+  let titoli = null;
+  const spesaDi = (id) => {
+    if (!titoli) { titoli = new Map(); state.spese.forEach(s => { if (!titoli.has(String(s.id))) titoli.set(String(s.id), s); }); }
+    return titoli.get(id) || null;
+  };
   root.querySelectorAll('select,input:not([type=hidden]),textarea').forEach(ctrl => {
     if (ctrl.getAttribute('aria-label') || ctrl.labels?.length) return;
-    const spesa = ctrl.dataset.spesaId ? state.spese.find(s => String(s.id) === ctrl.dataset.spesaId) : null;
+    const spesa = ctrl.dataset.spesaId ? spesaDi(ctrl.dataset.spesaId) : null;
     const name = A11Y_NAMES[ctrl.id]
       || (ctrl.classList.contains('ruolo-select') ? 'Ruolo' : '')
       || (spesa ? 'Seleziona la spesa ' + (spesa.titolo || '') : '')
@@ -260,7 +278,12 @@ function bindApp() {
       e.stopPropagation();
       mpm.classList.toggle('open');
     };
-    document.addEventListener('click', () => mpm.classList.remove('open'), {capture: false});
+    // Un solo ascoltatore per tutta la sessione: prima se ne aggiungeva uno a
+    // ogni render (centinaia dopo un po' di uso, ognuno con la pagina vecchia).
+    if (!window.__chiudiMenuProfilo) {
+      window.__chiudiMenuProfilo = true;
+      document.addEventListener('click', () => document.getElementById('mobile-profile-menu')?.classList.remove('open'));
+    }
   }
   // Menu profilo: voci
   const mpmCpw  = document.getElementById('mpm-change-pw');

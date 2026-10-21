@@ -27,7 +27,7 @@ function assicuraAffitti() {
   const ed = state.edificioAttivo;
   if (!state.user || !window._fb?.getDoc || ed in _affitti || _affittiInCarico[ed]) return;
   _affittiInCarico[ed] = true;
-  caricaAffitti(ed).finally(() => { _affittiInCarico[ed] = false; if (typeof render === 'function') render(); });
+  caricaAffitti(ed).finally(() => { _affittiInCarico[ed] = false; if (typeof renderPresto === 'function') renderPresto(); });
 }
 
 function appartamentoInAffitto(appartamento, edId = state.edificioAttivo) {
