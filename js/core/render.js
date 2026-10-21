@@ -21,7 +21,8 @@ function renderOra() {
   if (!state.user) { document.title = nomeProdotto; app.innerHTML = renderLogin(); applyA11y(app); bindLogin(); return; }
   document.title = nomeEdificioAttivo() ? nomeEdificioAttivo() + ' · ' + nomeProdotto : nomeProdotto;
   // Ogni render ridisegna tutto: chi usa la tastiera perderebbe il punto in cui
-  // si trova. Gli elementi con data-focus-key (es. i pulsanti degli anni)
+  // si trova (succede anche da solo, quando arrivano i dati dopo l'accesso).
+  // Gli elementi con data-focus-key (voci del menu, pulsanti degli anni)
   // ritrovano il focus dopo il ridisegno.
   const focusKey = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.focusKey;
   app.innerHTML = renderApp() + (state.viewer ? renderViewer() : '');
@@ -162,7 +163,7 @@ function renderApp() {
       <div class="ric-side"><input type="search" id="ricerca-globale" placeholder="🔍 Cerca nel sito  ( / )" aria-label="Cerca nel sito: scrivi e premi Invio" autocomplete="off" data-focus-key="ricerca-globale"></div>
       <nav>
         <div class="section-label">Menu</div>
-        ${navLinks.map(l=>`<a class="${page===l.id?'active':''}" data-page="${l.id}">${l.icon}<span>${l.label}</span></a>`).join('')}
+        ${navLinks.map(l=>`<a class="${page===l.id?'active':''}" data-page="${l.id}" data-focus-key="nav-${l.id}">${l.icon}<span>${l.label}</span></a>`).join('')}
       </nav>
       <div class="sidebar-user">
         <div class="user-chip">
@@ -238,7 +239,7 @@ function renderApp() {
           ...(canUserAdmin(user) ? [{id:'condomini', label:'Persone', icon:svgCondomini()}] : []),
           {id:'vita', label:'Vita', icon:svgVita()},
           ...(canUserSeeImpostazioni(user) ? [{id:'impostazioni', label:'Impost.', icon:svgSettings()}] : []),
-        ].map(l=>`<button class="bnav-item ${page===l.id?'active':''}" data-page="${l.id}">
+        ].map(l=>`<button class="bnav-item ${page===l.id?'active':''}" data-page="${l.id}" data-focus-key="bnav-${l.id}">
           ${l.icon}<span>${l.label}</span>
           <div class="bnav-dot"></div>
         </button>`).join('')}
