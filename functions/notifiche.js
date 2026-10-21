@@ -327,7 +327,7 @@ async function inviaDaApp(request) {
   throw new HttpsError('invalid-argument', 'Tipo di invio sconosciuto.');
 }
 
-exports.inviaEmail = onCall({ secrets: [GMAIL_APP_PASSWORD], timeoutSeconds: 120, memory: '512MiB' }, inviaDaApp);
+exports.inviaEmail = onCall({ region: 'europe-west1', secrets: [GMAIL_APP_PASSWORD], timeoutSeconds: 120, memory: '512MiB' }, inviaDaApp);
 
 // ─── Promemoria automatici (spenti finché un amministratore non li accende) ──
 function dataTraGiorni(n) {

@@ -26,7 +26,7 @@ async function as(email) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
   const db = fs.getFirestore(app);
   fs.connectFirestoreEmulator(db, '127.0.0.1', 8080);
-  const fns = getFunctions(app);
+  const fns = getFunctions(app, 'europe-west1');
   connectFunctionsEmulator(fns, '127.0.0.1', 5001);
   const cred = await signInWithEmailAndPassword(auth, email, PASSWORD);
   const call = async (name, data = {}) => {
@@ -38,7 +38,7 @@ async function as(email) {
 async function anonCall(name) {
   const app = initializeApp({ apiKey: 'demo-key', projectId: PROJECT }, `anon${appSeq++}`);
   apps.push(app);
-  const fns = getFunctions(app);
+  const fns = getFunctions(app, 'europe-west1');
   connectFunctionsEmulator(fns, '127.0.0.1', 5001);
   try { await httpsCallable(fns, name)({}); return { ok: true }; } catch (e) { return { ok: false, code: e.code }; }
 }

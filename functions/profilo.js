@@ -88,7 +88,7 @@ function contattoNuovo(c, rec, uid, campi) {
     _updatedBy: uid, _updatedAt: FieldValue.serverTimestamp() };
 }
 
-exports.mioProfilo = onCall(async (request) => {
+exports.mioProfilo = onCall({ region: 'europe-west1' }, async (request) => {
   const uid = request.auth?.uid;
   const ref = (await mioRecord(request)).ref;
   const contattiRef = ref.parent.parent.collection('contatti').doc(ref.id);

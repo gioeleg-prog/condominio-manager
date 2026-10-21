@@ -217,7 +217,7 @@ exports.controlloServizio = onSchedule({ schedule: '30 7 * * *', timeZone: 'Euro
   if (r.email === 'errore') throw new Error(`Avviso al Super Admin non inviato: ${r.errore}`);
 });
 
-exports.provaAvvisi = onCall({ secrets: [GMAIL_APP_PASSWORD] }, async (request) => {
+exports.provaAvvisi = onCall({ region: 'europe-west1', secrets: [GMAIL_APP_PASSWORD] }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Accesso richiesto.');
   if (request.auth.token.role !== 'superAdmin') throw new HttpsError('permission-denied', 'Solo il Super Admin può provare gli avvisi.');
   return eseguiControllo({ prova: true, autoreUid: request.auth.uid });

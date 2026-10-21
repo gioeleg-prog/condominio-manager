@@ -27,6 +27,12 @@ const profilo = require('./profilo');
 // funzioni ponte sul blob condiviso (getBuildingData/saveBuildingData)
 // non servono più e sono state rimosse. Il blob appdata/cm_* resta in
 // sola lettura come copia di sicurezza della migrazione.
+//
+// Region: le funzioni chiamate dall'app (onCall) e quelle a orario stanno
+// in europe-west1, vicino a Firestore (eur3); il client le cerca lì
+// (js/firebase.js). I trigger auditTrail e notificaVita restano per ora in
+// us-central1: spostarli vuol dire cancellarli e ricrearli, con il rischio
+// di voci di registro o email doppie (o perse) nel passaggio.
 // ═══════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════
@@ -42,7 +48,7 @@ const profilo = require('./profilo');
 //    scelto dall'amministratore restava solo nella scheda e il server non lo
 //    applicava a chi aveva già fatto il primo accesso.
 // ═══════════════════════════════════════════════════════════════
-exports.setUserRole = onCall(async (request) => {
+exports.setUserRole = onCall({ region: 'europe-west1' }, async (request) => {
   const callerRole = request.auth?.token?.role;
   if (callerRole !== 'superAdmin' && callerRole !== 'adminEdificio') {
     throw new HttpsError('permission-denied', 'Solo un amministratore può assegnare ruoli.');
@@ -116,7 +122,7 @@ async function controllaNomina(request, targetUid, role, buildingId) {
 // claim role già presente — mai dal flag superAdmin di un record, che un
 // adminEdificio potrebbe impostare.
 // ═══════════════════════════════════════════════════════════════
-exports.whoami = onCall(async (request) => {
+exports.whoami = onCall({ region: 'europe-west1' }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
   const uid = request.auth.uid;
   const email = (request.auth.token.email || '').toLowerCase();
@@ -252,7 +258,7 @@ async function sceltaProfilo(uid, email) {
 // questo profilo non entrerà; l'email serve comunque per le notifiche. Non
 // dice quale condominio né chi.
 // ═══════════════════════════════════════════════════════════════
-exports.verificaEmail = onCall(async (request) => {
+exports.verificaEmail = onCall({ region: 'europe-west1' }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
   const t = request.auth.token || {};
   const b = String(request.data?.buildingId || '');
