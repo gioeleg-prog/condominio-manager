@@ -19,7 +19,9 @@ const firebaseConfig = window.FIREBASE_CONFIG;
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
 const auth = getAuth(app);
-const functionsInstance = getFunctions(app);
+// Le funzioni chiamate dall'app stanno in europe-west1, vicino a Firestore
+// (eur3): deve coincidere con la region dichiarata in functions/.
+const functionsInstance = getFunctions(app, 'europe-west1');
 const storage = getStorage(app);
 
 // ═══════════════════════════════════════════
