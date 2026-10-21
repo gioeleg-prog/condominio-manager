@@ -92,6 +92,11 @@ function validAllegati(l) {
     && (n <= 6 || validAllegato(l[6])) && (n <= 7 || validAllegato(l[7]))
     && (n <= 8 || validAllegato(l[8])) && (n <= 9 || validAllegato(l[9])));
 }
+// Colore di un condomino (campo color): finisce in style="…" (avatarStyle), dove
+// un ";" aggiungerebbe altro CSS. Audit 2026-10-21: solo un esadecimale.
+function isColor(v) {
+  return v == null || (v is string && v.matches('#[0-9A-Fa-f]{3,8}'));
+}
 // Testo di un messaggio WhatsApp in impostazioni/whatsapp.
 function testoWa(v) {
   return v is string && v.size() <= 1000;
@@ -121,6 +126,9 @@ function validRecord(b, docId) {
     // allegati: controllati solo se cambiano (ogni elemento costa espressioni)
     && ((resource != null && d.get('allegati', null) == resource.data.get('allegati', null))
           || validAllegati(d.get('allegati', null)))
+    // color: controllato solo se cambia (un valore già salvato non blocca altri salvataggi)
+    && ((resource != null && d.get('color', null) == resource.data.get('color', null))
+          || isColor(d.get('color', null)))
     && isList(d.get('split', null))
     && isList(d.get('argomenti', null)) && isList(d.get('decisioni', null))
     && isList(d.get('storicoAggiornamenti', null))

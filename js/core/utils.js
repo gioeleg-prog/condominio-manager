@@ -13,8 +13,18 @@ function initials(nome) {
   return esc(String(nome||'').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase());
 }
 
+// Un colore finisce dentro style="…": esc() ferma le virgolette ma non il ";",
+// quindi un valore come "red;position:fixed;inset:0" iniettava altro CSS.
+// Audit 2026-10-21: si accetta solo un esadecimale (#RGB…#RRGGBBAA) o una
+// variabile del tema (var(--accent)); altrimenti il colore di riserva.
+function coloreSicuro(v, riserva) {
+  const s = String(v == null ? '' : v).trim();
+  return /^#[0-9a-fA-F]{3,8}$/.test(s) || /^var\(--[a-z0-9-]{1,30}\)$/.test(s) ? s : (riserva || '#888888');
+}
+
 function avatarStyle(color) {
-  return `background:${esc(color)}22;color:color-mix(in srgb, ${esc(color)} 55%, var(--text));`;
+  const c = coloreSicuro(color);
+  return `background:${c}22;color:color-mix(in srgb, ${c} 55%, var(--text));`;
 }
 
 // Id numerici (molti punti fanno parseInt su data-id). QA: prima era

@@ -475,7 +475,7 @@ function renderImpostazioni() {
         const isActive   = e.id === state.edificioAttivo;
         return `<div class="edificio-card ${isActive?'active':''}" style="cursor:default">
           <div class="ec-head">
-            <div class="ec-icon" style="background:${esc(e.colore||'var(--accent)')}22;font-size:22px">${esc(e.emoji||'🏢')}</div>
+            <div class="ec-icon" style="background:${coloreSicuro(e.colore, 'var(--accent)')}22;font-size:22px">${esc(e.emoji||'🏢')}</div>
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;font-size:15px">${esc(e.nome)}</div>
               <div style="font-size:12px;color:var(--text2)">${esc(e.indirizzo||'—')}</div>
@@ -623,7 +623,7 @@ function renderModalSwitchEdificio() {
             const isActive = e.id === state.edificioAttivo;
             return `<div class="edificio-card ${isActive?'active':''}" data-sel-edificio="${e.id}">
               <div class="ec-head">
-                <div class="ec-icon" style="background:${esc(e.colore||'var(--accent)')}22">${esc(e.emoji||'🏢')}</div>
+                <div class="ec-icon" style="background:${coloreSicuro(e.colore, 'var(--accent)')}22">${esc(e.emoji||'🏢')}</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:700;font-size:15px">${esc(e.nome)}</div>
                   <div style="font-size:12px;color:var(--text2)">${esc(e.indirizzo||'')}</div>
@@ -677,7 +677,7 @@ function renderModalEdificio(d) {
                 `<button type="button" class="ed-color-opt" data-ed-color="${c}" style="width:28px;height:28px;border-radius:50%;background:${c};border:3px solid ${(d?.colore||'var(--accent)')===c?'white':'transparent'};box-shadow:${(d?.colore||'var(--accent)')===c?'0 0 0 2px '+c:'none'};cursor:pointer"></button>`
               ).join('')}
             </div>
-            <input type="hidden" id="ed-colore" value="${esc(d?.colore||'var(--accent)')}">
+            <input type="hidden" id="ed-colore" value="${coloreSicuro(d?.colore, 'var(--accent)')}">
           </div>
         </div>
         <div class="field">

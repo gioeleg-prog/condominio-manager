@@ -86,7 +86,7 @@ function bindSplit() {
       const condBar = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin);
       barEl.innerHTML = condBar.map(c=>{
         const w = Math.max(0, Math.min(100, percs[String(c.id)]||0));
-        return `<div class="split-bar-seg" style="width:${w}%;background:${esc(c.color)};opacity:.8"></div>`;
+        return `<div class="split-bar-seg" style="width:${w}%;background:${coloreSicuro(c.color)};opacity:.8"></div>`;
       }).join('');
     }
   }
