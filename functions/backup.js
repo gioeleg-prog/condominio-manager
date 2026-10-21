@@ -115,12 +115,21 @@ async function backupNotturno(db, bucket, { copia, pulisci = async () => {}, now
   try {
     const { body: b, ...res } = await runBackup(db, bucket, { now });
     body = b;
-    await pulisci();
     await status.set({ ok: true, at: new Date(), ...res, error: null, drive: { ok: false, configurata: true, error: COPIA_NON_CONCLUSA, at: new Date() } });
   } catch (e) {
     console.error('dailyBackup', e);
     await status.set({ ok: false, at: new Date(), error: String(e.message || e).slice(0, 500) }, { merge: true });
     throw e;
+  }
+  // La pulizia (segnalazioni di errore vecchie) è manutenzione: se fallisce il
+  // backup è comunque fatto e la copia su Drive deve partire. Audit 2026-10-21:
+  // prima stava nel try del backup e un suo errore lo faceva risultare fallito.
+  try {
+    await pulisci();
+  } catch (e) {
+    console.error('dailyBackup pulizia', e);
+    await status.update({ pulizia: { ok: false, error: String(e.message || e).slice(0, 300), at: new Date() } })
+      .catch((e2) => console.error('dailyBackup pulizia: esito non salvato', e2.message));
   }
   // Un errore della copia non annulla il backup principale.
   let drive;

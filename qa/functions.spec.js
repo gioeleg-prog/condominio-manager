@@ -387,6 +387,19 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.deepStrictEqual([fallita.drive.ok, fallita.drive.configurata], [false, true]);
       assert.match(fallita.drive.error, /120 secondi/);
     });
+    it('BAK-05 una pulizia che fallisce non fa fallire il backup né salta la copia su Drive', async () => {
+      const status = () => admin.doc('appSettings/backupStatus').get().then((s) => s.data());
+      let copiato = false;
+      await backupLib.backupNotturno(admin, bucket(), {
+        pulisci: async () => { throw new Error('indice mancante'); },
+        copia: async () => { copiato = true; return { ok: true, configurata: true, file: 'x.json.gz' }; },
+      });
+      const s = await status();
+      assert.strictEqual(copiato, true, 'la copia su Drive è partita');
+      assert.strictEqual(s.ok, true, 'il backup resta riuscito');
+      assert.strictEqual(s.drive.ok, true);
+      assert.deepStrictEqual([s.pulizia.ok, s.pulizia.error], [false, 'indice mancante']);
+    });
   });
 
   describe('setUserRole', () => {

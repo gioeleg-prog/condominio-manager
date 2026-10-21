@@ -132,7 +132,10 @@ function pulisciRichiestaEmail(email) { const { nessunDestinatario, limiteRaggiu
 // ─── Chiamata al server ───────────────────────────────────────────
 async function chiamaInviaEmail(dati) {
   const { functionsInstance, httpsCallable } = window._fb;
-  const r = await httpsCallable(functionsInstance, 'inviaEmail')({ buildingId: String(edificioEmail()), ...dati });
+  // Il server ha 120 secondi (notifiche.js, inviaEmail): il client ne aspetta
+  // di più, altrimenti (predefinito 70) darebbe errore mentre le email partono
+  // ancora. Audit 2026-10-21.
+  const r = await httpsCallable(functionsInstance, 'inviaEmail', { timeout: 130000 })({ buildingId: String(edificioEmail()), ...dati });
   return r.data || {};
 }
 
@@ -275,6 +278,16 @@ function bindSchedeEmail() {
       if (tipo === 'emailRendiconto' && r.inviati) proponiWaDopoRendiconto(d.anno, ids.filter(id => !(r.esclusi || []).some(e => String(e.id) === String(id))));
     } catch (e) {
       reportClientError('Invio email: ' + (e.message || e), e.stack);
+      // Tempo scaduto: parte delle email può essere già partita. Un secondo
+      // invio le manderebbe due volte: il pulsante resta spento, si guarda lo
+      // storico (Impostazioni → Email) e, se serve, si riapre la scheda.
+      if (/deadline-exceeded/.test(String(e.code || e.message))) {
+        _storicoEmail = null;
+        err.textContent = 'L’invio ha richiesto troppo tempo e potrebbe essere in parte già avvenuto. Prima di riprovare controlla lo storico invii in Impostazioni → Email, poi chiudi e riapri questa scheda.';
+        err.style.display = 'block';
+        b.textContent = 'Controlla lo storico invii';
+        return;
+      }
       err.textContent = 'Email non inviata: ' + (e.message || e);
       err.style.display = 'block';
       b.disabled = false; aggiornaConteggio(pref);
