@@ -483,6 +483,21 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
     });
   });
 
+  // Audit 2026-10-21
+  describe('colore dei condomini: solo esadecimale', () => {
+    it('un esadecimale è accettato, un valore con ";" o altro CSS no', async () => {
+      await assertSucceeds(admin().doc('buildings/1/members/80').set(rec('u_admin', 80, { color: '#3B82F6' })));
+      await assertSucceeds(admin().doc('buildings/1/members/81').set(rec('u_admin', 81, {})));
+      for (const [i, c] of ['red;position:fixed;inset:0', '#fff;background:url(https://x.test/p)', 'red', 5].entries()) {
+        await assertFails(admin().doc(`buildings/1/members/${82 + i}`).set(rec('u_admin', 82 + i, { color: c })));
+      }
+    });
+    it('un colore vecchio già salvato non blocca altri salvataggi dello stesso record', async () => {
+      await seedDoc('buildings/1/members/90', { id: 90, edificioId: 1, _createdBy: 'backfill', _createdAt: T0, color: 'rgb(1,2,3)' });
+      await assertSucceeds(admin().doc('buildings/1/members/90').set(rec('u_admin', 90, { _createdBy: 'backfill', _createdAt: T0, color: 'rgb(1,2,3)', nome: 'Nuovo' })));
+    });
+  });
+
   // Audit 2026-10-15
   describe('allegati: forma di ogni elemento', () => {
     const all = (extra = {}) => ({ id: 1700000000001, nome: 'fattura.pdf', mime: 'application/pdf', size: 10, storagePath: 'buildings/1/allegati/x', ...extra });

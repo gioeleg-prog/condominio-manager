@@ -12,6 +12,18 @@ describe('UNIT — utilità di formato e sicurezza', () => {
     assert.strictEqual(app.esc(null), '');
     assert.strictEqual(app.esc(false), '');
   });
+  it('coloreSicuro() e avatarStyle() non lasciano passare CSS iniettato (audit 2026-10-21)', () => {
+    assert.strictEqual(app.coloreSicuro('#3B82F6'), '#3B82F6');
+    assert.strictEqual(app.coloreSicuro('#fff'), '#fff');
+    assert.strictEqual(app.coloreSicuro('var(--accent)'), 'var(--accent)');
+    for (const male of ['red;position:fixed;inset:0', '#fff;background:url(https://x.test/p)', 'url(x)', 'red', '', null, undefined, '#12', 'var(--a);x:y']) {
+      assert.strictEqual(app.coloreSicuro(male), '#888888', String(male));
+    }
+    assert.strictEqual(app.coloreSicuro('x;y', 'var(--accent)'), 'var(--accent)');
+    const stile = app.avatarStyle('red;position:fixed;inset:0;z-index:9999');
+    assert.ok(!/position|inset|z-index/.test(stile), stile);
+    assert.ok(app.avatarStyle('#3B82F6').includes('#3B82F622'));
+  });
   it("esc() neutralizza anche l'apice singolo (audit 2026-10-15)", () => {
     assert.strictEqual(app.esc("a'b"), 'a&#39;b');
   });
