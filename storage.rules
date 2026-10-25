@@ -34,15 +34,23 @@ function canWrite(buildingId) {
 function allowedType() {
   return request.resource.contentType.matches('image/(png|jpe?g|gif|webp|heic|heif|bmp|tiff)') ||
     request.resource.contentType.matches('application/(pdf|octet-stream|msword|rtf|zip)') ||
-    request.resource.contentType.matches('application/vnd\\.(ms-excel|ms-powerpoint|openxmlformats-officedocument\\..*|oasis\\.opendocument\\..*)') ||
+    request.resource.contentType.matches('application/vnd\\.(ms-excel|ms-powerpoint|openxmlformats-officedocument\\.(wordprocessingml\\.document|spreadsheetml\\.sheet|presentationml\\.presentation)|oasis\\.opendocument\\.(text|spreadsheet|presentation|graphics))') ||
     request.resource.contentType.matches('text/(plain|csv)');
 }
 
 service firebase.storage {
   match /b/{bucket}/o {
-    match /buildings/{buildingId}/{allPaths=**} {
+    // Audit 2026-10-24: solo lo spazio allegati del condominio, un file per
+    // percorso (nome fino a 300 caratteri, come nelle firestore.rules).
+    // Un file fuori da buildings/{id}/allegati/ non è leggibile né scrivibile da
+    // nessuno (nemmeno se un record lo cita): vale il rifiuto in fondo.
+    // L'elenco dei tipi (allowedType) è lo stesso di firestore.rules (validAllegato)
+    // e di MIME_ALLEGATI in js/sezioni/allegati.js: le tre copie vanno cambiate insieme
+    // (le allinea un test di qa/unit.spec.js).
+    match /buildings/{buildingId}/allegati/{fileName} {
       allow read: if inBuilding(buildingId);
       allow create, update: if canWrite(buildingId) &&
+        fileName.size() <= 300 &&
         request.resource.size < 5 * 1024 * 1024 &&
         allowedType();
       allow delete: if canWrite(buildingId);

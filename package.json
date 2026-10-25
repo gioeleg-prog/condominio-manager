@@ -2,7 +2,7 @@
   "name": "condominio-manager-tests",
   "private": true,
   "scripts": {
-    "test": "node scripts/secret-emulatore.js && firebase emulators:exec --project demo-qa --only firestore \"mocha test/rules.spec.js --timeout 20000\"",
+    "test": "node scripts/secret-emulatore.js && firebase emulators:exec --project demo-qa --only firestore,storage \"mocha test/rules.spec.js --timeout 20000\"",
     "test:unit": "mocha qa/unit.spec.js qa/assets.spec.js",
     "test:functions": "node scripts/secret-emulatore.js && firebase emulators:exec --project demo-qa --only auth,firestore,functions,storage \"mocha qa/functions.spec.js --timeout 40000 --exit\"",
     "qa:emulators": "node scripts/secret-emulatore.js && firebase emulators:start --project demo-qa --only auth,firestore,functions,storage",

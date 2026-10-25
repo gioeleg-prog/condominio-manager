@@ -24,22 +24,22 @@ function renderBilancio() {
   const nomiMesi = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
 
   // ── Separazione ACTUALS vs FORECAST ──────────────────────────────────────
-  const speseActual   = spese.filter(s=>parseFloat(s.consuntivo||0)>0);
-  const speseOnlyPrev = spese.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
+  const speseActual   = spese.filter(s=>importoNum(s.consuntivo)>0);
+  const speseOnlyPrev = spese.filter(s=>importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0);
   const entrateActual   = entrate.filter(e=>!e.previsionale);
   const entratePrevis   = entrate.filter(e=>e.previsionale);
 
   // Totali ACTUAL (solo dati reali anno selezionato)
-  const totCons         = speseActual.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-  const totEntrateActual= entrateActual.reduce((a,e)=>a+parseFloat(e.importo||0),0);
+  const totCons         = speseActual.reduce((a,s)=>a+importoNum(s.consuntivo),0);
+  const totEntrateActual= entrateActual.reduce((a,e)=>a+importoNum(e.importo),0);
   const saldoRiporto    = getSaldoRiporto(anno);   // riporto anni precedenti
   const saldoAnno       = totEntrateActual - totCons; // solo anno selezionato
   const saldo           = saldoRiporto + saldoAnno;  // cassa totale reale
 
   // Totali FORECAST aggiuntivi
-  const totPrevForecast = speseOnlyPrev.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-  const totPrev         = spese.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-  const totEntratePrevis= entratePrevis.reduce((a,e)=>a+parseFloat(e.importo||0),0);
+  const totPrevForecast = speseOnlyPrev.reduce((a,s)=>a+importoNum(s.preventivo),0);
+  const totPrev         = spese.reduce((a,s)=>a+importoNum(s.preventivo),0);
+  const totEntratePrevis= entratePrevis.reduce((a,e)=>a+importoNum(e.importo),0);
   const totEntrate      = totEntrateActual; // per compatibilità
   const scartoPrevCons  = totCons - totPrev;
 
@@ -63,10 +63,10 @@ function renderBilancio() {
     const isCurrent = isCurrYear && m === meseCurr;
     const speseM      = spese.filter(s=>meseDi(s.data)===m);
     const entrateM    = entrate.filter(e=>meseDi(e.data)===m);
-    const consActual  = speseM.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-    const prevForecast= speseM.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-    const incActual   = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-    const incPrevis   = entrateM.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const consActual  = speseM.filter(s=>importoNum(s.consuntivo)>0).reduce((a,s)=>a+importoNum(s.consuntivo),0);
+    const prevForecast= speseM.filter(s=>importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0).reduce((a,s)=>a+importoNum(s.preventivo),0);
+    const incActual   = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
+    const incPrevis   = entrateM.filter(e=>e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
     return {
       mese: nomiMesi[m], m, isPast, isCurrent,
       cons:       consActual,
@@ -132,11 +132,11 @@ function renderBilancio() {
   // Categorie breakdown
   const catBreak = getCategorie().filter(c=>c.tipo!=='entrata').map(c=>{
     const spesecat  = spese.filter(s=>s.categoria===c.id);
-    const totCons   = spesecat.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-    const totFcst   = spesecat.filter(s=>!parseFloat(s.consuntivo||0)).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-    const totPrev   = spesecat.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-    const nCons     = spesecat.filter(s=>parseFloat(s.consuntivo||0)>0).length;
-    const nFcst     = spesecat.filter(s=>!parseFloat(s.consuntivo||0) && parseFloat(s.preventivo||0)>0).length;
+    const totCons   = spesecat.reduce((a,s)=>a+importoNum(s.consuntivo),0);
+    const totFcst   = spesecat.filter(s=>!importoNum(s.consuntivo)).reduce((a,s)=>a+importoNum(s.preventivo),0);
+    const totPrev   = spesecat.reduce((a,s)=>a+importoNum(s.preventivo),0);
+    const nCons     = spesecat.filter(s=>importoNum(s.consuntivo)>0).length;
+    const nFcst     = spesecat.filter(s=>!importoNum(s.consuntivo) && importoNum(s.preventivo)>0).length;
     return {...c, totCons, totFcst, totPrev, tot:totCons+totFcst, nCons, nFcst};
   }).filter(c=>c.tot>0).sort((a,b)=>b.tot-a.tot);
 
@@ -147,14 +147,16 @@ function renderBilancio() {
   // Calcolati solo nella scheda "Per condomino", l'unica che li mostra (prima a ogni render di ogni scheda).
   const calcolaCondominiKPI = () => state.condomini
     .filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin
-      && (attivoNellAnno(c, anno) || entrate.some(e => e.condominoId === c.id) || spese.some(s => s.split?.some(x => x.id === c.id && (x.perc||0) > 0))))
+      && (attivoNellAnno(c, anno) || entrate.some(e => e.condominoId === c.id) || haQuotaNelleSpese(c.id, spese)
+        // Chi è uscito prima ma ha ancora un debito o un credito degli anni precedenti.
+        || Math.abs(riportoCondomino(c.id, d => annoDi(d) < anno, nAttivi)) > 0.005))
     .map(c=>{
-    const versato       = entrate.filter(e=>e.condominoId===c.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-    const versatoPrevis = entrate.filter(e=>e.condominoId===c.id &&  e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const versato       = entrate.filter(e=>e.condominoId===c.id && !e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
+    const versatoPrevis = entrate.filter(e=>e.condominoId===c.id &&  e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
     // Quota ACTUAL: solo consuntivo — coerente con totSpeseCons e quotaPersonale dashboard
-    const quota = spese.reduce((acc,s)=>acc + quotaSuSpesa(s, c.id, parseFloat(s.consuntivo||0), nAttivi), 0);
+    const quota = spese.reduce((acc,s)=>acc + quotaSuSpesa(s, c.id, importoNum(s.consuntivo), nAttivi), 0);
     // Quota FULL: consuntivo + preventivi aperti (per il forecast)
-    const quotaFull = spese.reduce((acc,s)=>acc + quotaSuSpesa(s, c.id, parseFloat(s.consuntivo||s.preventivo||0), nAttivi), 0);
+    const quotaFull = spese.reduce((acc,s)=>acc + quotaSuSpesa(s, c.id, importoNum(s.consuntivo||s.preventivo), nAttivi), 0);
     // Debito o credito che arriva dagli anni precedenti (prima un debito vecchio
     // spariva: chi pagava la quota dell'anno risultava "in regola").
     const riporto = riportoCondomino(c.id, d => annoDi(d) < anno, nAttivi);
@@ -257,7 +259,7 @@ function renderBilancio() {
   function tabForecast() {
     // Solo spese con preventivo e SENZA consuntivo = non ancora consuntivate
     const speseToForecast = speseOnlyPrev;
-    const totForecastUscite  = speseToForecast.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
+    const totForecastUscite  = speseToForecast.reduce((a,s)=>a+importoNum(s.preventivo),0);
     const totForecastEntrate = totEntratePrevis;
     const saldoConForecast   = saldo + totForecastEntrate - totForecastUscite;
     return `
@@ -356,9 +358,9 @@ function renderBilancio() {
 
   // ── TAB: PREVENTIVO VS CONSUNTIVO ─────────────────────────────────────────
   function tabPrevCons() {
-    const soloConsPuro = spese.filter(s=>parseFloat(s.consuntivo||0)>0);
-    const soloPrePuro  = spese.filter(s=>parseFloat(s.preventivo||0)>0 && !parseFloat(s.consuntivo||0));
-    const entrambi     = spese.filter(s=>parseFloat(s.preventivo||0)>0 && parseFloat(s.consuntivo||0)>0);
+    const soloConsPuro = spese.filter(s=>importoNum(s.consuntivo)>0);
+    const soloPrePuro  = spese.filter(s=>importoNum(s.preventivo)>0 && !importoNum(s.consuntivo));
+    const entrambi     = spese.filter(s=>importoNum(s.preventivo)>0 && importoNum(s.consuntivo)>0);
 
     const maxBar = Math.max(totPrev, totCons, 1);
     const pPrev = Math.round(totPrev/maxBar*100);
@@ -399,8 +401,8 @@ function renderBilancio() {
           <tbody>
           ${[...spese].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(s=>{
             const cat   = getCategorie().find(c=>c.id===s.categoria)||{label:s.categoria||'—',icon:'📦'};
-            const prev  = parseFloat(s.preventivo||0);
-            const cons  = parseFloat(s.consuntivo||0);
+            const prev  = importoNum(s.preventivo);
+            const cons  = importoNum(s.consuntivo);
             const scarto = cons - prev;
             const hasPrev = prev > 0;
             const hasCons = cons > 0;

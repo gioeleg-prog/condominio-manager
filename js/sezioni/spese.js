@@ -1,9 +1,15 @@
 // Spese: tabella, schede mobili, quote, ricorrenze, esportazione CSV, scheda di modifica.
 // Script classico: condivide le variabili globali con gli altri file di js/ (ordine in index.html).
 
+// Condomini dell'edificio di una spesa che possono avere una quota salvata: anche chi è uscito dopo
+// (stessa regola di quotaSuSpesa, usata da Bilancio e CSV: la quota salvata vale a prescindere dalla data).
+function idsConQuotaSalvata(edId) {
+  return new Set(state.condomini.filter(c => c.edificioId === edId && !c.superAdmin).map(c => c.id));
+}
+
 function renderQuotaCell(spesa) {
   const user = state.user;
-  const importoRef = parseFloat(spesa.consuntivo||spesa.preventivo||0);
+  const importoRef = importoNum(spesa.consuntivo||spesa.preventivo);
   if (!importoRef) return '<span style="color:var(--text2);font-size:12px">—</span>';
 
   // Condomini realmente coinvolti: quelli dell'edificio DI QUESTA SPESA (non l'edificio attivo a schermo),
@@ -13,7 +19,8 @@ function renderQuotaCell(spesa) {
   const condEd = condominiAllaData(spesa.data, edId);
   const nCond = condEd.length || 1;
   // Split valido = solo righe di condomini di questo edificio con quota > 0 (0% = escluso da questa spesa)
-  const validSplit = (spesa.split||[]).filter(s => idsDi(condEd).has(s.id) && (s.perc||0) > 0);
+  const idsQuota = idsConQuotaSalvata(edId);
+  const validSplit = (spesa.split||[]).filter(s => idsQuota.has(s.id) && (s.perc||0) > 0);
 
   if (user.isAdmin) {
     // Admin: mostra mini breakdown per tutti
@@ -36,6 +43,8 @@ function renderQuotaCell(spesa) {
 
   // Utente: mostra la propria quota
   if (validSplit.length === 0) {
+    // Senza ripartizione (dati legacy): parti uguali solo tra chi abitava alla data, come quotaSuSpesa.
+    if (condEd.length && !condEd.some(c => c.id === user.id)) return '<span style="color:var(--text2);font-size:12px">—</span>';
     return `<span style="font-weight:600;color:var(--accent)">${fmt(importoRef/nCond)}</span>`;
   }
   const mySplit = validSplit.find(s=>s.id===user.id);
@@ -108,14 +117,19 @@ function renderSpeseMobileCards(items, canEdit) {
 
 function renderQuotaCellText(spesa) {
   const user = state.user;
-  const importoRef = parseFloat(spesa.consuntivo||spesa.preventivo||0);
+  const importoRef = importoNum(spesa.consuntivo||spesa.preventivo);
   if (!importoRef) return '';
   const edId = spesa.edificioId || state.edificioAttivo;
   // Chi faceva parte del condominio alla data della spesa (subentri).
   const condEd = condominiAllaData(spesa.data, edId);
   const nCond = condEd.length || 1;
-  const validSplit = (spesa.split||[]).filter(s => idsDi(condEd).has(s.id) && (s.perc||0) > 0);
-  if (validSplit.length === 0) return fmt(importoRef/nCond);
+  const idsQuota = idsConQuotaSalvata(edId);
+  const validSplit = (spesa.split||[]).filter(s => idsQuota.has(s.id) && (s.perc||0) > 0);
+  if (validSplit.length === 0) {
+    // Senza ripartizione (dati legacy): solo chi abitava alla data ha una quota, come quotaSuSpesa.
+    if (condEd.length && !condEd.some(c => c.id === user.id)) return '';
+    return fmt(importoRef/nCond);
+  }
   const mySplit = validSplit.find(s=>s.id===user.id);
   if (!mySplit) return ''; // escluso da questa spesa → nessuna riga "tua" mostrata
   return fmt(percEffettiva(spesa.split, mySplit.perc)/100*importoRef);
@@ -124,6 +138,53 @@ function renderQuotaCellText(spesa) {
 // ===========================
 // SPESE RICORRENTI
 // ===========================
+// Ripartizione di una spesa ricorrente adattata alla data di una sua occorrenza (D4: la spesa segue la data).
+// split = ripartizione scritta per la data dataBase. Chi aveva una quota ma alla data dell'occorrenza non abita più
+// la perde: passa a chi è subentrato nello stesso appartamento (entrato dopo dataBase); se non c'è un subentrante,
+// si ridistribuisce in proporzione tra chi abita e ha già una quota (o in parti uguali tra chi abita). Il totale
+// non cambia (calcolo in centesimi di punto). Se nessuno esce dal gruppo la ripartizione resta identica.
+function splitPerOccorrenza(split, data, dataBase, edificioId) {
+  if (!split || !split.length) return split;
+  const ed = edificioId || state.edificioAttivo;
+  const presenti = condominiAllaData(data, ed);
+  if (!presenti.length) return split;
+  const idsPresenti = new Set(presenti.map(c => c.id));
+  const uscenti = split.filter(x => (x.perc || 0) > 0 && !idsPresenti.has(x.id));
+  if (!uscenti.length) return split;
+  const alBase = new Set(condominiAllaData(dataBase, ed).map(c => c.id));
+  const norm = (a) => String(a || '').trim().toLowerCase();
+  const righe = new Map(); // id -> centesimi di punto (si mantiene l'ordine d'inserimento)
+  const extra = new Map(); // id -> riga originale (per locked e altri campi)
+  split.forEach(x => { righe.set(x.id, Math.round((parseFloat(x.perc) || 0) * 100)); extra.set(x.id, x); });
+  const aggiungi = (id, cent) => righe.set(id, (righe.get(id) || 0) + cent);
+  const ripartisci = (ids, cent, pesi) => {
+    const W = pesi.reduce((a, p) => a + p, 0);
+    let dati = 0;
+    const quote = ids.map((id, i) => { const q = Math.floor(cent * pesi[i] / W); dati += q; return q; });
+    for (let i = 0; dati < cent; i = (i + 1) % ids.length) { quote[i] += 1; dati += 1; }
+    ids.forEach((id, i) => aggiungi(id, quote[i]));
+  };
+  let pool = 0;
+  uscenti.forEach(u => {
+    const cent = righe.get(u.id) || 0;
+    righe.delete(u.id);
+    const apt = norm(state.condomini.find(c => c.id === u.id)?.appartamento);
+    // Subentrante: stesso appartamento, entrato dopo dataBase; oppure, se l'uscente non abitava già alla data di
+    // partenza (subentro registrato prima dell'occorrenza da cui si riparte), chi abita lì e non ha una quota propria.
+    const uscitoGiaAlBase = !alBase.has(u.id);
+    const succ = apt ? presenti.filter(c => c.id !== u.id && norm(c.appartamento) === apt
+      && (!alBase.has(c.id) || (uscitoGiaAlBase && !(parseFloat(extra.get(c.id)?.perc) > 0)))) : [];
+    if (succ.length) ripartisci(succ.map(c => c.id), cent, succ.map(() => 1));
+    else pool += cent;
+  });
+  if (pool > 0) {
+    const con = [...righe.entries()].filter(([id, c]) => idsPresenti.has(id) && c > 0);
+    if (con.length) ripartisci(con.map(([id]) => id), pool, con.map(([, c]) => c));
+    else ripartisci(presenti.map(c => c.id), pool, presenti.map(() => 1));
+  }
+  return [...righe.entries()].map(([id, cent]) => ({ ...(extra.get(id) || { locked: false }), id, perc: cent / 100 }));
+}
+
 function generaOccorrenze(spesaBase, fineStr) {
   const freq = spesaBase.frequenza || 'mensile';
   if (!fineStr) return []; // data fine obbligatoria
@@ -150,6 +211,11 @@ function generaOccorrenze(spesaBase, fineStr) {
       ...spesaBase,
       id: newId(),
       data,
+      // Gli allegati sono della sola spesa a cui sono stati aggiunti: se le occorrenze li
+      // copiassero, toglierne uno da una lo toglierebbe da tutte (QA-CONS-027).
+      allegati: [],
+      // La ripartizione segue la data di ciascuna occorrenza (subentri nel corso della serie).
+      ...(spesaBase.split?.length ? { split: splitPerOccorrenza(spesaBase.split, data, spesaBase.data, spesaBase.edificioId) } : {}),
       // Le future sono solo preventivo; se la prima aveva solo il consuntivo,
       // quell'importo diventa il preventivo delle successive (prima restavano a zero).
       preventivo: spesaBase.preventivo || spesaBase.consuntivo || '',
@@ -171,8 +237,8 @@ function renderSpese() {
   if (state.filterCat !== 'all') items = items.filter(s=>s.categoria===state.filterCat);
   if (state.filterTipo !== 'all') items = items.filter(s=>s.tipoSpesa===state.filterTipo);
   if (state.searchQ) items = items.filter(s=>s.titolo.toLowerCase().includes(state.searchQ.toLowerCase())||s.descrizione?.toLowerCase().includes(state.searchQ.toLowerCase()));
-  if (state.filterStato === 'definitiva')   items = items.filter(s=>parseFloat(s.consuntivo||0)>0);
-  if (state.filterStato === 'previsionale') items = items.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
+  if (state.filterStato === 'definitiva')   items = items.filter(s=>importoNum(s.consuntivo)>0);
+  if (state.filterStato === 'previsionale') items = items.filter(s=>importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0);
   if (state.filterFornitore !== 'all')      items = items.filter(s=>String(s.fornitoreId)===state.filterFornitore);
   // La selezione per "Elimina selezionate" vale solo per le spese visibili: cambiando
   // anno, filtri, ricerca o condominio quelle nascoste escono dalla selezione.
@@ -194,9 +260,9 @@ function renderSpese() {
       case 'categoria':  { const ca=trovaPerId(getCategorie(), a.categoria); const cb=trovaPerId(getCategorie(), b.categoria); va=(ca?.label||'').toLowerCase(); vb=(cb?.label||'').toLowerCase(); break; }
       case 'tipo':       va = (a.tipoSpesa||'').toLowerCase(); vb = (b.tipoSpesa||'').toLowerCase(); break;
       case 'fornitore':  { const fa=trovaPerId(state.fornitori, a.fornitoreId); const fb=trovaPerId(state.fornitori, b.fornitoreId); va=(fa?.nome||'zzz').toLowerCase(); vb=(fb?.nome||'zzz').toLowerCase(); break; }
-      case 'preventivo': va = parseFloat(a.preventivo||0); vb = parseFloat(b.preventivo||0); break;
-      case 'consuntivo': va = parseFloat(a.consuntivo||0); vb = parseFloat(b.consuntivo||0); break;
-      case 'stato':      va = parseFloat(a.consuntivo||0)>0?'1':'0'; vb = parseFloat(b.consuntivo||0)>0?'1':'0'; break;
+      case 'preventivo': va = importoNum(a.preventivo); vb = importoNum(b.preventivo); break;
+      case 'consuntivo': va = importoNum(a.consuntivo); vb = importoNum(b.consuntivo); break;
+      case 'stato':      va = importoNum(a.consuntivo)>0?'1':'0'; vb = importoNum(b.consuntivo)>0?'1':'0'; break;
       default:           va = a.data||''; vb = b.data||'';
     }
     if (va < vb) return dir==='asc' ? -1 : 1;
@@ -215,14 +281,14 @@ function renderSpese() {
   };
 
   const anni = getAnni();
-  const totCons = items.reduce((a,s)=>a+(parseFloat(s.consuntivo||0)),0);
-  const totPrev = items.reduce((a,s)=>a+(parseFloat(s.preventivo||0)),0);
+  const totCons = items.reduce((a,s)=>a+(importoNum(s.consuntivo)),0);
+  const totPrev = items.reduce((a,s)=>a+(importoNum(s.preventivo)),0);
   // Scarto: solo su spese già consuntivate (ha senso solo quando entrambi i valori esistono)
-  const speseChiuse     = items.filter(s=>parseFloat(s.consuntivo||0)>0 && parseFloat(s.preventivo||0)>0);
-  const totPrevChiuse   = speseChiuse.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-  const totConsChiuse   = speseChiuse.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const speseChiuse     = items.filter(s=>importoNum(s.consuntivo)>0 && importoNum(s.preventivo)>0);
+  const totPrevChiuse   = speseChiuse.reduce((a,s)=>a+importoNum(s.preventivo),0);
+  const totConsChiuse   = speseChiuse.reduce((a,s)=>a+importoNum(s.consuntivo),0);
   const scarto          = totConsChiuse - totPrevChiuse;
-  const nSpeseAperte    = items.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).length;
+  const nSpeseAperte    = items.filter(s=>importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0).length;
   // nAttivi per calcolo quote (esclude superAdmin)
   const nAttiviSpese = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).length || 1;
 
@@ -298,6 +364,7 @@ function renderSpese() {
       <span style="color:var(--text2)">${speseChiuse.length} spese · prev. ${fmt(totPrevChiuse)} → cons. ${fmt(totConsChiuse)}</span>
     </div>`:''}
 
+    ${renderSegnalazioniEditor('spesa')}
     ${renderFiltroAnni('filterAnni', anni, { nota: anniSelezionati().length > 1 ? 'importi sommati' : '' })}
     <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;align-items:center">
       <!-- Ricerca: max metà schermo -->
@@ -399,6 +466,32 @@ function renderSpese() {
   </div>`;
 }
 
+// Riga della tabella di ripartizione. base = fa parte del gruppo di chi abitava alla data
+// (partecipa al ricalcolo automatico); le altre righe (aggiunte a mano, o di chi è uscito
+// con una quota già salvata) tengono la quota scritta.
+function htmlRigaSplit(c, sd, base, importoRef) {
+  const nCondEdificio = state.condomini.filter(x=>x.edificioId===state.edificioAttivo&&!x.disabled&&!x.superAdmin).length || 1;
+  const perc = sd?.perc ?? (100/nCondEdificio);
+  return `<tr data-base="${base ? '1' : '0'}">
+      <td><div style="display:flex;align-items:center;gap:6px">
+        <div class="avatar" style="${avatarStyle(c.color)};width:22px;height:22px;font-size:9px">${initials(c.nome)}</div>
+        <span style="font-weight:500">${esc(c.nome)}</span>
+        <span style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</span>${c.disabled ? '<span class="badge badge-gray" style="font-size:10px">non più attivo</span>' : (!base ? '<span class="badge badge-gray" style="font-size:10px">aggiunto a mano</span>' : '')}
+      </div></td>
+      <td>
+        <input type="number" class="split-perc-inp" data-cid="${c.id}" value="${perc.toFixed(2)}" min="0" max="100" step="0.01" placeholder="0.00">
+        <span style="color:var(--text2);font-size:12px"> %</span>
+      </td>
+      <td>
+        <input type="number" class="split-euro-inp" data-cid="${c.id}" value="${importoRef>0?(perc/100*importoRef).toFixed(2):''}" min="0" step="0.01" placeholder="0.00">
+        <span style="color:var(--text2);font-size:12px"> €</span>
+      </td>
+      <td style="text-align:center">
+        <button class="split-lock-btn${sd?.locked ? ' locked' : ''}" data-lock-cid="${c.id}" data-locked="${sd?.locked ? '1' : '0'}" title="Blocca questa quota">${sd?.locked?'🔒':'🔓'}</button>
+      </td>
+    </tr>`;
+}
+
 function renderModalSpesa(d) {
   const isEdit = !!d?.id;
   const catSpesa = getCategorie().filter(c=>c.tipo!=='entrata');
@@ -421,12 +514,21 @@ function renderModalSpesa(d) {
   // chi aveva una quota ed è stato archiviato dopo (mostrato come "non più
   // attivo"). Così aprire e salvare una spesa di un anno passato non riscrive
   // la sua ripartizione con i condomini di oggi.
-  let _righeSplit = _condSplit;
+  // Spesa nuova (o senza ripartizione salvata): le righe sono chi abitava alla data della spesa,
+  // non chi abita oggi (bolletta arrivata in ritardo dopo un subentro). L'amministratore può
+  // aggiungere a mano chi è uscito. Per una spesa già salvata le quote salvate non cambiano.
+  const _dataRighe = d?.data || ymdLocale(new Date());
+  // Anche per una spesa già salvata il gruppo di base è chi abitava alla data della spesa (non chi abita oggi):
+  // chi è entrato dopo non entra nei ricalcoli ("Parti uguali", modifica di una quota) e si può aggiungere a mano.
+  const _allaData = condominiAllaData(_dataRighe).filter(c => c.edificioId === state.edificioAttivo);
+  const _condBase = _allaData.length ? _allaData : _condSplit;
+  let _righeSplit = _condBase;
   const _condEdificio = state.condomini.filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin);
   const _salvatoValido = (d?.split || []).filter(s => _condEdificio.some(c => c.id === s.id));
   if (_salvatoValido.length > 0) {
-    const exAttivi = _condEdificio.filter(c => c.disabled && _salvatoValido.some(s => s.id === c.id && (s.perc || 0) > 0));
-    _righeSplit = [..._condSplit, ...exAttivi];
+    // Righe fuori base: chi ha una quota salvata ma non abitava alla data (uscito dopo, o entrato dopo).
+    const exAttivi = _condEdificio.filter(c => !_condBase.some(b => b.id === c.id) && _salvatoValido.some(s => s.id === c.id && (s.perc || 0) > 0));
+    _righeSplit = [..._condBase, ...exAttivi];
     // Percentuali salvate così come sono; chi non era nella ripartizione parte da 0%.
     splitData = _righeSplit.map(c => _salvatoValido.find(s => s.id === c.id) || { id: c.id, perc: 0, locked: false });
   } else if (d?.split && d.split.length > 0) {
@@ -443,7 +545,7 @@ function renderModalSpesa(d) {
         : _condSplit.map((c,i)=>({id:c.id, perc: partiUguali(_condSplit.length)[i], locked:false}));
     }
   } else {
-    splitData = _condSplit.map((c,i)=>({id:c.id, perc: partiUguali(_condSplit.length)[i], locked:false}));
+    splitData = _condBase.map((c,i)=>({id:c.id, perc: partiUguali(_condBase.length)[i], locked:false}));
   }
   // Millesimi (solo se il condominio li ha accesi): spesa nuova = proposta dalla
   // tabella della categoria; per le altre c'è il pulsante "Millesimi".
@@ -456,35 +558,15 @@ function renderModalSpesa(d) {
     const p = propostaMillesimi(_tabMill, _dataSpesa);
     if (p) {
       splitData = _righeSplit.map(c => p.split.find(s => s.id === c.id) || { id: c.id, perc: 0, locked: false });
-      _notaMill = 'Proposta dai millesimi, tabella "' + p.tabella.nome + '"' + (p.senza.length ? ' · senza millesimi: ' + p.senza.join(', ') : '') + '. Puoi modificarla.';
+      _notaMill = 'Proposta dai millesimi, tabella "' + p.tabella.nome + '"' + (p.senza.length ? ' · senza millesimi: ' + p.senza.join(', ') : '') + (p.senzaRappresentante.length ? ' · manca il rappresentante di: ' + p.senzaRappresentante.join(', ') + ' (peso diviso tra i suoi condomini)' : '') + '. Puoi modificarla.';
     }
   }
-  const importoRef = parseFloat(d?.consuntivo||d?.preventivo||0);
+  const importoRef = importoNum(d?.consuntivo||d?.preventivo);
 
-  function splitRow(c, sd) {
-    // Usa il numero di condomini dell'edificio attivo per la % default
-    const nCondEdificio = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).length || 1;
-    const perc = sd?.perc ?? (100/nCondEdificio);
-    const euro = importoRef > 0 ? (perc/100*importoRef).toFixed(2) : '—';
-    return `<tr>
-      <td><div style="display:flex;align-items:center;gap:6px">
-        <div class="avatar" style="${avatarStyle(c.color)};width:22px;height:22px;font-size:9px">${initials(c.nome)}</div>
-        <span style="font-weight:500">${esc(c.nome)}</span>
-        <span style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</span>${c.disabled ? '<span class="badge badge-gray" style="font-size:10px">non più attivo</span>' : ''}
-      </div></td>
-      <td>
-        <input type="number" class="split-perc-inp" data-cid="${c.id}" value="${perc.toFixed(2)}" min="0" max="100" step="0.01" placeholder="0.00">
-        <span style="color:var(--text2);font-size:12px"> %</span>
-      </td>
-      <td>
-        <input type="number" class="split-euro-inp" data-cid="${c.id}" value="${importoRef>0?(perc/100*importoRef).toFixed(2):''}" min="0" step="0.01" placeholder="0.00">
-        <span style="color:var(--text2);font-size:12px"> €</span>
-      </td>
-      <td style="text-align:center">
-        <button class="split-lock-btn" data-lock-cid="${c.id}" title="Blocca questa quota">${sd?.locked?'🔒':'🔓'}</button>
-      </td>
-    </tr>`;
-  }
+  const _baseIds = new Set(_condBase.map(c => c.id));
+  const splitRow = (c, sd) => htmlRigaSplit(c, sd, _baseIds.has(c.id), importoRef);
+  // Condomini dell'edificio che non hanno una riga: si possono aggiungere a mano (es. chi è uscito).
+  const _aggiungibili = _condEdificio.filter(c => !_righeSplit.some(r => r.id === c.id));
 
   return `
   <div class="modal-overlay" id="modal-overlay">
@@ -596,6 +678,7 @@ function renderModalSpesa(d) {
           </div>
           <div style="padding:.5rem .75rem .75rem">
             <div id="split-warn" style="display:none;font-size:12px;padding:4px 8px;background:var(--amber-light);color:var(--amber);border-radius:4px;margin-bottom:.5rem"></div>
+            <div id="split-data-avviso" class="alert alert-warning" style="display:none;font-size:12px;margin-bottom:.5rem">⚠️ Hai cambiato la data: le quote <strong>non sono state ricalcolate</strong>, restano quelle salvate. Per ricalcolarle su chi abitava alla nuova data: salva, riapri la spesa e usa "↔ Parti uguali" (o "⚖️ Millesimi", se attivi), portando a 0% chi non abitava a quella data.</div>
             <table class="split-table">
               <thead><tr>
                 <th>Condomino</th>
@@ -603,10 +686,14 @@ function renderModalSpesa(d) {
                 <th>Importo (€)</th>
                 <th title="Blocca: questa quota non si ricalcola automaticamente">🔒</th>
               </tr></thead>
-              <tbody id="split-tbody">
+              <tbody id="split-tbody" data-segue-data="${d?.split?.length ? '0' : '1'}"${d?.split?.length ? ` data-data-originale="${esc(d.data || '')}"` : ''}>
                 ${_righeSplit.map(c => splitRow(c, splitData.find(s=>s.id===c.id))).join('')}
               </tbody>
             </table>
+            <div id="split-aggiungi-box" style="display:${_aggiungibili.length ? 'flex' : 'none'};gap:.5rem;align-items:center;margin-top:.5rem;flex-wrap:wrap">
+              <select id="split-aggiungi" class="spese-filter-sel" style="flex:0 0 auto;min-width:0" aria-label="Aggiungi un condomino alla ripartizione">${_aggiungibili.map(c => `<option value="${c.id}">${esc(c.nome)}${c.appartamento ? ' · ' + esc(c.appartamento) : ''}${c.disabled ? ' (non più attivo)' : ''}</option>`).join('')}</select>
+              <button type="button" class="btn btn-secondary btn-sm" id="split-aggiungi-btn" title="Aggiunge una riga a mano, per esempio per chi è uscito">＋ Aggiungi condomino</button>
+            </div>
             <div class="split-bar-wrap" id="split-bar"></div>
             <div class="split-total-row">
               <span style="color:var(--text2)">Totale %</span>
@@ -658,7 +745,7 @@ function esportaSpeseCSV(spese, nomeFile) {
   if (!spese.length) { avvisa('Nessuna spesa da esportare.'); return; }
 
   function quotaCondomino(spesa, condId, condEd) {
-    const importoRef = parseFloat(spesa.consuntivo || spesa.preventivo || 0);
+    const importoRef = importoNum(spesa.consuntivo||spesa.preventivo);
     if (!importoRef) return 0;
     return quotaSuSpesa(spesa, condId, importoRef, condEd.length); // regola comune (subentri compresi)
   }
@@ -673,13 +760,19 @@ function esportaSpeseCSV(spese, nomeFile) {
   // di tutti i condomini attivi di tutti gli edifici toccati dalle spese esportate, così ogni riga
   // ha comunque le colonne corrette (0 per i condomini di un edificio diverso da quello della spesa).
   const edificiCoinvolti = [...new Set(spese.map(s => s.edificioId || state.edificioAttivo))];
-  const condTotali = state.condomini.filter(c => edificiCoinvolti.includes(c.edificioId) && !c.disabled && !c.superAdmin);
+  // Colonne anche per chi è uscito ma ha una quota su almeno una spesa esportata: altrimenti la somma
+  // delle colonne resta sotto l'importo (stessa regola di quotaSuSpesa usata dal Bilancio).
+  const haQuota = (c) => spese.some(s => (s.split || []).some(x => x.id === c.id && (x.perc || 0) > 0));
+  // Spese senza ripartizione (dati legacy): si dividono tra chi abitava alla data, quindi anche chi è uscito dopo ha la colonna.
+  const presenteSenzaSplit = (c) => spese.some(s => !(s.split || []).length && (s.edificioId || state.edificioAttivo) === c.edificioId
+    && condominiAllaData(s.data, c.edificioId).some(x => x.id === c.id));
+  const condTotali = state.condomini.filter(c => edificiCoinvolti.includes(c.edificioId) && !c.superAdmin && (!c.disabled || haQuota(c) || presenteSenzaSplit(c)));
 
   const intestazione = ['Data','Titolo','Descrizione','Categoria','Tipo','Fornitore','Preventivo','Consuntivo','Stato', ...condTotali.map(c=>c.nome)];
   const righe = spese.map(s => {
     const cat = getCategorie().find(c=>c.id===s.categoria) || {label:s.categoria||''};
     const forn = s.fornitoreId ? state.fornitori.find(f=>f.id===s.fornitoreId) : null;
-    const stato = parseFloat(s.consuntivo||0) > 0 ? 'Definitiva' : 'Previsionale';
+    const stato = importoNum(s.consuntivo) > 0 ? 'Definitiva' : 'Previsionale';
     const condEdSpesa = state.condomini.filter(c => c.edificioId === (s.edificioId||state.edificioAttivo) && !c.disabled && !c.superAdmin);
     const base = [
       s.data || '',
@@ -692,7 +785,11 @@ function esportaSpeseCSV(spese, nomeFile) {
       numCSV(s.consuntivo),
       stato,
     ];
-    const quote = condTotali.map(c => condEdSpesa.some(ce=>ce.id===c.id) ? numCSV(quotaCondomino(s, c.id, condEdSpesa)) : '');
+    const exConQuota = (c) => c.disabled && c.edificioId === (s.edificioId||state.edificioAttivo) && (s.split || []).some(x => x.id === c.id && (x.perc || 0) > 0);
+    // Senza ripartizione: ha la colonna anche chi abitava alla data e poi è uscito.
+    const exPresenteAllaData = (c) => !(s.split || []).length && c.disabled && c.edificioId === (s.edificioId||state.edificioAttivo)
+      && condominiAllaData(s.data, c.edificioId).some(x => x.id === c.id);
+    const quote = condTotali.map(c => condEdSpesa.some(ce=>ce.id===c.id) || exConQuota(c) || exPresenteAllaData(c) ? numCSV(quotaCondomino(s, c.id, condEdSpesa)) : '');
     return [...base, ...quote];
   });
 
@@ -823,7 +920,8 @@ function bindAzioniSpese() {
     const toDelete = state.spese.filter(s=>sel.has(s.id));
     const msg = 'Eliminare ' + sel.size + ' spese?\n\n' +
       toDelete.slice(0,5).map(s=>'- ' + s.titolo + ' (' + s.data + ')').join('\n') +
-      (toDelete.length > 5 ? '\n- ... e altre ' + (toDelete.length-5) : '');
+      (toDelete.length > 5 ? '\n- ... e altre ' + (toDelete.length-5) : '') +
+      (toDelete.some(s => modificaAnnoPassato(s, null, CAMPI_ANNO_SPESA)) ? '\n\n' + MSG_ANNO_PASSATO : '');
     if (!await chiedi(msg)) return;
     const spese = state.spese.filter(s=>!sel.has(s.id));
     save('cm_spese', spese);
@@ -853,18 +951,21 @@ function bindAzioniSpese() {
   if (bRF) bRF.onclick = () => setState({filterTipo:'all',filterCat:'all',filterStato:'all',filterFornitore:'all',searchQ:''});
   // Add buttons
   const bAddSpesa = document.getElementById('btn-add-spesa');
-  if (bAddSpesa) bAddSpesa.onclick = () => setState({modal:{type:'spesa',data:null}, pendingFiles:[]});
+  // Prima di aprire la scheda si rileggono i millesimi se sono vecchi (ADV-FUNC-026).
+  const aggiornaMillesimi = async () => { try { if (typeof rileggiMillesimiSeVecchi === 'function') await rileggiMillesimiSeVecchi(); } catch (e) {} };
+  if (bAddSpesa) bAddSpesa.onclick = async () => { await aggiornaMillesimi(); setState({modal:{type:'spesa',data:null}, pendingFiles:[]}); };
   // Edit/delete spese
   document.querySelectorAll('[data-edit-spesa]').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const id = parseInt(btn.dataset.editSpesa);
       const item = state.spese.find(s=>s.id===id);
-      if (item) setState({modal:{type:'spesa',data:{...item}}, pendingFiles:[]});
+      if (item) { await aggiornaMillesimi(); setState({modal:{type:'spesa',data:{...item}}, pendingFiles:[]}); }
     };
   });
   document.querySelectorAll('[data-del-spesa]').forEach(btn => {
     btn.onclick = async () => {
-      if (!await chiedi('Eliminare questa spesa?')) return;
+      const daEliminare = state.spese.find(s=>s.id===parseInt(btn.dataset.delSpesa));
+      if (!await chiedi('Eliminare questa spesa?' + (modificaAnnoPassato(daEliminare, null, CAMPI_ANNO_SPESA) ? '\n\n' + MSG_ANNO_PASSATO : ''))) return;
       const spese = state.spese.filter(s=>s.id!==parseInt(btn.dataset.delSpesa));
       save('cm_spese', spese);
       setState({spese});
@@ -916,7 +1017,7 @@ function bindSchedaSpese() {
 }
 
 // Salvataggio della scheda spesa (nuova o modificata, con eventuali occorrenze ricorrenti). Chiamata da saveModal() (schede.js).
-function salvaSchedaSpesa(m) {
+async function salvaSchedaSpesa(m) {
     const titolo = document.getElementById('m-titolo')?.value?.trim();
     const desc = document.getElementById('m-desc')?.value?.trim();
     const cat = document.getElementById('m-cat')?.value;
@@ -926,9 +1027,41 @@ function salvaSchedaSpesa(m) {
     const data = document.getElementById('m-data')?.value;
     if (!titolo || !cat || !data) { avvisa('Compila i campi obbligatori (Titolo, Categoria, Data)'); return; }
     if (!prev && !cons) { avvisa('Inserisci almeno un importo (preventivo o consuntivo)'); return; }
+    // Solo importi positivi (QA-CONS-020): l'errore compare nella scheda, come per il blocco al 100%.
+    // Un valore già salvato e lasciato com'è non blocca la modifica di altri campi (come nelle regole).
+    const nuovoNonValido = (v, vecchio) => v && !importoValido(v) && String(vecchio ?? '') !== v;
+    if (nuovoNonValido(prev, m.data?.preventivo) || nuovoNonValido(cons, m.data?.consuntivo)) {
+      const errEl = document.getElementById('m-err');
+      if (errEl) { errEl.textContent = MSG_IMPORTO; errEl.style.display='block'; }
+      else avvisa(MSG_IMPORTO);
+      return;
+    }
     const existingAllegati = m.data?.allegati||[];
     const allegati = [...existingAllegati, ...state.pendingFiles];
     const split = readSplitFromDOM();
+    // "Il totale deve fare 100%": la ripartizione non si salva se si scosta oltre 0,05 punti
+    // (prima bastava l'avviso giallo e si salvavano addebiti sopra o sotto la spesa).
+    const totSplit = split.reduce((a, x) => a + (x.perc || 0), 0);
+    // Ogni quota è tra 0% e 100%: il totale al 100% non basta (120% e -20% sommano 100% ma sono un errore).
+    const fuoriScala = split.some(x => (x.perc || 0) < -0.005 || (x.perc || 0) > 100.005);
+    if (split.length && (fuoriScala || Math.abs(totSplit - 100) > 0.05)) {
+      // Spesa vecchia il cui dato salvato cita un condomino che non c'è più (CR-005): la tabella non mostra
+      // la sua riga, quindi mancano quei punti. Il blocco al 100% resta, ma si spiega la causa e il rimedio.
+      const idEsistenti = new Set(state.condomini.filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin).map(c => c.id));
+      const orfane = (m.data?.id ? (m.data.split || []) : []).filter(x => !idEsistenti.has(x.id) && (parseFloat(x.perc) || 0) > 0.005);
+      const percOrfane = orfane.reduce((a, x) => a + (parseFloat(x.perc) || 0), 0);
+      const msg = fuoriScala
+        ? 'Ogni quota deve essere tra 0% e 100%. Correggi le quote prima di salvare.'
+        : 'La ripartizione deve fare 100%: ora fa ' + totSplit.toFixed(2) + '%. '
+          + (percOrfane > 0.005
+            ? 'Questa spesa ha salvata una quota del ' + percOrfane.toFixed(2) + '% per ' + (orfane.length === 1 ? 'un condomino che' : orfane.length + ' condomini che')
+              + ' non esiste più e non compare nella tabella. Assegna quella quota a chi è presente (aggiungi la riga di chi ne risponde, o usa «Parti uguali») e salva di nuovo.'
+            : 'Correggi le quote prima di salvare.');
+      const errEl = document.getElementById('m-err');
+      if (errEl) { errEl.textContent = msg; errEl.style.display='block'; }
+      else avvisa(msg);
+      return;
+    }
     // Tabella millesimale usata (solo informativa: la ripartizione resta quella salvata qui sopra).
     const selMill = document.getElementById('split-tabella');
     const tabellaMillesimi = selMill && selMill.dataset.applicata === '1' ? selMill.value : (m.data?.tabellaMillesimi || '');
@@ -955,8 +1088,26 @@ function salvaSchedaSpesa(m) {
       else avvisa(msg);
       return;
     }
+    // Serie con un importo vecchio non valido (DAT-003): le occorrenze nuove copiano il preventivo (o il
+    // consuntivo) della spesa, e le regole rifiutano per intero il lotto se quell'importo è zero, negativo o
+    // con troppi decimali (un valore vecchio lasciato com'è passa per la spesa, non per le copie). Si avvisa
+    // prima, nella scheda, invece di lasciare un errore generico di permessi.
+    const importoSerie = prev || cons || '';
+    const creaSerie = ricorrente && ricorrenzaCambiata;
+    const applicaSerie = !creaSerie && !!m.data?.id && !!document.getElementById('m-serie-applica')?.checked;
+    if (((creaSerie && importoSerie) ? !importoValido(importoSerie) : false)
+        || (applicaSerie && prev && !importoValido(prev) && occorrenzeSuccessive(m.data).some(s => String(s.preventivo ?? '') !== prev))) {
+      const msg = 'Le occorrenze della serie copiano l\'importo di questa spesa, che non è valido. ' + MSG_IMPORTO
+        + ' Correggi l\'importo e salva di nuovo.';
+      const errEl = document.getElementById('m-err');
+      if (errEl) { errEl.textContent = msg; errEl.style.display='block'; }
+      else avvisa(msg);
+      return;
+    }
     const ricGruppoId = m.data?.ricGruppoId || (ricorrente ? newId() : null);
     const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId, ...(tabellaMillesimi ? { tabellaMillesimi } : {}) };
+    // Anno già passato (QA-CONS-029): nessun blocco, ma l'amministratore conferma prima di salvare.
+    if (modificaAnnoPassato(m.data?.id ? m.data : null, item, CAMPI_ANNO_SPESA) && !await confermaAnnoPassato()) return;
     let spese;
     if (m.data?.id) {
       // Modifica spesa esistente
@@ -988,7 +1139,7 @@ function salvaSchedaSpesa(m) {
       // (se la ricorrenza è cambiata quelle sono già state rigenerate dai nuovi valori).
       else if (document.getElementById('m-serie-applica')?.checked) {
         const succ = new Set(occorrenzeSuccessive(m.data).map(s => s.id));
-        spese = spese.map(s => succ.has(s.id) ? { ...s, titolo, descrizione: desc, categoria: cat, tipoSpesa: tipo, preventivo: prev || '', fornitoreId, split } : s);
+        spese = spese.map(s => succ.has(s.id) ? { ...s, titolo, descrizione: desc, categoria: cat, tipoSpesa: tipo, preventivo: prev || '', fornitoreId, split: splitPerOccorrenza(split, s.data, data, item.edificioId) } : s);
       }
     } else {
       spese = [...state.spese, item];
@@ -1035,7 +1186,8 @@ function bindSerieSpesa() {
     const d = state.modal.data;
     const succ = occorrenzeSuccessive(d);
     if (!succ.length) return;
-    if (!await chiedi('Eliminare le ' + succ.length + ' occorrenze successive non consuntivate di questa serie? Questa spesa e quelle già consuntivate restano.')) return;
+    if (!await chiedi('Eliminare le ' + succ.length + ' occorrenze successive non consuntivate di questa serie? Questa spesa e quelle già consuntivate restano.'
+      + (succ.some(s => modificaAnnoPassato(s, null, CAMPI_ANNO_SPESA)) ? '\n\n' + MSG_ANNO_PASSATO : ''))) return;
     const via = new Set(succ.map(s => s.id));
     // La serie ora finisce con questa occorrenza.
     const spese = state.spese.filter(s => !via.has(s.id)).map(s => s.id === d.id ? { ...s, ricorrenzaFine: s.data } : s);

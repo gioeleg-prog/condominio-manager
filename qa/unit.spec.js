@@ -1099,6 +1099,48 @@ describe('UNIT — tabelle millesimali', () => {
     assert.ok(Math.abs(anna.prima - 333.4) < 0.01 && Math.abs(anna.dopo - 600) < 0.01);
   });
 
+  it('applica (QA-CONS-021): salta le spese prima di "dal" e quelle a mano, usa la tabella della spesa, e l\'anteprima le elenca', () => {
+    const app = base({ ...CFG, dal: `${Y}-06-01` });
+    const st = app.__get('state');
+    const eq = [{ id: 101, perc: 33.34 }, { id: 102, perc: 33.33 }, { id: 103, perc: 33.33 }];
+    const sp = (id, data, extra) => ({ id, data, titolo: 'Sp' + id, categoria: 'pulizie', preventivo: '300', consuntivo: '', split: eq, edificioId: 1, ...extra });
+    app.__set('state', { ...st, spese: [
+      sp(10, `${Y}-03-01`),                                                            // prima di "dal"
+      sp(11, `${Y}-07-01`, { categoria: 'pulizie', tabellaMillesimi: 'asc' }),         // tabella scelta nella spesa (la categoria darebbe "generale")
+      sp(12, `${Y}-07-02`, { split: [{ id: 101, perc: 70 }, { id: 102, perc: 20 }, { id: 103, perc: 10 }] }), // a mano
+      sp(13, `${Y}-07-03`, { split: [{ id: 101, perc: 33.34, locked: true }, { id: 102, perc: 33.33 }, { id: 103, perc: 33.33 }] }), // quota bloccata
+      sp(14, `${Y}-07-04`, { split: [] }),                                             // senza ripartizione: parti uguali implicite, si applica
+      sp(15, `${Y}-07-05`, { consuntivo: '300' }),                                     // consuntivata: mai
+    ] });
+    const r = app.calcolaApplicazioneMillesimi();
+    assert.strictEqual(JSON.stringify(r.nuove.map((s) => s.id)), JSON.stringify([11, 14]));
+    assert.strictEqual(r.nuove.find((s) => s.id === 11).tabellaMillesimi, 'asc');
+    assert.strictEqual(r.nuove.find((s) => s.id === 11).split.find((x) => x.id === 101).perc, 60);
+    assert.strictEqual(r.nuove.find((s) => s.id === 14).tabellaMillesimi, 'generale');
+    const motivi = Object.fromEntries(r.saltate.map((x) => [x.spesa.id, x.motivo]));
+    assert.strictEqual(JSON.stringify(motivi), JSON.stringify({ 10: 'prima-data', 12: 'a-mano', 13: 'a-mano' }));
+    assert.strictEqual(r.modificate.length, 2);
+    assert.ok(/Anna 33,34%/.test(r.modificate[0].prima) && /Anna 60%/.test(r.modificate[0].dopo));
+    // Le spese saltate restano identiche (stesso oggetto, nessuna copia modificata).
+    assert.ok(!r.nuove.some((s) => [10, 12, 13, 15].includes(s.id)));
+    // L'anteprima elenca cosa cambia e cosa viene saltato, con il motivo.
+    const html = app.renderModalMillesimiApplica();
+    assert.ok(html.includes('mill-elenco-cambiano') && html.includes('Sp11') && html.includes('Sp14'));
+    assert.ok(html.includes('mill-elenco-saltate') && html.includes('Sp10') && html.includes('Sp12') && html.includes('Sp13'));
+    assert.ok(html.includes('data precedente') && html.includes('ripartizione fatta a mano'));
+    assert.ok(!html.includes('Sp15'), 'le consuntivate non compaiono');
+  });
+
+  it('applica (QA-CONS-021): una ripartizione che coincide con la proposta di una tabella non è "a mano"', () => {
+    const app = base(CFG);
+    const st = app.__get('state');
+    const gen = app.propostaMillesimi('generale', `${Y}-07-01`).split.map(({ id, perc }) => ({ id, perc }));
+    app.__set('state', { ...st, spese: [{ id: 20, data: `${Y}-07-01`, titolo: 'Sp20', categoria: 'ascensore', preventivo: '100', consuntivo: '', split: gen, edificioId: 1 }] });
+    const r = app.calcolaApplicazioneMillesimi();
+    assert.strictEqual(r.saltate.length, 0);
+    assert.strictEqual(r.nuove[0].tabellaMillesimi, 'asc');
+  });
+
   it('rendiconto: colonna millesimi solo se in uso nell\'anno', () => {
     assert.strictEqual(base(null).datiRendiconto(Y).millesimi, null);
     const d = base(CFG).datiRendiconto(Y);
@@ -1259,5 +1301,1730 @@ describe('UNIT — memoria del render: stessi risultati al centesimo', () => {
     const lista = [{ id: 1, n: 'a' }, { id: 2, n: 'b' }, { id: 1, n: 'c' }];
     assert.strictEqual(app.conMemoRender(() => app.trovaPerId(lista, 1)).n, 'a');
     assert.strictEqual(app.trovaPerId(lista, 3), undefined);
+  });
+});
+
+// Lotto L1 del consolidato 2026-10-24 (QA-CONS-006, 008, 019, 024). Nessun dato reale: nomi e importi di prova.
+describe('UNIT — conti: totale al 100%, usciti con debito, ricerca e CSV (consolidato L1)', () => {
+  const Y = new Date().getFullYear();
+  const mk = (extra = {}) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], page: 'entrate', filterAnno: Y,
+      user: { id: 102, nome: 'Bruno', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [
+        { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, disabled: true, dataUscita: `${Y - 1}-07-01` },
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+        { id: 103, nome: 'Carlo', appartamento: 'Int. 1', edificioId: 1, dataIngresso: `${Y - 1}-07-01` },
+      ], spese: [], entrate: [], ...extra });
+    return app;
+  };
+
+  // QA-CONS-006
+  it('scheda spesa: una ripartizione che non fa 100% non si salva (60/60/0 e 30/0/30)', () => {
+    for (const perc of [[60, 60, 0], [30, 0, 30], [0, 0, 0]]) {
+      const app = mk();
+      const campi = { 'm-titolo': { value: 'Tetto' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '' },
+        'm-cons': { value: '1000' }, 'm-data': { value: `${Y}-03-01` }, 'm-err': { style: {}, textContent: '' } };
+      app.document.getElementById = (id) => campi[id] || null;
+      app.document.querySelectorAll = (sel) => sel === '.split-perc-inp' ? perc.map((v, i) => ({ dataset: { cid: String(101 + i) }, value: String(v) })) : [];
+      app.__set('state', { ...app.__get('state'), pendingFiles: [] });
+      let salvato = false;
+      app.save = () => { salvato = true; };
+      app.salvaSchedaSpesa({ data: null });
+      assert.strictEqual(salvato, false, 'salvata una ripartizione al ' + perc.join('/'));
+      assert.match(campi['m-err'].textContent, /100%/);
+    }
+  });
+  it('scheda spesa: una ripartizione al 100% (anche 6 x 16,67) si salva', () => {
+    const app = mk();
+    const campi = { 'm-titolo': { value: 'Tetto' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '' },
+      'm-cons': { value: '1000' }, 'm-data': { value: `${Y}-03-01` }, 'm-err': { style: {}, textContent: '' } };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.document.querySelectorAll = (sel) => sel === '.split-perc-inp' ? [33.34, 33.33, 33.33].map((v, i) => ({ dataset: { cid: String(101 + i) }, value: String(v) })) : [];
+    app.__set('state', { ...app.__get('state'), pendingFiles: [] });
+    let salvato = false;
+    app.save = () => { salvato = true; };
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    app.salvaSchedaSpesa({ data: null });
+    assert.strictEqual(salvato, true);
+  });
+
+  // QA-CONS-008
+  it('chi è uscito negli anni prima con un debito resta in Rendiconto e Bilancio; la somma dei saldi è la cassa', () => {
+    const app = mk({ page: 'bilancio', bilancioTab: 'condomini',
+      spese: [{ id: 1, data: `${Y - 1}-03-01`, consuntivo: '600', split: [], edificioId: 1 }],
+      entrate: [{ id: 10, data: `${Y - 1}-04-01`, importo: '600', condominoId: 102, edificioId: 1 }] });
+    const d = app.datiRendiconto(Y);
+    const anna = d.riparto.find((r) => r.nome === 'Anna');
+    assert.ok(anna, 'Anna (uscita prima, con debito) manca dal riparto');
+    assert.ok(Math.abs(anna.saldo + 300) < 0.005, 'saldo di Anna ' + anna.saldo);
+    const somma = d.riparto.reduce((a, r) => a + r.saldo, 0);
+    assert.ok(Math.abs(somma - d.cassaFine) < 0.005, `somma saldi ${somma} vs cassa ${d.cassaFine}`);
+    const h = app.renderBilancio();
+    assert.ok(h.includes('Anna'), 'Anna manca dal Bilancio "Per condomino"');
+  });
+  it('chi è uscito prima e non deve nulla non compare nel riparto dell\'anno dopo', () => {
+    const app = mk({ spese: [{ id: 1, data: `${Y - 1}-03-01`, consuntivo: '600', split: [], edificioId: 1 }],
+      entrate: [{ id: 10, data: `${Y - 1}-04-01`, importo: '300', condominoId: 101, edificioId: 1 }, { id: 11, data: `${Y - 1}-04-02`, importo: '300', condominoId: 102, edificioId: 1 }] });
+    assert.ok(!app.datiRendiconto(Y).riparto.some((r) => r.nome === 'Anna'));
+  });
+
+  // QA-CONS-019
+  it('Entrate: i saldi per condomino non cambiano con la ricerca impostata', () => {
+    const dati = { condomini: [{ id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }],
+      spese: [{ id: 1, data: `${Y}-02-01`, consuntivo: '1000', split: [{ id: 102, perc: 100 }], edificioId: 1 }],
+      entrate: [{ id: 1, data: `${Y}-03-01`, importo: '800', descrizione: 'contanti', condominoId: 102, edificioId: 1 },
+        { id: 2, data: `${Y}-04-01`, importo: '400', descrizione: 'bonifico', condominoId: 102, edificioId: 1 }] };
+    const senza = mk({ ...dati, searchQ: '' }).renderEntrate();
+    assert.ok(senza.includes('200,00'), 'versato 1.200 - quota 1.000');
+    for (const q of ['bonifico', 'luce', 'zzz']) {
+      const h = mk({ ...dati, searchQ: q }).renderEntrate();
+      assert.ok(h.includes('1.200,00') || h.includes('1200,00'), 'versato alterato con ricerca "' + q + '"');
+      assert.ok(h.includes('200,00'), 'saldo alterato con ricerca "' + q + '"');
+    }
+  });
+
+  // QA-CONS-024
+  it('CSV spese: chi è uscito ma ha una quota ha la sua colonna e la somma delle quote è l\'importo', () => {
+    const app = mk();
+    const s = { id: 1, data: `${Y}-02-01`, titolo: 'Luce', categoria: 'luce', consuntivo: '300', edificioId: 1,
+      split: [{ id: 101, perc: 40 }, { id: 102, perc: 30 }, { id: 103, perc: 30 }] };
+    app.esportaSpeseCSV([s], 't.csv');
+    const righe = app.__downloads.find((d) => d.blob).blob.text.replace(/^﻿/, '').split('\r\n');
+    const intest = righe[0].split(';'), riga = righe[1].split(';');
+    assert.ok(intest.includes('Anna'), 'manca la colonna di chi è uscito');
+    const somma = riga.slice(9).reduce((a, v) => a + (parseFloat(v.replace(',', '.')) || 0), 0);
+    assert.ok(Math.abs(somma - 300) < 0.005, 'somma colonne ' + somma);
+  });
+  it('CSV spese: un archiviato senza quote non ha colonna', () => {
+    const app = mk();
+    app.esportaSpeseCSV([{ id: 1, data: `${Y}-02-01`, titolo: 'Luce', categoria: 'luce', consuntivo: '300', edificioId: 1, split: [{ id: 102, perc: 50 }, { id: 103, perc: 50 }] }], 't.csv');
+    assert.ok(!app.__downloads.find((d) => d.blob).blob.text.split('\r\n')[0].includes('Anna'));
+  });
+});
+
+// D4 deciso: la spesa segue la data (QA-CONS-005 e colonna Quota di QA-CONS-024). Nomi e importi di prova.
+describe('UNIT — spesa che segue la data: righe della scheda, aggiunta a mano, colonna Quota (consolidato L1, D4)', () => {
+  const Y = new Date().getFullYear();
+  const P = Y - 1;
+  const mk = (user) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [],
+      user: user || { id: 102, nome: 'Bruno', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [
+        { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, disabled: true, dataUscita: `${P}-07-01` },
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+        { id: 103, nome: 'Carlo', appartamento: 'Int. 1', edificioId: 1, dataIngresso: `${P}-07-01` },
+        { id: 104, nome: 'Dora', appartamento: 'Int. 3', edificioId: 1 },
+      ], spese: [], entrate: [] });
+    return app;
+  };
+  const righe = (h) => [...h.matchAll(/<tr data-base="(\d)">[\s\S]*?class="split-perc-inp" data-cid="(\d+)" value="([\d.]+)"/g)].map((m) => ({ id: +m[2], base: m[1] === '1', perc: +m[3] }));
+
+  it('spesa nuova con data anteriore al subentro: righe Anna, Bruno, Dora (non Carlo), totale 100%', () => {
+    const r = righe(mk().renderModalSpesa({ data: `${P}-03-01` }));
+    assert.deepStrictEqual(r.map((x) => x.id).sort(), [101, 102, 104]);
+    assert.ok(r.every((x) => x.base));
+    assert.ok(Math.abs(r.reduce((a, x) => a + x.perc, 0) - 100) < 0.005);
+  });
+  it('spesa nuova con data di oggi: chi abita oggi (Bruno, Carlo, Dora)', () => {
+    const r = righe(mk().renderModalSpesa(null));
+    assert.deepStrictEqual(r.map((x) => x.id).sort(), [102, 103, 104]);
+  });
+  it('chi non ha riga si può aggiungere a mano (select); le righe segnano la data per il ricalcolo', () => {
+    const h = mk().renderModalSpesa({ data: `${P}-03-01` });
+    assert.match(h, /id="split-aggiungi"[^>]*>\s*<option value="103">/);
+    assert.ok(h.includes('id="split-aggiungi-btn"') && h.includes('data-segue-data="1"'));
+  });
+  it('spesa già salvata: righe e quote salvate non cambiano (chi è uscito con quota resta, Carlo parte da zero)', () => {
+    const h = mk().renderModalSpesa({ id: 7, data: `${Y}-02-01`, consuntivo: '300', split: [{ id: 101, perc: 40 }, { id: 102, perc: 30 }, { id: 104, perc: 30 }] });
+    const r = righe(h);
+    assert.strictEqual(r.find((x) => x.id === 101).perc, 40);
+    assert.strictEqual(r.find((x) => x.id === 101).base, false);
+    assert.strictEqual(r.find((x) => x.id === 103).perc, 0);
+    assert.ok(h.includes('data-segue-data="0"'));
+  });
+
+  it('cambio data: le righe seguono la data e le quote bloccate a mano non si perdono', () => {
+    const app = mk();
+    // Prima: oggi (Bruno, Carlo, Dora) con Carlo bloccato al 50%; poi data anteriore al subentro.
+    const prima = [{ id: 102, base: true, perc: 25, locked: false }, { id: 103, base: true, perc: 50, locked: true }, { id: 104, base: true, perc: 25, locked: false }];
+    const dopo = app.righeSplitPerData(prima, [101, 102, 104]);
+    const carlo = dopo.find((x) => x.id === 103);
+    assert.ok(carlo && !carlo.base && carlo.perc === 50, 'la quota scritta a mano di Carlo è sparita');
+    assert.ok(dopo.find((x) => x.id === 101 && x.base), 'Anna non è entrata');
+    assert.ok(Math.abs(dopo.reduce((a, x) => a + x.perc, 0) - 100) < 0.005);
+    // Senza quote bloccate: parti uguali tra chi abitava alla data, Carlo esce.
+    const libere = app.righeSplitPerData(prima.map((x) => ({ ...x, locked: false })), [101, 102, 104]);
+    assert.deepStrictEqual(Array.from(libere.map((x) => x.id).sort()), [101, 102, 104]);
+    assert.ok(Math.abs(libere.reduce((a, x) => a + x.perc, 0) - 100) < 0.005 && libere.every((x) => x.perc > 33 && x.perc < 34));
+  });
+  it('riga aggiunta a mano (uscito): resta con la sua quota al cambio data e le altre si ridividono il residuo', () => {
+    const app = mk();
+    const prima = [{ id: 102, base: true, perc: 40, locked: false }, { id: 104, base: true, perc: 40, locked: false }, { id: 101, base: false, perc: 20, locked: true }];
+    const dopo = app.righeSplitPerData(prima, [102, 103, 104]);
+    assert.strictEqual(dopo.find((x) => x.id === 101).perc, 20);
+    assert.ok(Math.abs(dopo.reduce((a, x) => a + x.perc, 0) - 100) < 0.005);
+    assert.ok(dopo.filter((x) => x.base).every((x) => Math.abs(x.perc - 80 / 3) < 0.02));
+  });
+
+  it('colonna Quota: la spesa consuntivata dopo l\'uscita con la quota di Anna la mostra, come Bilancio e CSV', () => {
+    const spesa = { id: 1, data: `${Y}-02-01`, consuntivo: '300', edificioId: 1, split: [{ id: 101, perc: 40 }, { id: 102, perc: 30 }, { id: 104, perc: 30 }] };
+    const anna = mk({ id: 101, nome: 'Anna', isAdmin: false, canEdit: false, edificioId: 1 });
+    assert.ok(anna.renderQuotaCell(spesa).includes('120,00'), anna.renderQuotaCell(spesa));
+    assert.ok(anna.renderQuotaCellText(spesa).includes('120,00'));
+    assert.strictEqual(anna.quotaSuSpesa(spesa, 101, 300, 3), 120);
+    const admin = mk();
+    assert.ok(admin.renderQuotaCell(spesa).includes('3 cond.') || admin.renderQuotaCell(spesa).includes('Split personalizzato'));
+    // Carlo non ha quota nella ripartizione: "—", come quotaSuSpesa (0).
+    const carlo = mk({ id: 103, nome: 'Carlo', isAdmin: false, canEdit: false, edificioId: 1 });
+    assert.ok(carlo.renderQuotaCell(spesa).includes('—') && carlo.quotaSuSpesa(spesa, 103, 300, 3) === 0);
+  });
+});
+
+// Retest avversario-regole 2026-10-24 (ADV-FUNC-001 ricorrenze e spese salvate, 027, 028, 029, 030). Nomi e importi di prova.
+describe('UNIT — retest regole: ricorrenze, quote fuori scala, lucchetti, spese legacy, Entrate (ADV-FUNC-001/027/028/029/030)', () => {
+  const Y = new Date().getFullYear();
+  const mk = (user, extra = {}) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], pendingFiles: [],
+      user: user || { id: 102, nome: 'Bruno', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [
+        { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, disabled: true, dataUscita: `${Y}-07-01` },
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+        { id: 103, nome: 'Carlo', appartamento: 'Int. 1', edificioId: 1, dataIngresso: `${Y}-07-01` },
+        { id: 104, nome: 'Dora', appartamento: 'Int. 3', edificioId: 1 },
+      ], spese: [], entrate: [], ...extra });
+    return app;
+  };
+  const somma = (split) => split.reduce((a, x) => a + x.perc, 0);
+  const perc = (split, id) => split.find((x) => x.id === id)?.perc || 0;
+  const splitBase = [{ id: 101, perc: 33.34, locked: false }, { id: 102, perc: 33.33, locked: false }, { id: 104, perc: 33.33, locked: false }];
+
+  // ADV-FUNC-001, residuo A: ricorrenze
+  it('serie che attraversa un subentro: da luglio la quota di Anna è di Carlo, prima resta ad Anna; totale sempre 100%', () => {
+    const app = mk();
+    const occ = app.generaOccorrenze({ data: `${Y}-01-15`, frequenza: 'mensile', ricorrente: true, preventivo: '90', edificioId: 1, split: splitBase }, `${Y}-12-31`);
+    assert.ok(occ.length >= 10);
+    for (const o of occ) {
+      assert.ok(Math.abs(somma(o.split) - 100) < 0.005, o.data + ' totale ' + somma(o.split));
+      if (o.data < `${Y}-07-01`) { assert.strictEqual(perc(o.split, 101), 33.34, o.data); assert.strictEqual(perc(o.split, 103), 0, o.data); }
+      else { assert.strictEqual(perc(o.split, 101), 0, o.data); assert.strictEqual(perc(o.split, 103), 33.34, o.data); }
+    }
+  });
+  it('serie: chi esce senza un subentrante nello stesso appartamento non riceve quote; si ridistribuisce tra chi abita', () => {
+    const app = mk(null, { condomini: [
+      { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, disabled: true, dataUscita: `${Y}-07-01` },
+      { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+      { id: 104, nome: 'Dora', appartamento: 'Int. 3', edificioId: 1 }] });
+    const occ = app.generaOccorrenze({ data: `${Y}-01-15`, frequenza: 'mensile', ricorrente: true, preventivo: '90', edificioId: 1, split: splitBase }, `${Y}-12-31`);
+    const dopo = occ.filter((o) => o.data >= `${Y}-07-01`);
+    assert.ok(dopo.length >= 5);
+    for (const o of dopo) {
+      assert.strictEqual(perc(o.split, 101), 0);
+      assert.ok(Math.abs(somma(o.split) - 100) < 0.005);
+      assert.ok(Math.abs(perc(o.split, 102) - 50) < 0.02 && Math.abs(perc(o.split, 104) - 50) < 0.02, JSON.stringify(o.split));
+    }
+  });
+  it('"Applica anche alle successive": le occorrenze dopo il subentro danno la quota a Carlo, non ad Anna', () => {
+    const base = { titolo: 'Pulizie', categoria: 'pulizie', tipoSpesa: 'ordinaria', preventivo: '90', consuntivo: '', edificioId: 1, ricorrente: true, frequenza: 'mensile', ricorrenzaFine: `${Y}-12-31`, ricGruppoId: 'g1', allegati: [] };
+    const spese = [{ ...base, id: 1, data: `${Y}-06-15`, split: splitBase },
+      { ...base, id: 2, data: `${Y}-07-15`, split: splitBase }, { ...base, id: 3, data: `${Y}-08-15`, split: splitBase }, { ...base, id: 4, data: `${Y}-05-15`, split: splitBase }];
+    const app = mk(null, { spese });
+    const campi = { 'm-titolo': { value: 'Pulizie' }, 'm-cat': { value: 'pulizie' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '90' }, 'm-cons': { value: '' },
+      'm-data': { value: `${Y}-06-15` }, 'm-err': { style: {}, textContent: '' }, 'm-ricorrente': { checked: true }, 'm-freq': { value: 'mensile' }, 'm-freq-fine': { value: `${Y}-12-31` },
+      'm-serie-applica': { checked: true } };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.document.querySelectorAll = (sel) => sel === '.split-perc-inp' ? [[101, 33.34], [102, 33.33], [104, 33.33]].map(([id, v]) => ({ dataset: { cid: String(id) }, value: String(v) })) : [];
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    let salvate = null;
+    app.save = (k, v) => { salvate = v; };
+    app.salvaSchedaSpesa({ data: spese[0] });
+    assert.ok(salvate, 'non salvata');
+    for (const id of [2, 3]) {
+      const s = salvate.find((x) => x.id === id);
+      assert.strictEqual(perc(s.split, 101), 0, 'Anna ha ancora una quota il ' + s.data);
+      assert.strictEqual(perc(s.split, 103), 33.34, 'Carlo senza la quota il ' + s.data);
+      assert.ok(Math.abs(somma(s.split) - 100) < 0.005);
+    }
+    assert.strictEqual(perc(salvate.find((x) => x.id === 1).split, 101), 33.34, 'la spesa modificata resta com\'è');
+    assert.strictEqual(perc(salvate.find((x) => x.id === 4).split, 101), 33.34, 'le precedenti non si toccano');
+  });
+
+  // ADV-FUNC-031: serie che riparte da un'occorrenza già dopo il subentro (subentro registrato in ritardo)
+  it('serie da un\'occorrenza dopo il subentro con la quota residua di Anna: resta a Carlo, non va a Bruno e Dora', () => {
+    const app = mk();
+    const splitDopo = [{ id: 101, perc: 33.34, locked: false }, { id: 102, perc: 33.33, locked: false }, { id: 103, perc: 0, locked: false }, { id: 104, perc: 33.33, locked: false }];
+    const occ = app.generaOccorrenze({ data: `${Y}-07-15`, frequenza: 'mensile', ricorrente: true, preventivo: '90', edificioId: 1, split: splitDopo }, `${Y}-12-31`);
+    assert.ok(occ.length >= 5);
+    for (const o of occ) {
+      assert.strictEqual(perc(o.split, 101), 0, o.data);
+      assert.strictEqual(perc(o.split, 103), 33.34, 'Carlo ' + o.data);
+      assert.strictEqual(perc(o.split, 102), 33.33, 'Bruno ' + o.data);
+      assert.strictEqual(perc(o.split, 104), 33.33, 'Dora ' + o.data);
+    }
+    // Comproprietario che ha già la sua quota: non è un subentrante, la quota di chi esce si ridistribuisce come prima.
+    const comp = mk(null, { condomini: [
+      { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, disabled: true, dataUscita: `${Y}-07-01` },
+      { id: 102, nome: 'Bruno', appartamento: 'Int. 1', edificioId: 1 },
+      { id: 104, nome: 'Dora', appartamento: 'Int. 3', edificioId: 1 }] });
+    const s = comp.splitPerOccorrenza([{ id: 101, perc: 50 }, { id: 102, perc: 25 }, { id: 104, perc: 25 }], `${Y}-08-15`, `${Y}-06-15`, 1);
+    assert.ok(Math.abs(somma(s) - 100) < 0.005 && perc(s, 101) === 0 && Math.abs(perc(s, 102) - 50) < 0.02, JSON.stringify(s));
+  });
+
+  // ADV-FUNC-001, residuo B: spesa già salvata, gruppo di base = chi abitava alla data
+  it('spesa salvata di giugno: Carlo (entrato a luglio) non ha riga ed è tra gli aggiungibili; Anna è di base', () => {
+    const h = mk().renderModalSpesa({ id: 9, data: `${Y}-06-20`, consuntivo: '300', split: splitBase });
+    const r = [...h.matchAll(/<tr data-base="(\d)">[\s\S]*?class="split-perc-inp" data-cid="(\d+)"/g)].map((m) => ({ id: +m[2], base: m[1] === '1' }));
+    assert.deepStrictEqual(r.map((x) => x.id).sort(), [101, 102, 104]);
+    assert.ok(r.every((x) => x.base), 'chi abitava alla data deve essere di base');
+    assert.match(h, /id="split-aggiungi"[^>]*>\s*<option value="103">/);
+    assert.ok(h.includes('data-segue-data="0"') && h.includes(`data-data-originale="${Y}-06-20"`) && h.includes('id="split-data-avviso"'));
+  });
+  it('spesa salvata con una quota a chi non abitava alla data: la riga c\'è ma è fuori base', () => {
+    const h = mk().renderModalSpesa({ id: 9, data: `${Y}-06-20`, consuntivo: '300', split: [{ id: 102, perc: 50 }, { id: 103, perc: 50 }] });
+    assert.match(h, /<tr data-base="0">[\s\S]*?data-cid="103"/);
+  });
+
+  // ADV-FUNC-027
+  it('scheda spesa: una quota negativa o sopra il 100% non si salva anche se il totale fa 100%; 100/0/0 sì', () => {
+    const prova = (percs) => {
+      const app = mk();
+      const campi = { 'm-titolo': { value: 'Tetto' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '' },
+        'm-cons': { value: '1000' }, 'm-data': { value: `${Y}-03-01` }, 'm-err': { style: {}, textContent: '' } };
+      app.document.getElementById = (id) => campi[id] || null;
+      app.document.querySelectorAll = (sel) => sel === '.split-perc-inp' ? percs.map((v, i) => ({ dataset: { cid: String(101 + i) }, value: String(v) })) : [];
+      app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+      let salvato = false;
+      app.save = () => { salvato = true; };
+      app.salvaSchedaSpesa({ data: null });
+      return { salvato, err: campi['m-err'].textContent };
+    };
+    for (const p of [[120, -20, 0], [150, -50, 0], [-10, 110, 0]]) {
+      const r = prova(p);
+      assert.strictEqual(r.salvato, false, 'salvata ' + p.join('/'));
+      assert.match(r.err, /tra 0% e 100%/);
+    }
+    assert.strictEqual(prova([100, 0, 0]).salvato, true);
+    assert.strictEqual(prova([33.34, 33.33, 33.33]).salvato, true);
+  });
+
+  // ADV-FUNC-028 (parte pura; il percorso reale è nell'E2E "cambio data")
+  it('le righe disegnate con una quota bloccata portano data-locked="1" (il lucchetto vale, non è solo disegnato)', () => {
+    const app = mk();
+    const c = { id: 102, nome: 'Bruno', appartamento: 'Int. 2', color: '#3B82F6' };
+    const bloccata = app.htmlRigaSplit(c, { id: 102, perc: 25, locked: true }, true, 100);
+    const libera = app.htmlRigaSplit(c, { id: 102, perc: 25, locked: false }, true, 100);
+    assert.ok(bloccata.includes('data-locked="1"') && bloccata.includes('split-lock-btn locked'));
+    assert.ok(libera.includes('data-locked="0"') && !libera.includes('split-lock-btn locked'));
+  });
+
+  // ADV-FUNC-029: spese senza ripartizione
+  describe('spese senza ripartizione (legacy) prima del subentro', () => {
+    const legacy = { id: 5, data: `${Y}-03-01`, titolo: 'Luce', categoria: 'luce', consuntivo: '300', edificioId: 1 };
+    it('colonna Quota: chi non abitava alla data vede "—", chi abitava la sua parte (come quotaSuSpesa)', () => {
+      const carlo = mk({ id: 103, nome: 'Carlo', isAdmin: false, canEdit: false, edificioId: 1 });
+      assert.ok(carlo.renderQuotaCell(legacy).includes('—'));
+      assert.strictEqual(carlo.renderQuotaCellText(legacy), '');
+      assert.strictEqual(carlo.quotaSuSpesa(legacy, 103, 300, 3), 0);
+      const anna = mk({ id: 101, nome: 'Anna', isAdmin: false, canEdit: false, edificioId: 1 });
+      assert.ok(anna.renderQuotaCell(legacy).includes('100,00') && anna.renderQuotaCellText(legacy).includes('100,00'));
+      assert.strictEqual(anna.quotaSuSpesa(legacy, 101, 300, 3), 100);
+    });
+    it('CSV: Anna (uscita) ha la colonna, Carlo ha la cella vuota e la riga somma l\'importo', () => {
+      const app = mk();
+      app.esportaSpeseCSV([legacy], 't.csv');
+      const righe = app.__downloads.find((d) => d.blob).blob.text.replace(/^﻿/, '').split('\r\n');
+      const intest = righe[0].split(';'), riga = righe[1].split(';');
+      assert.ok(intest.includes('Anna'), 'manca la colonna di Anna');
+      assert.strictEqual(riga[intest.indexOf('Carlo')], '');
+      const tot = riga.slice(9).reduce((a, v) => a + (parseFloat(v.replace(',', '.')) || 0), 0);
+      assert.ok(Math.abs(tot - 300) < 0.005, 'somma colonne ' + tot);
+    });
+  });
+
+  // ADV-FUNC-030
+  describe('Entrate: stato versamenti per condomino', () => {
+    const dati = { filterAnni: [Y], page: 'entrate',
+      condomini: [
+        { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, disabled: true, dataUscita: `${Y - 1}-07-01` },
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+        { id: 103, nome: 'Carlo', appartamento: 'Int. 1', edificioId: 1, dataIngresso: `${Y - 1}-07-01` }],
+      spese: [{ id: 1, data: `${Y - 1}-03-01`, consuntivo: '600', split: [], edificioId: 1 }],
+      entrate: [{ id: 10, data: `${Y - 1}-04-01`, importo: '600', condominoId: 102, edificioId: 1 }] };
+    it('chi è uscito negli anni prima con un debito compare, con il saldo del Bilancio (-300,00)', () => {
+      const h = mk(null, dati).renderEntrate();
+      assert.ok(h.includes('Anna'), 'Anna manca dallo stato versamenti');
+      assert.ok(h.includes('300,00'));
+    });
+    it('chi è uscito prima senza debito non compare', () => {
+      const h = mk(null, { ...dati, entrate: [...dati.entrate, { id: 11, data: `${Y - 1}-04-02`, importo: '300', condominoId: 101, edificioId: 1 }] }).renderEntrate();
+      assert.ok(!h.includes('>Anna<'), 'Anna senza debito non deve comparire');
+    });
+    it('anno scelto: chi è uscito prima, senza riporto, ma ha una quota aggiunta a mano su una spesa dell\'anno compare (-50,00)', () => {
+      const h = mk(null, { ...dati,
+        entrate: [...dati.entrate, { id: 11, data: `${Y - 1}-04-02`, importo: '300', condominoId: 101, edificioId: 1 }],
+        spese: [...dati.spese, { id: 2, data: `${Y}-01-15`, consuntivo: '500', edificioId: 1, split: [{ id: 101, perc: 10 }, { id: 102, perc: 90 }] }] }).renderEntrate();
+      assert.ok(h.includes('Anna'), 'Anna manca');
+      assert.ok(h.includes('50,00'));
+    });
+    it('"Tutti gli anni": compare anche chi è uscito e non ha mai versato ma ha una quota', () => {
+      const h = mk(null, { ...dati, filterAnni: [] }).renderEntrate();
+      assert.ok(h.includes('Anna'));
+    });
+  });
+});
+
+// Consolidato L2 (2026-10-24): salvataggi in coda dopo un rifiuto, subentro e svuotamento
+// che annunciano il successo solo dopo la conferma (QA-CONS-004, QA-CONS-003).
+describe('UNIT — salvataggi: coda dopo un rifiuto, subentro e reset a conferma avvenuta (consolidato L2)', () => {
+  const offline = async () => { const e = new Error('offline'); e.code = 'unavailable'; throw e; };
+  it('QA-CONS-004: un salvataggio fallito con altri in coda non riporta indietro lo schermo e il successivo non annulla né cancella', async () => {
+    const app = loadApp();
+    app.render = () => {}; // niente pagina in questa sandbox
+    const scritte = [];
+    let chiamate = 0;
+    const snapVer = { exists: () => true, data: () => ({ _updatedAt: { toMillis: () => 1 } }) };
+    app._fb = { auth: { currentUser: { uid: 'u' } }, db: {}, doc: (_db, ...p) => ({ path: p.join('/'), id: p[p.length - 1] }),
+      serverTimestamp: () => 'ORA', deleteField: () => 'TOGLI',
+      // il primo controllo di versione fallisce (rete), i successivi riescono
+      getDoc: async () => { if (++chiamate === 1) return offline(); return snapVer; },
+      writeBatch: () => ({ set: (ref, data, opts) => scritte.push({ path: ref.path, data, merge: !!opts }), commit: async () => {} }) };
+    const X0 = { id: 1, titolo: 'Luce', preventivo: '100', edificioId: 1 };
+    const Y0 = { id: 2, titolo: 'Acqua', preventivo: '50', edificioId: 1 };
+    const X1 = { ...X0, preventivo: '120' };
+    const N = { id: 3, titolo: 'Nuova', preventivo: '10', edificioId: 1 };
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, spese: [X0, Y0] });
+    app.setServerSnap('cm_spese', [X0, Y0]);
+    app.__get('_versioni').cm_spese = new Map([['buildings/1/expenses/1', 1], ['buildings/1/expenses/2', 1]]);
+    // l'utente modifica X (salvataggio 1) e subito aggiunge N (salvataggio 2, che contiene anche X1)
+    app.__set('state', { ...app.__get('state'), spese: [X1, Y0] });
+    const p1 = app.fbSaveKey('cm_spese', [X1, Y0]);
+    app.__set('state', { ...app.__get('state'), spese: [X1, Y0, N] });
+    const p2 = app.fbSaveKey('cm_spese', [X1, Y0, N]);
+    assert.deepStrictEqual([await p1, await p2], [false, true]);
+    assert.deepStrictEqual(app.__get('state').spese.map((s) => s.id), [1, 2, 3], 'lo schermo è stato riportato indietro');
+    assert.strictEqual(app.__get('state').spese[0].preventivo, '120');
+    // terza operazione: modifica di Y, partendo da ciò che si vede
+    scritte.length = 0;
+    const attuali = app.__get('state').spese.map((s) => (s.id === 2 ? { ...s, preventivo: '60' } : s));
+    assert.strictEqual(await app.fbSaveKey('cm_spese', attuali), true);
+    assert.deepStrictEqual(scritte.map((s) => s.path), ['buildings/1/expenses/2'], 'il terzo salvataggio ha toccato altri record');
+    assert.ok(!scritte.some((s) => s.data._deleted === true), 'record cancellato');
+  });
+  it('QA-CONS-004: se anche l\'ultimo salvataggio della coda fallisce, si torna all\'ultimo stato confermato', async () => {
+    const app = loadApp();
+    app.render = () => {};
+    app._fb = { auth: { currentUser: { uid: 'u' } }, db: {}, doc: (_db, ...p) => ({ path: p.join('/'), id: p[p.length - 1] }),
+      serverTimestamp: () => 'ORA', deleteField: () => 'TOGLI', getDoc: offline, writeBatch: () => ({ set() {}, commit: async () => {} }) };
+    const X0 = { id: 1, titolo: 'Luce', preventivo: '100', edificioId: 1 };
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, spese: [{ ...X0, preventivo: '120' }] });
+    app.setServerSnap('cm_spese', [X0]);
+    app.__get('_versioni').cm_spese = new Map([['buildings/1/expenses/1', 1]]);
+    const p1 = app.fbSaveKey('cm_spese', [{ ...X0, preventivo: '120' }]);
+    const p2 = app.fbSaveKey('cm_spese', [{ ...X0, preventivo: '130' }]);
+    assert.deepStrictEqual([await p1, await p2], [false, false]);
+    assert.strictEqual(app.__get('state').spese[0].preventivo, '100');
+  });
+
+  const subentro = (esiti) => {
+    const app = loadApp();
+    const Y = new Date().getFullYear() + 1;
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, user: { id: 102, isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 201, nome: 'Dario', appartamento: 'Int. 3', edificioId: 1 }],
+      spese: [{ id: 5, data: Y + '-03-01', titolo: 'Tetto', preventivo: '1000', consuntivo: '', edificioId: 1, split: [{ id: 201, perc: 100 }] }],
+      entrate: [], modal: { type: 'subentro', data: { id: 201, nome: 'Dario', edificioId: 1 } } });
+    const salvati = [];
+    app.save = (k) => { salvati.push(k); return Promise.resolve(esiti[k]); };
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    const campi = { 'btn-sub-conferma': { dataset: { cond: '201' } }, 'sub-data': { value: Y + '-01-01' }, 'sub-nome': { value: 'Elena' },
+      'sub-email': { value: '' }, 'sub-ruolo': { value: 'lettura' }, 'sub-passa': { checked: true }, 'sub-err': { style: {} } };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.bindSchedaSubentro();
+    return { app, salvati, clic: () => campi['btn-sub-conferma'].onclick() };
+  };
+  it('QA-CONS-003: se il salvataggio dei condomini è rifiutato, le quote delle spese non vengono salvate e non si annuncia il successo', async () => {
+    const { app, salvati, clic } = subentro({ cm_condomini: false, cm_spese: true });
+    await clic();
+    assert.deepStrictEqual(salvati, ['cm_condomini']);
+    assert.ok(!app.__alerts.some((m) => /Subentro registrato/.test(m)), app.__alerts.join('|'));
+    assert.strictEqual(app.__get('state').spese[0].split.length, 1, 'quote passate a un condomino non salvato');
+  });
+  it('QA-CONS-003: subentro riuscito: prima i condomini, poi le spese, successo annunciato alla fine; spese rifiutate: avviso onesto', async () => {
+    const ok = subentro({ cm_condomini: true, cm_spese: true });
+    await ok.clic();
+    assert.deepStrictEqual(ok.salvati, ['cm_condomini', 'cm_spese']);
+    assert.ok(ok.app.__alerts.some((m) => /^✅ Subentro registrato/.test(m)));
+    const ko = subentro({ cm_condomini: true, cm_spese: false });
+    await ko.clic();
+    assert.ok(!ko.app.__alerts.some((m) => /^✅ Subentro registrato/.test(m)));
+    assert.ok(ko.app.__alerts.some((m) => /NON sono passate/.test(m)), ko.app.__alerts.join('|'));
+  });
+  it('QA-CONS-003: lo svuotamento dei dati dell\'edificio annuncia il successo solo se ogni sezione è confermata', async () => {
+    for (const [rifiutata, atteso] of [[null, /^✅ Dati di/], ['cm_entrate', /NON completo: entrate/]]) {
+      const app = loadApp();
+      app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'Casa' }], user: { id: 900, superAdmin: true },
+        spese: [{ id: 1, edificioId: 1 }], entrate: [{ id: 2, edificioId: 1 }], fornitori: [], bacheca: [], verbali: [], lavori: [], delibere: [] });
+      app.save = (k) => Promise.resolve(k !== rifiutata);
+      app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+      app.chiedi = async () => true;
+      app.chiediTesto = async () => 'RESET';
+      const bottoni = { 'btn-reset': {} };
+      app.document.getElementById = (id) => bottoni[id] || null;
+      app.document.querySelectorAll = () => [];
+      app.bindAzioniImpostazioni();
+      await bottoni['btn-reset'].onclick();
+      assert.ok(app.__alerts.some((m) => atteso.test(m)), (rifiutata || 'tutte ok') + ': ' + app.__alerts.join('|'));
+      if (rifiutata) assert.ok(!app.__alerts.some((m) => /^✅ Dati di/.test(m)));
+    }
+  });
+});
+
+describe('UNIT — riparazione D1: la quota di chi è uscito resta a lui (QA-CONS-007, QA-CONS-026)', () => {
+  const Y = new Date().getFullYear();
+  const split = [{ id: 101, perc: 40 }, { id: 102, perc: 30 }, { id: 104, perc: 30 }];
+  const mk = (extra = {}) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], page: 'entrate', filterAnno: Y, filterAnni: [Y],
+      user: { id: 102, nome: 'Bruno', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [
+        { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, disabled: true, dataUscita: `${Y}-07-01` },
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+        { id: 103, nome: 'Carlo', appartamento: 'Int. 1', edificioId: 1, dataIngresso: `${Y}-07-01` },
+        { id: 104, nome: 'Dora', appartamento: 'Int. 3', edificioId: 1 },
+      ],
+      spese: [{ id: 1, data: `${Y}-12-01`, titolo: 'Tetto', categoria: 'tetto', preventivo: '1200', consuntivo: '', split, edificioId: 1 }],
+      entrate: [], ...extra });
+    return app;
+  };
+  const somma = (piano, id) => piano.rate.reduce((a, r) => a + r.perCondomino.filter((c) => c.id === id).reduce((b, c) => b + c.importo, 0), 0);
+
+  it('QA-CONS-007: chi ha lo 0% non riceve rate e la quota di chi è uscito non finisce all\'ultimo dell\'elenco', () => {
+    const piano = mk().calcolaPianoRate(Y);
+    assert.strictEqual(piano.coperto, false);
+    assert.strictEqual(somma(piano, 103), 0, 'Carlo (0%) ha rate');
+    assert.strictEqual(somma(piano, 101), 0, 'Anna è uscita: nessuna rata nel piano');
+    for (const r of piano.rate) {
+      const pc = (id) => r.perCondomino.find((c) => c.id === id).importo;
+      assert.ok(Math.abs(pc(102) - r.importoTotale * 0.3) <= 0.05, 'Bruno ' + pc(102));
+      assert.ok(Math.abs(pc(104) - r.importoTotale * 0.3) <= 0.05, 'Dora ' + pc(104));
+      const scarto = Math.abs(r.importoTotale - r.perCondomino.reduce((a, c) => a + c.importo, 0) - r.nonAttribuito);
+      assert.ok(scarto <= 0.05, 'scarto ' + scarto);
+      assert.ok(Math.abs(r.nonAttribuito - r.importoTotale * 0.4) <= 0.05, 'non attribuito ' + r.nonAttribuito);
+    }
+    assert.ok(Math.abs(piano.totNonAttribuito - 480) <= 0.05, String(piano.totNonAttribuito));
+    assert.deepStrictEqual(Array.from(piano.nonAttribuitoDettaglio.map((x) => x.nome)), ['Anna']);
+  });
+  it('QA-CONS-007: il piano mostra la quota non attribuita con il nome di chi è uscito', () => {
+    const h = mk().renderPianoRateBox(Y, true);
+    assert.ok(h.includes('Quota non attribuita') && h.includes('Anna') && h.includes('480,00'), h.slice(0, 200));
+  });
+  it('QA-CONS-007: senza uscite nessuna quota non attribuita e il totale delle rate torna al centesimo', () => {
+    const app = mk({ condomini: [{ id: 102, nome: 'Bruno', edificioId: 1 }, { id: 104, nome: 'Dora', edificioId: 1 }, { id: 105, nome: 'Elia', edificioId: 1 }],
+      spese: [{ id: 1, data: `${Y}-12-01`, preventivo: '100', consuntivo: '', split: [{ id: 102, perc: 33.34 }, { id: 104, perc: 33.33 }, { id: 105, perc: 33.33 }], edificioId: 1 }] });
+    const piano = app.calcolaPianoRate(Y);
+    assert.strictEqual(piano.totNonAttribuito, 0);
+    for (const r of piano.rate) assert.ok(Math.abs(r.perCondomino.reduce((a, c) => a + c.importo, 0) - r.importoTotale) < 0.005);
+  });
+  it('QA-CONS-026: ricalcolando il piano le rate previste di chi è uscito restano sue e sono segnalate; chi entra non ne riceve', async () => {
+    const prop = (id, cond) => ({ id, condominoId: cond, importo: '160', data: `${Y}-12-01`, previsionale: true, pianoRataAuto: true, pianoAnno: Y, pianoRataN: 1, edificioId: 1 });
+    const app = mk({ entrate: [prop(50, 101), prop(51, 103)] });
+    const piano = app.calcolaPianoRate(Y);
+    assert.strictEqual(piano.rateUscitiEsistenti.n, 1);
+    assert.strictEqual(piano.rateUscitiEsistenti.importo, 160);
+    assert.ok(app.renderPianoRateBox(Y, true).includes('già a carico di condomini usciti'));
+    let salvate = null;
+    app.save = (k, v) => { if (k === 'cm_entrate') salvate = v; return Promise.resolve(true); };
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    const bottoni = { 'btn-conferma-rate-piano': {} };
+    app.document.getElementById = (id) => bottoni[id] || null;
+    app.document.querySelectorAll = () => [];
+    app.bindAzioniEntrate();
+    await bottoni['btn-conferma-rate-piano'].onclick();
+    assert.ok(salvate, 'il piano non è stato salvato');
+    assert.ok(salvate.some((e) => e.id === 50 && e.condominoId === 101), 'la rata di Anna (uscita) è stata tolta');
+    assert.ok(!salvate.some((e) => e.id === 51), 'la rata di Carlo (0%) doveva sparire');
+    assert.ok(!salvate.some((e) => e.pianoAnno === Y && e.condominoId === 103), 'Carlo non deve ricevere rate per quote non sue');
+  });
+});
+
+// Consolidato 2026-10-24, QA-CONS-020 (decisione RA-2): solo importi positivi. Nessun dato reale.
+describe('UNIT — importi: solo maggiori di zero, lettura uniforme (QA-CONS-020)', () => {
+  const Y = new Date().getFullYear();
+  const mk = (extra = {}) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], page: 'entrate', filterAnno: Y,
+      user: { id: 102, nome: 'Bruno', isAdmin: true, canEdit: true, edificioId: 1 }, pendingFiles: [],
+      condomini: [{ id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }], spese: [], entrate: [], ...extra });
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    return app;
+  };
+  const scheda = (app, campi) => {
+    app.document.getElementById = (id) => campi[id] || null;
+    app.document.querySelectorAll = (sel) => sel === '.split-perc-inp' ? [{ dataset: { cid: '102' }, value: '100' }] : [];
+    const r = { salvato: null };
+    app.save = (k, v) => { r.salvato = v; };
+    return r;
+  };
+
+  it('importoValido: positivo con al massimo due decimali', () => {
+    const app = loadApp();
+    for (const v of ['1', '1200.5', '0.01', '0.50', '12.34', '007']) assert.strictEqual(app.importoValido(v), true, v);
+    for (const v of ['0', '0.00', '-50', '10.123', '10,5', 'abc', '', null, undefined, '1e3']) assert.strictEqual(app.importoValido(v), false, String(v));
+  });
+  it('salvaSchedaEntrata: versamento a 0 o negativo non si salva e mostra il messaggio', () => {
+    for (const importo of ['0', '-50', '0.00', '10.555', 'abc']) {
+      const app = mk();
+      const err = { style: {}, textContent: '' };
+      const r = scheda(app, { 'm-previsionale': { value: '0' }, 'entrata-err': err, 'm-condo-s': { value: '102' }, 'm-importo-s': { value: importo }, 'm-data-s': { value: `${Y}-03-01` } });
+      app.salvaSchedaEntrata({ data: null });
+      assert.strictEqual(r.salvato, null, 'salvato ' + importo);
+      assert.match(err.textContent, /maggiore di zero/);
+      assert.match(err.textContent, /nota di credito/);
+    }
+  });
+  it('salvaSchedaEntrata: un versamento positivo si salva', () => {
+    const app = mk();
+    const r = scheda(app, { 'm-previsionale': { value: '0' }, 'entrata-err': { style: {} }, 'm-condo-s': { value: '102' }, 'm-importo-s': { value: '150.50' }, 'm-data-s': { value: `${Y}-03-01` } });
+    app.salvaSchedaEntrata({ data: null });
+    assert.strictEqual(r.salvato.length, 1);
+    assert.strictEqual(r.salvato[0].importo, '150.50');
+  });
+  it('salvaSchedaEntrata in modifica: importo non valido rifiutato, ma un valore vecchio lasciato com\'è non blocca altri campi', () => {
+    const vecchio = { id: 5, condominoId: 102, importo: '-20', data: `${Y}-02-01`, edificioId: 1, previsionale: false };
+    const campi = (importo) => ({ 'm-previsionale': { value: '0' }, 'entrata-err': { style: {}, textContent: '' }, 'm-condo-s': { value: '102' },
+      'm-importo-s': { value: importo }, 'm-data-s': { value: `${Y}-02-01` }, 'm-desc-s': { value: 'nuova descrizione' } });
+    let app = mk({ entrate: [vecchio] });
+    let r = scheda(app, campi('-30'));
+    app.salvaSchedaEntrata({ data: vecchio });
+    assert.strictEqual(r.salvato, null);
+    app = mk({ entrate: [vecchio] });
+    r = scheda(app, campi('-20'));
+    app.salvaSchedaEntrata({ data: vecchio });
+    assert.ok(r.salvato, 'un importo vecchio invariato doveva restare modificabile');
+  });
+  it('salvaSchedaEntrata: rate previste con importo 0, negativo o con troppi decimali non si salvano', () => {
+    for (const importoR of ['0', '-10', '5.999']) {
+      const app = mk();
+      const err = { style: {}, textContent: '' };
+      const r = scheda(app, { 'm-previsionale': { value: '1' }, 'entrata-err': err, 'm-condo': { value: '102' },
+        'rata-row-1': { style: {} }, 'rata-data-1': { value: `${Y}-05-01` }, 'rata-importo-1': { value: importoR } });
+      app.salvaSchedaEntrata({ data: null });
+      assert.strictEqual(r.salvato, null, 'salvata la rata ' + importoR);
+      assert.match(err.textContent, /maggiore di zero/);
+    }
+  });
+  it('salvaSchedaSpesa: preventivo o consuntivo a 0, negativi o con troppi decimali non si salvano', () => {
+    for (const [prev, cons] of [['0', ''], ['', '-100'], ['100', '0'], ['-5', '50'], ['', '10.999'], ['abc', '']]) {
+      const app = mk({ page: 'spese' });
+      const err = { style: {}, textContent: '' };
+      const r = scheda(app, { 'm-titolo': { value: 'Tetto' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: prev },
+        'm-cons': { value: cons }, 'm-data': { value: `${Y}-03-01` }, 'm-err': err });
+      app.salvaSchedaSpesa({ data: null });
+      assert.strictEqual(r.salvato, null, `salvata la spesa ${prev}/${cons}`);
+      assert.match(err.textContent, /maggiore di zero/);
+      assert.match(err.textContent, /nota di credito/);
+    }
+  });
+  it('salvaSchedaSpesa: importi positivi si salvano; una spesa vecchia con preventivo 0 resta modificabile se non lo si tocca', () => {
+    let app = mk({ page: 'spese' });
+    const campi = (prev, cons) => ({ 'm-titolo': { value: 'Tetto' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: prev },
+      'm-cons': { value: cons }, 'm-data': { value: `${Y}-03-01` }, 'm-err': { style: {}, textContent: '' } });
+    let r = scheda(app, campi('100', '120.5'));
+    app.salvaSchedaSpesa({ data: null });
+    assert.ok(r.salvato, 'importi positivi non salvati');
+    const vecchia = { id: 9, titolo: 'Tetto', categoria: 'tetto', preventivo: '0', consuntivo: '500', data: `${Y}-03-01`, split: [], edificioId: 1 };
+    app = mk({ page: 'spese', spese: [vecchia] });
+    r = scheda(app, campi('0', '500'));
+    app.salvaSchedaSpesa({ data: vecchia });
+    assert.ok(r.salvato, 'preventivo vecchio invariato doveva restare modificabile');
+  });
+  it('un importo salvato non numerico non fa diventare NaN i totali del Bilancio', () => {
+    const app = mk({ page: 'bilancio', bilancioTab: 'condomini',
+      spese: [{ id: 1, data: `${Y}-02-01`, consuntivo: '500', preventivo: 'abc', split: [{ id: 102, perc: 100 }], edificioId: 1 },
+        { id: 2, data: `${Y}-03-01`, consuntivo: 'xyz', preventivo: '', split: [{ id: 102, perc: 100 }], edificioId: 1 }],
+      entrate: [{ id: 10, data: `${Y}-04-01`, importo: 'zz', condominoId: 102, edificioId: 1 }, { id: 11, data: `${Y}-04-02`, importo: '200', condominoId: 102, edificioId: 1 }] });
+    for (const tab of ['condomini', 'riepilogo', 'categorie', 'mensile', 'analisi']) {
+      app.__set('state', { ...app.__get('state'), bilancioTab: tab });
+      assert.ok(!app.renderBilancio().includes('NaN'), 'NaN nel Bilancio, scheda ' + tab);
+    }
+    assert.strictEqual(app.importoNum('abc'), 0);
+    assert.strictEqual(app.importoNum('12.5'), 12.5);
+    assert.strictEqual(app.importoNum(undefined), 0);
+  });
+});
+
+// Consolidato QA-CONS-022 (ADV-FUNC-009): un rappresentante per appartamento nei millesimi; "Riattiva" non per chi è uscito con un subentro
+describe('UNIT — QA-CONS-022: appartamento con più condomini e Riattiva dopo un subentro', () => {
+  const Y = new Date().getFullYear();
+  const CFG = { attivo: true, dal: `${Y}-01-01`, categorie: {}, tabelle: [
+    { id: 'generale', nome: 'Generale', valori: { 'int. 1': 400, 'int. 2': 300, 'int. 3': 300 } }] };
+  const mk = (condomini) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], spese: [], entrate: [],
+      user: { id: 101, nome: 'Anna', isAdmin: true, canEdit: true, edificioId: 1 }, condomini });
+    app.__get('_millesimi')[1] = CFG;
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    return app;
+  };
+  const base = () => [
+    { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 },
+    { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+    { id: 103, nome: 'Bea', appartamento: 'Int. 2', edificioId: 1 },
+    { id: 104, nome: 'Dora', appartamento: 'Int. 3', edificioId: 1 },
+  ];
+  const perc = (p, id) => p.split.find((x) => x.id === id).perc;
+  const somma = (p, ids) => Math.round(ids.reduce((a, id) => a + perc(p, id), 0) * 100) / 100;
+
+  it('senza rappresentante: l\'appartamento conta UNA volta (peso diviso tra i suoi condomini) e viene segnalato', () => {
+    const app = mk(base());
+    const p = app.propostaMillesimi('generale', `${Y}-06-01`);
+    assert.strictEqual(somma(p, [102, 103]), 30, 'Int. 2 deve valere il 30%, non il 46,15%');
+    assert.strictEqual(perc(p, 101), 40);
+    assert.strictEqual(perc(p, 104), 30);
+    assert.strictEqual(Math.round(p.split.reduce((a, x) => a + x.perc, 0) * 100), 10000);
+    assert.deepStrictEqual(Array.from(p.senzaRappresentante), ['Int. 2']);
+    assert.deepStrictEqual(Array.from(app.appartamentiSenzaRappresentante().map((a) => a.etichetta)), ['Int. 2']);
+  });
+
+  it('con il rappresentante: porta tutto il peso dell\'appartamento, l\'altro 0%; nessun avviso', () => {
+    const c = base(); c[2] = { ...c[2], rappresentante: true };
+    const app = mk(c);
+    const p = app.propostaMillesimi('generale', `${Y}-06-01`);
+    assert.deepStrictEqual([perc(p, 101), perc(p, 102), perc(p, 103), perc(p, 104)], [40, 0, 30, 30]);
+    assert.deepStrictEqual(Array.from(p.senzaRappresentante), []);
+    assert.deepStrictEqual(Array.from(p.senza), [], 'il cointestatario senza peso non è "senza millesimi"');
+    assert.strictEqual(app.appartamentiSenzaRappresentante().length, 0);
+  });
+
+  it('il rappresentante vale solo tra chi è presente alla data: uscito lui, resta il peso diviso e l\'avviso', () => {
+    const c = base(); c[2] = { ...c[2], rappresentante: true, disabled: true, dataUscita: `${Y}-03-01` };
+    const app = mk(c);
+    const p = app.propostaMillesimi('generale', `${Y}-06-01`);
+    assert.strictEqual(perc(p, 102), 30, 'Bruno resta solo: porta il suo appartamento');
+    assert.ok(!p.split.some((x) => x.id === 103), 'chi è uscito non è alla data');
+    assert.deepStrictEqual(Array.from(p.senzaRappresentante), []);
+  });
+
+  it('salvataggio scheda: spuntare "Rappresentante" toglie la spunta agli altri dello stesso appartamento', () => {
+    const c = base(); c[1] = { ...c[1], rappresentante: true };
+    const app = mk(c);
+    let salvati = null;
+    app.save = (k, v) => { if (k === 'cm_condomini') salvati = v; };
+    const campi = { 'm-nome': { value: 'Bea' }, 'm-apt': { value: 'Int. 2' }, 'm-email': { value: '' }, 'm-ruolo': { value: 'lettura' },
+      'm-edificio': { value: '1' }, 'm-ingresso': { value: '' }, 'm-tel': { value: '' }, 'm-username': { value: '' },
+      'm-email-notifiche': { checked: true }, 'm-wa-notifiche': { checked: true }, 'm-rappresentante': { checked: true } };
+    app.document.getElementById = (id) => campi[id] || null;
+    return app.salvaSchedaCondomino({ data: { id: 103 } }).then(() => {
+      assert.ok(salvati, 'non salvato');
+      assert.strictEqual(salvati.find((x) => x.id === 103).rappresentante, true);
+      assert.strictEqual(salvati.find((x) => x.id === 102).rappresentante, false);
+    });
+  });
+
+  it('Riattiva: chi è uscito per un subentro non si riattiva (avviso, nessun salvataggio); gli altri sì', async () => {
+    const c = base();
+    c[0] = { ...c[0], disabled: true, disabledOn: `${Y}-07-01T00:00:00.000Z`, dataUscita: `${Y}-07-01`, disabledNote: 'Subentro: Carlo dal 01/07/' + Y };
+    c[1] = { ...c[1], disabled: true, disabledOn: `${Y}-05-01T00:00:00.000Z`, dataUscita: `${Y}-05-01`, disabledNote: 'Trasferito' };
+    c.push({ id: 105, nome: 'Carlo', appartamento: 'Int. 1', edificioId: 1, dataIngresso: `${Y}-07-01` });
+    const app = mk(c);
+    let salvati = null;
+    app.save = (k, v) => { salvati = v; };
+    app.chiedi = async () => true;
+    assert.ok(app.motivoNoRiattiva(c[0]) && !app.motivoNoRiattiva(c[1]));
+    await app.riattivaCondomino(101);
+    assert.strictEqual(salvati, null, 'nessun salvataggio per chi è uscito per subentro');
+    assert.ok(app.__alerts.some((m) => /subentro/i.test(m) && /Anna/.test(m)), app.__alerts.join('|'));
+    const anna = app.__get('state').condomini.find((x) => x.id === 101);
+    assert.ok(anna.disabled && anna.dataUscita === `${Y}-07-01`, 'la data di uscita deve restare');
+    await app.riattivaCondomino(102);
+    assert.ok(salvati && salvati.find((x) => x.id === 102).disabled === false);
+  });
+});
+
+// Consolidato QA-CONS-023 (ADV-FUNC-010, RA-3/D3) e QA-CONS-025 (ADV-FUNC-012, D6-bis)
+describe('UNIT — QA-CONS-023: subentro a data futura', () => {
+  const Y = new Date().getFullYear();
+  const mk = () => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], entrate: [],
+      user: { id: 900, nome: 'Admin', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 201, nome: 'Dario', appartamento: 'Int. 3', edificioId: 1, color: '#000' }],
+      spese: [{ id: 1, data: `${Y + 2}-03-10`, consuntivo: '', preventivo: '200', split: [{ id: 201, perc: 100 }], edificioId: 1 }] });
+    app.save = () => true;
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    return app;
+  };
+  const registra = async (app, data) => {
+    app.__set('state', { ...app.__get('state'), modal: { type: 'subentro', data: { id: 201 } } });
+    const campi = { 'btn-sub-conferma': { dataset: { cond: '201' } }, 'sub-data': { value: data }, 'sub-nome': { value: 'Elena' },
+      'sub-email': { value: '' }, 'sub-ruolo': { value: 'lettura' }, 'sub-passa': { checked: true }, 'sub-err': { style: {} } };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.bindSchedaSubentro();
+    await campi['btn-sub-conferma'].onclick();
+    const s = app.__get('state');
+    return { dario: s.condomini.find((c) => c.id === 201), elena: s.condomini.find((c) => c.nome === 'Elena') };
+  };
+
+  it('data futura: chi esce resta attivo (solo dataUscita, niente disabled) fino alla data; chi entra ha dataIngresso', async () => {
+    const data = `${Y + 1}-06-01`;
+    const { dario, elena } = await registra(mk(), data);
+    assert.ok(!dario.disabled, 'chi esce non deve essere archiviato subito');
+    assert.strictEqual(dario.dataUscita, data);
+    assert.ok(/Subentro: Elena/.test(dario.disabledNote));
+    assert.strictEqual(elena.dataIngresso, data);
+    const app = mk();
+    await registra(app, data);
+    const alla = (d) => Array.from(app.condominiAllaData(d, 1).map((c) => c.nome).sort());
+    assert.deepStrictEqual(alla(`${Y + 1}-05-31`), ['Dario'], 'prima della data: chi esce compare, chi entra no');
+    assert.deepStrictEqual(alla(data), ['Elena'], 'dalla data: chi entra compare, chi esce no');
+  });
+
+  it('data odierna o passata: come prima, chi esce è archiviato subito', async () => {
+    for (const data of [`${Y}-01-01`, new Date().toLocaleDateString('sv-SE')]) {
+      const { dario, elena } = await registra(mk(), data);
+      assert.ok(dario.disabled === true && dario.dataUscita === data && dario.disabledOn, data);
+      assert.strictEqual(elena.dataIngresso, data);
+    }
+  });
+
+  it('elenco Condomini: chi esce con data futura è tra gli attivi, chi ha la data già arrivata tra gli archiviati', () => {
+    const app = mk();
+    app.__set('state', { ...app.__get('state'), page: 'condomini', condomini: [
+      { id: 301, nome: 'Esce', appartamento: 'A1', edificioId: 1, dataUscita: `${Y + 1}-06-01` },
+      { id: 302, nome: 'Uscito', appartamento: 'A2', edificioId: 1, dataUscita: `${Y - 1}-06-01` },
+      { id: 303, nome: 'Entra', appartamento: 'A3', edificioId: 1, dataIngresso: `${Y + 1}-06-01` }] });
+    const html = app.renderCondomini();
+    const [attivi, archiviati] = html.split('Archiviati');
+    assert.ok(/Esce/.test(attivi) && /Entra/.test(attivi) && !/Uscito/.test(attivi));
+    assert.ok(/Uscito/.test(archiviati) && !/Esce/.test(archiviati));
+    assert.ok(/Entra il/.test(attivi) && /Esce il/.test(attivi));
+  });
+});
+
+describe('UNIT — QA-CONS-025: un condomino con movimenti non si elimina', () => {
+  const mk = (extra) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [],
+      user: { id: 900, nome: 'Admin', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 }, { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1, disabled: true }],
+      spese: [], entrate: [], ...extra });
+    let salvati = null;
+    app.save = (k, v) => { salvati = v; };
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    let chiesto = 0;
+    app.chiedi = async () => { chiesto++; return true; };
+    return { app, salvati: () => salvati, chiesto: () => chiesto };
+  };
+  const elimina = async (app, id) => {
+    const btn = { dataset: { delCond: String(id) } };
+    app.document.querySelectorAll = (sel) => (sel === '[data-del-cond]' ? [btn] : []);
+    app.bindAzioniCondomini();
+    await btn.onclick();
+  };
+
+  it('haMovimenti: quota maggiore di zero, versamento (anche previsionale); zero e altri condomini no', () => {
+    const app = loadApp();
+    const spese = [{ split: [{ id: 1, perc: 50 }, { id: 2, perc: 0 }] }];
+    assert.strictEqual(app.haMovimenti(1, spese, []), true);
+    assert.strictEqual(app.haMovimenti(2, spese, []), false);
+    assert.strictEqual(app.haMovimenti(3, spese, [{ condominoId: 3, previsionale: true }]), true);
+    assert.strictEqual(app.haMovimenti(4, spese, [{ condominoId: 3 }]), false);
+    assert.strictEqual(app.haMovimenti(4, undefined, undefined), false);
+  });
+
+  it('con una quota o con un versamento: avviso "Ha movimenti: usa Archivia", nessuna conferma, nessun salvataggio', async () => {
+    for (const extra of [{ spese: [{ id: 1, split: [{ id: 101, perc: 100 }] }] }, { entrate: [{ id: 1, condominoId: 101, importo: '10' }] }]) {
+      const t = mk(extra);
+      await elimina(t.app, 101);
+      assert.strictEqual(t.salvati(), null);
+      assert.strictEqual(t.chiesto(), 0);
+      assert.ok(t.app.__alerts.some((m) => /Ha movimenti: usa Archivia/.test(m)), t.app.__alerts.join('|'));
+      assert.ok(t.app.__get('state').condomini.some((c) => c.id === 101));
+    }
+  });
+
+  it('già archiviato ma con movimenti: non si elimina nemmeno; senza movimenti l\'eliminazione resta disponibile', async () => {
+    const t = mk({ entrate: [{ id: 1, condominoId: 102, importo: '10' }] });
+    await elimina(t.app, 102);
+    assert.strictEqual(t.salvati(), null);
+    assert.ok(t.app.__get('state').condomini.some((c) => c.id === 102));
+    const u = mk({ entrate: [{ id: 1, condominoId: 101, importo: '10' }] });
+    await elimina(u.app, 102);
+    assert.strictEqual(u.chiesto(), 1);
+    assert.deepStrictEqual(Array.from(u.salvati().map((c) => c.id)), [101]);
+  });
+});
+
+describe('UNIT — CONS-028: segnalazione all\'amministratore di versamenti e quote dell\'editor su sé stesso (nessun blocco)', () => {
+  const NOW = Date.UTC(2026, 9, 24);
+  const GG = 86400000;
+  const condomini = [
+    { id: 1, nome: 'Edi Tore', edificioId: 1, uid: 'u-ed', canEdit: true, isAdmin: false },
+    { id: 2, nome: 'Ammi Nistra', edificioId: 1, uid: 'u-ad', canEdit: true, isAdmin: true },
+    { id: 3, nome: 'Solo Lettura', edificioId: 1, uid: 'u-rd', canEdit: false, isAdmin: false },
+    { id: 4, nome: 'Edi Altrove', edificioId: 2, uid: 'u-ed2', canEdit: true, isAdmin: false },
+  ];
+  const mkAutori = (m) => (t, r) => m[t + ':' + r.id] || null;
+  const run = (app, extra) => app.segnalazioniEditor({ condomini, edificioId: 1, adesso: NOW, entrate: [], spese: [], autore: () => null, ...extra });
+
+  it('versamento intestato all\'editor e scritto da lui: segnalato; di altri, o scritto da un altro: no', () => {
+    const app = loadApp();
+    const entrate = [
+      { id: 10, edificioId: 1, condominoId: 1, importo: '50', data: '2026-10-20' }, // editor su sé stesso
+      { id: 11, edificioId: 1, condominoId: 3, importo: '50', data: '2026-10-20' }, // editor per un altro
+      { id: 12, edificioId: 1, condominoId: 1, importo: '50', data: '2026-10-20' }, // intestato all'editor, ma scritto dall'amministratore
+      { id: 13, edificioId: 1, condominoId: 2, importo: '50', data: '2026-10-20' }, // l'amministratore su sé stesso: non è un editor
+    ];
+    const autore = mkAutori({
+      'entrata:10': { by: 'u-ed', at: NOW - GG }, 'entrata:11': { by: 'u-ed', at: NOW - GG },
+      'entrata:12': { by: 'u-ad', at: NOW - GG }, 'entrata:13': { by: 'u-ad', at: NOW - GG },
+    });
+    const r = run(app, { entrate, autore });
+    assert.deepStrictEqual(Array.from(r.map((x) => x.rec.id)), [10]);
+    assert.strictEqual(r[0].editor.nome, 'Edi Tore');
+  });
+
+  it('quota: spesa con una quota maggiore di zero dell\'editor scritta da lui è segnalata; quota zero o assente no', () => {
+    const app = loadApp();
+    const spese = [
+      { id: 20, edificioId: 1, titolo: 'A', split: [{ id: 1, perc: 50 }, { id: 3, perc: 50 }] },
+      { id: 21, edificioId: 1, titolo: 'B', split: [{ id: 1, perc: 0 }, { id: 3, perc: 100 }] },
+      { id: 22, edificioId: 1, titolo: 'C', split: [{ id: 3, perc: 100 }] },
+    ];
+    const autore = mkAutori(Object.fromEntries([20, 21, 22].map((i) => ['spesa:' + i, { by: 'u-ed', at: NOW - GG }])));
+    assert.deepStrictEqual(Array.from(run(app, { spese, autore }).map((x) => x.rec.id)), [20]);
+  });
+
+  it('oltre 60 giorni, altro edificio, senza autore noto o senza uid collegato: nessuna segnalazione', () => {
+    const app = loadApp();
+    const entrate = [
+      { id: 30, edificioId: 1, condominoId: 1, importo: '5' },
+      { id: 31, edificioId: 2, condominoId: 4, importo: '5' },
+      { id: 32, edificioId: 1, condominoId: 1, importo: '5' },
+    ];
+    const autore = mkAutori({ 'entrata:30': { by: 'u-ed', at: NOW - 61 * GG }, 'entrata:31': { by: 'u-ed2', at: NOW - GG } });
+    assert.deepStrictEqual(Array.from(run(app, { entrate, autore })), []);
+    const senzaUid = condomini.map((c) => ({ ...c, uid: undefined }));
+    const ok = mkAutori({ 'entrata:32': { by: 'u-ed', at: NOW - GG } });
+    assert.deepStrictEqual(Array.from(run(app, { entrate, autore: ok, condomini: senzaUid })), []);
+    assert.strictEqual(run(app, { entrate, autore: ok }).length, 1);
+  });
+
+  it('riquadro in pagina: lo vede solo l\'amministratore, con nome e importo; ricordaAutore() lo alimenta e un amministratore lo spegne', () => {
+    const app = loadApp();
+    const adesso = Date.now();
+    const base = { condomini, entrate: [{ id: 10, edificioId: 1, condominoId: 1, importo: '50', data: '2026-10-20' }], spese: [], edificioAttivo: 1 };
+    const ts = (ms) => ({ toMillis: () => ms });
+    app.ricordaAutore('buildings/1/payments/10', { _updatedBy: 'u-ed', _updatedAt: ts(adesso - GG) });
+    app.__set('state', { ...app.__get('state'), ...base, user: { isAdmin: true, canEdit: true } });
+    const html = app.renderSegnalazioniEditor('entrata');
+    assert.ok(html.includes('Edi Tore') && html.includes('data-segnalazioni-editor="cm_entrate"') && /50,00/.test(html), html);
+    assert.strictEqual(app.renderSegnalazioniEditor('spesa'), '');
+    // un editor o un condomino semplice non vedono il riquadro
+    for (const user of [{ canEdit: true }, {}]) {
+      app.__set('state', { ...app.__get('state'), user });
+      assert.strictEqual(app.renderSegnalazioniEditor('entrata'), '');
+    }
+    // l'amministratore ritocca il versamento: l'autore diventa lui e la segnalazione sparisce
+    app.__set('state', { ...app.__get('state'), user: { isAdmin: true, canEdit: true } });
+    app.ricordaAutore('buildings/1/payments/10', { _updatedBy: 'u-ad', _updatedAt: ts(adesso) });
+    assert.strictEqual(app.renderSegnalazioniEditor('entrata'), '');
+  });
+
+  it('il nome nel riquadro passa da esc() (nessun HTML iniettato)', () => {
+    const app = loadApp();
+    const ts = { toMillis: () => Date.now() };
+    app.ricordaAutore('buildings/1/expenses/20', { _updatedBy: 'u-ed', _updatedAt: ts });
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, user: { isAdmin: true },
+      condomini: [{ ...condomini[0], nome: '<img src=x onerror=1>' }], entrate: [],
+      spese: [{ id: 20, edificioId: 1, titolo: '<b>x</b>', data: '2026-10-01', split: [{ id: 1, perc: 100 }] }] });
+    const html = app.renderSegnalazioniEditor('spesa');
+    assert.ok(html.includes('&lt;img') && html.includes('&lt;b&gt;') && !/<img|<b>/.test(html), html);
+  });
+});
+
+// QA-CONS-029 (ADV-FUNC-018, scelta del proprietario RA-5/D7): nessun blocco sugli anni passati, ma un avviso con conferma.
+describe('UNIT — QA-CONS-029: avviso con conferma quando si modifica un anno già passato', () => {
+  const Y = new Date().getFullYear();
+  const MSG = /Stai modificando un anno già passato: i riporti e i rendiconti già inviati cambiano\./;
+  const split = [{ id: 101, perc: 50 }, { id: 102, perc: 50 }];
+  const spesaVecchia = { id: 1, titolo: 'Tetto', descrizione: '', categoria: 'tetto', tipoSpesa: 'ordinaria', preventivo: '', consuntivo: '1000', data: `${Y - 1}-03-01`, split, edificioId: 1, allegati: [] };
+  const versVecchio = { id: 5, condominoId: 101, importo: '100', data: `${Y - 1}-04-10`, descrizione: 'Rata', categoria: 'quote', edificioId: 1, previsionale: false };
+  const mk = (extra = {}, risposta = true) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], pendingFiles: [],
+      user: { id: 900, nome: 'Admin', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 }, { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }],
+      spese: [spesaVecchia], entrate: [versVecchio], ...extra });
+    const r = { salvati: [], chiesti: [] };
+    app.save = (k, v) => { r.salvati.push(k); };
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    app.chiedi = async (t) => { r.chiesti.push(String(t)); return risposta; };
+    return { app, r };
+  };
+  const campiSpesa = (app, v = {}) => {
+    const campi = { 'm-titolo': { value: 'Tetto' }, 'm-desc': { value: '' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '' },
+      'm-cons': { value: '1000' }, 'm-data': { value: `${Y - 1}-03-01` }, 'm-err': { style: {}, textContent: '' }, ...v };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.document.querySelectorAll = (sel) => sel === '.split-perc-inp' ? [[101, 50], [102, 50]].map(([id, p]) => ({ dataset: { cid: String(id) }, value: String(p) })) : [];
+  };
+  const campiEntrata = (app, v = {}) => {
+    const campi = { 'm-previsionale': { value: '0' }, 'entrata-err': { style: {}, textContent: '' }, 'm-condo-s': { value: '101' }, 'm-importo-s': { value: '100' },
+      'm-data-s': { value: `${Y - 1}-04-10` }, 'm-desc-s': { value: 'Rata' }, 'm-cat-s': { value: 'quote' }, ...v };
+    app.document.getElementById = (id) => campi[id] || null;
+  };
+
+  it('modificaAnnoPassato: anno corrente e futuro mai; anno passato per nuovo ed eliminato; modifica solo se cambiano data, importi, quote o condomino', () => {
+    const app = loadApp();
+    const f = (a, b, c) => app.modificaAnnoPassato(a, b, c || app.__get('CAMPI_ANNO_SPESA'));
+    assert.strictEqual(f(null, { data: `${Y}-01-01` }), false);
+    assert.strictEqual(f(null, { data: `${Y + 1}-01-01` }), false);
+    assert.strictEqual(f(null, { data: `${Y - 1}-12-31` }), true);
+    assert.strictEqual(f({ data: `${Y - 1}-12-31` }, null), true);
+    assert.strictEqual(f(null, null), false);
+    const base = { data: `${Y - 1}-05-05`, preventivo: '', consuntivo: '10', split };
+    assert.strictEqual(f(base, { ...base, titolo: 'altro', descrizione: 'x', categoria: 'y' }), false, 'solo testo');
+    assert.strictEqual(f(base, { ...base, consuntivo: '10.00' }), false, 'stesso importo scritto diversamente');
+    assert.strictEqual(f(base, { ...base, split: [...split, { id: 103, perc: 0 }] }), false, 'riga a zero');
+    assert.strictEqual(f(base, { ...base, consuntivo: '11' }), true);
+    assert.strictEqual(f(base, { ...base, data: `${Y - 1}-05-06` }), true);
+    assert.strictEqual(f(base, { ...base, data: `${Y}-01-02` }), true, 'spostata fuori dall\'anno passato');
+    assert.strictEqual(f(base, { ...base, split: [{ id: 101, perc: 60 }, { id: 102, perc: 40 }] }), true);
+    const v = { data: `${Y - 1}-05-05`, condominoId: 101, importo: '100', previsionale: undefined };
+    assert.strictEqual(f(v, { ...v, previsionale: false, descrizione: 'x' }, app.__get('CAMPI_ANNO_ENTRATA')), false);
+    assert.strictEqual(f(v, { ...v, condominoId: 102 }, app.__get('CAMPI_ANNO_ENTRATA')), true);
+    assert.strictEqual(f(v, { ...v, importo: '90' }, app.__get('CAMPI_ANNO_ENTRATA')), true);
+    assert.strictEqual(f(v, { ...v, previsionale: true }, app.__get('CAMPI_ANNO_ENTRATA')), true);
+  });
+
+  it('nuova spesa in un anno passato: chiede conferma; se si annulla non salva; se si conferma salva', async () => {
+    for (const [risposta, attesi] of [[false, 0], [true, 1]]) {
+      const { app, r } = mk({ spese: [] }, risposta);
+      campiSpesa(app);
+      await app.salvaSchedaSpesa({ data: null });
+      assert.strictEqual(r.chiesti.length, 1);
+      assert.match(r.chiesti[0], MSG);
+      assert.strictEqual(r.salvati.length, attesi);
+    }
+  });
+
+  it('spesa nell\'anno corrente: nessun avviso (e il salvataggio resta immediato)', () => {
+    const { app, r } = mk({ spese: [] });
+    campiSpesa(app, { 'm-data': { value: `${Y}-03-01` } });
+    app.salvaSchedaSpesa({ data: null });
+    assert.strictEqual(r.chiesti.length, 0);
+    assert.strictEqual(r.salvati.length, 1, 'salvata senza attese');
+  });
+
+  it('spesa di un anno passato: cambiare il solo titolo non avvisa; cambiare il consuntivo avvisa', async () => {
+    const a = mk();
+    campiSpesa(a.app, { 'm-titolo': { value: 'Tetto condominiale' } });
+    await a.app.salvaSchedaSpesa({ data: spesaVecchia });
+    assert.strictEqual(a.r.chiesti.length, 0);
+    assert.strictEqual(a.r.salvati.length, 1);
+    const b = mk();
+    campiSpesa(b.app, { 'm-cons': { value: '1200' } });
+    await b.app.salvaSchedaSpesa({ data: spesaVecchia });
+    assert.strictEqual(b.r.chiesti.length, 1);
+    assert.match(b.r.chiesti[0], MSG);
+  });
+
+  it('versamento: nuovo in un anno passato avvisa; modifica della sola descrizione no; cambio di importo sì e, se rifiutato, non salva', async () => {
+    const nuovo = mk({ entrate: [] });
+    campiEntrata(nuovo.app);
+    await nuovo.app.salvaSchedaEntrata({ data: null });
+    assert.strictEqual(nuovo.r.chiesti.length, 1);
+    assert.strictEqual(nuovo.r.salvati.length, 1);
+    const testo = mk();
+    campiEntrata(testo.app, { 'm-desc-s': { value: 'Rata di aprile' } });
+    await testo.app.salvaSchedaEntrata({ data: versVecchio });
+    assert.strictEqual(testo.r.chiesti.length, 0);
+    assert.strictEqual(testo.r.salvati.length, 1);
+    const importo = mk({}, false);
+    campiEntrata(importo.app, { 'm-importo-s': { value: '90' } });
+    await importo.app.salvaSchedaEntrata({ data: versVecchio });
+    assert.strictEqual(importo.r.chiesti.length, 1);
+    assert.match(importo.r.chiesti[0], MSG);
+    assert.strictEqual(importo.r.salvati.length, 0, 'rifiutato: nessun salvataggio');
+  });
+
+  it('versamento dell\'anno corrente: nessun avviso', () => {
+    const { app, r } = mk({ entrate: [] });
+    campiEntrata(app, { 'm-data-s': { value: `${Y}-02-01` } });
+    app.salvaSchedaEntrata({ data: null });
+    assert.strictEqual(r.chiesti.length, 0);
+    assert.strictEqual(r.salvati.length, 1);
+  });
+
+  it('eliminare un versamento o una spesa di un anno passato: la stessa domanda di conferma porta l\'avviso; dell\'anno corrente no', async () => {
+    const prova = async (bind, sel, attr, id, extra) => {
+      const { app, r } = mk(extra);
+      const btn = { dataset: { [attr]: String(id) } };
+      app.document.querySelectorAll = (s) => (s === sel ? [btn] : []);
+      app[bind]();
+      await btn.onclick();
+      return r.chiesti.find((t) => /^Eliminare/.test(t));
+    };
+    assert.match(await prova('bindAzioniEntrate', '[data-del-entrata]', 'delEntrata', 5), MSG);
+    assert.match(await prova('bindAzioniSpese', '[data-del-spesa]', 'delSpesa', 1), MSG);
+    assert.doesNotMatch(await prova('bindAzioniEntrate', '[data-del-entrata]', 'delEntrata', 5, { entrate: [{ ...versVecchio, data: `${Y}-04-10` }] }), MSG);
+    assert.doesNotMatch(await prova('bindAzioniSpese', '[data-del-spesa]', 'delSpesa', 1, { spese: [{ ...spesaVecchia, data: `${Y}-03-01` }] }), MSG);
+  });
+});
+
+// Consolidato (2026-10-25): QA-CONS-027 (allegati delle spese ricorrenti) e QA-CONS-010 (impostazioni per edificio).
+describe('UNIT — QA-CONS-027: allegati delle occorrenze ricorrenti', () => {
+  const allegato = { id: 'a1', nome: 'f.pdf', mime: 'application/pdf', size: 10, storagePath: 'buildings/1/allegati/a1_f.pdf' };
+  it('le occorrenze nascono senza gli allegati della prima spesa, che resta com\'è', () => {
+    const app = loadApp();
+    const base = { data: '2027-01-15', frequenza: 'mensile', ricorrente: true, preventivo: '90', edificioId: 1, allegati: [allegato] };
+    const occ = app.generaOccorrenze(base, '2027-06-30');
+    assert.ok(occ.length >= 3);
+    occ.forEach((o) => assert.strictEqual(JSON.stringify(o.allegati), '[]'));
+    assert.strictEqual(JSON.stringify(base.allegati), JSON.stringify([allegato]));
+  });
+  it('allegatoRiferito(): vero finché un altro record usa lo stesso file, falso quando nessuno lo usa', () => {
+    const app = loadApp();
+    const A = { id: 1, allegati: [allegato] }, B = { id: 2, allegati: [allegato] }, B0 = { id: 2, allegati: [] };
+    app.__set('state', { ...app.__get('state'), spese: [A, B], verbali: [] });
+    assert.strictEqual(app.allegatoRiferito(allegato.storagePath, { spese: [A, B0] }), true);
+    assert.strictEqual(app.allegatoRiferito(allegato.storagePath, { spese: [{ ...A, allegati: [] }, B0] }), false);
+    assert.strictEqual(app.allegatoRiferito(''), false);
+  });
+
+  // Elimina un allegato dalla scheda di `idScheda`, con le spese `spese` in memoria.
+  const elimina = async (spese, idScheda) => {
+    const app = loadApp();
+    const cancellati = [], salvati = [];
+    app._fb = { storage: {}, ref: (_s, p) => p, deleteObject: async (p) => { cancellati.push(p); } };
+    const scheda = spese.find((s) => s.id === idScheda);
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, spese, verbali: [], modal: { type: 'spesa', data: { ...scheda } } });
+    app.chiedi = async () => true;
+    app.save = (k, v) => { salvati.push(v); return Promise.resolve(true); };
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    app.render = () => {};
+    const btn = { dataset: { delAllegato: JSON.stringify({ id: 'a1' }) }, closest: () => null };
+    app.document.querySelectorAll = (sel) => (sel === '[data-del-allegato]' ? [btn] : []);
+    app.bindAllegatiInTable([{ records: spese, stateKey: 'spese', appdataKey: 'cm_spese' }]);
+    await btn.onclick();
+    await new Promise((r) => setTimeout(r, 0));
+    return { cancellati, salvati };
+  };
+  it('togliere l\'allegato da una spesa lo lascia alle altre che lo hanno già e non cancella il file condiviso', async () => {
+    const spese = [{ id: 1, allegati: [allegato] }, { id: 2, allegati: [allegato] }, { id: 3, allegati: [allegato] }];
+    const { cancellati, salvati } = await elimina(spese, 2);
+    assert.strictEqual(salvati.length, 1);
+    assert.deepStrictEqual(salvati[0].map((s) => s.allegati.length), [1, 0, 1]);
+    assert.deepStrictEqual(cancellati, [], 'file condiviso cancellato');
+  });
+  it('se nessun altro record lo riferisce il file viene cancellato da Storage', async () => {
+    const { cancellati, salvati } = await elimina([{ id: 1, allegati: [allegato] }, { id: 2, allegati: [] }], 1);
+    assert.deepStrictEqual(salvati[0].map((s) => s.allegati.length), [0, 0]);
+    assert.deepStrictEqual(cancellati, [allegato.storagePath]);
+  });
+  it('scheda chiusa senza salvare: i file appena caricati si cancellano, ma non se un record li usa', () => {
+    const app = loadApp();
+    const cancellati = [];
+    app._fb = { storage: {}, ref: (_s, p) => p, deleteObject: async (p) => { cancellati.push(p); } };
+    const nuovo = { id: 'n1', nome: 'n.pdf', mime: 'application/pdf', size: 1, storagePath: 'buildings/1/allegati/n1_n.pdf' };
+    app.__set('state', { ...app.__get('state'), spese: [{ id: 1, allegati: [allegato] }], verbali: [], pendingFiles: [nuovo, allegato] });
+    app.scartaFilePendenti();
+    assert.deepStrictEqual(cancellati, [nuovo.storagePath]);
+    assert.strictEqual(app.__get('state').pendingFiles.length, 0);
+  });
+});
+
+describe('UNIT — QA-CONS-010: impostazioni per edificio riviste dal server prima di salvare', () => {
+  const snapDi = (ms, extra = {}) => ({ exists: () => ms !== null, data: () => (ms === null ? undefined : { ...extra, aggiornatoIl: { toMillis: () => ms } }) });
+  const fbCon = (lettura, scritture = []) => ({
+    auth: { currentUser: { uid: 'u' } }, db: {}, serverTimestamp: () => 'ORA',
+    doc: (_db, ...p) => ({ path: p.join('/'), id: p[p.length - 1] }),
+    getDoc: async (ref) => lettura(ref), setDoc: async (ref, dati) => { scritture.push({ path: ref.path, dati }); },
+  });
+
+  it('impostazioneCambiataAltrove(): nessun avviso se la versione è la stessa o se non c\'è una versione di partenza', async () => {
+    const app = loadApp();
+    app._fb = fbCon(() => snapDi(5));
+    let dialoghi = 0; app.chiedi = async () => { dialoghi++; return true; };
+    assert.strictEqual(await app.impostazioneCambiataAltrove(1, 'affitti', 'v5', 'Affitti', () => {}), false);
+    assert.strictEqual(await app.impostazioneCambiataAltrove(1, 'affitti', undefined, 'Affitti', () => {}), false);
+    assert.strictEqual(dialoghi, 0);
+  });
+  it('impostazioneCambiataAltrove(): versione diversa o documento comparso/sparito = salvataggio fermato, con scelta di ricaricare', async () => {
+    for (const [att, base] of [[9, 'v5'], [null, 'v5'], [5, 'assente']]) {
+      const app = loadApp();
+      app._fb = fbCon(() => snapDi(att, { tabelle: [] }));
+      const domande = [];
+      app.chiedi = async (t, o) => { domande.push({ t, o }); return true; };
+      let ricaricato = null;
+      assert.strictEqual(await app.impostazioneCambiataAltrove(1, 'millesimi', base, 'Millesimi', (d, f) => { ricaricato = { d, f }; }), true, `${att}/${base}`);
+      assert.strictEqual(domande.length, 1);
+      assert.match(domande[0].t, /cambiate da un'altra persona/);
+      assert.ok(ricaricato, 'la scelta Ricarica non ha applicato i valori');
+      assert.strictEqual(ricaricato.f, att === null ? 'assente' : 'v' + att);
+      // "Resta qui": si ferma lo stesso e non ricarica.
+      app.chiedi = async () => false;
+      ricaricato = null;
+      assert.strictEqual(await app.impostazioneCambiataAltrove(1, 'millesimi', base, 'Millesimi', () => { ricaricato = true; }), true);
+      assert.strictEqual(ricaricato, null);
+    }
+  });
+
+  // Salvataggio degli appartamenti in affitto, con il server che nel frattempo è (o non è) cambiato.
+  const salvaAffitti = async (versioneServer) => {
+    const app = loadApp();
+    const scritture = [];
+    app._fb = fbCon(() => snapDi(versioneServer, { appartamenti: { 'int. 1': true } }), scritture);
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, condomini: [{ id: 1, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 }] });
+    app.__get('_affitti')[1] = null;
+    app.__get('_affittiVer')[1] = 'v5';
+    const box = { innerHTML: '', querySelectorAll: () => [] };
+    const salva = {};
+    app.document.getElementById = (id) => (id === 'affitti-box' ? box : id === 'affitti-salva' ? salva : id === 'affitti-err' ? { style: {} } : null);
+    app.chiedi = async () => false;
+    app.render = () => {};
+    app.disegnaAffitti();
+    await salva.onclick();
+    return { scritture, avvisi: app.__alerts };
+  };
+  it('Appartamenti in affitto: se un altro ha salvato dopo la lettura non si scrive nulla', async () => {
+    const { scritture } = await salvaAffitti(9);
+    assert.deepStrictEqual(scritture, []);
+  });
+  it('Appartamenti in affitto: con la versione letta ancora attuale il salvataggio avviene', async () => {
+    const { scritture } = await salvaAffitti(5);
+    assert.strictEqual(scritture.length, 1);
+    assert.strictEqual(scritture[0].path, 'buildings/1/impostazioni/affitti');
+  });
+
+  it('dati globali (categorie): se sul server sono cambiati non si sovrascrivono e si torna a ciò che c\'è sul server', async () => {
+    const app = loadApp();
+    app.render = () => {};
+    const scritture = [];
+    const base = [{ id: 'a', label: 'A' }], altrui = [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }];
+    const server = altrui;
+    app._fb = fbCon(() => ({ exists: () => true, data: () => ({ value: JSON.stringify(server) }) }), scritture);
+    app.setServerSnap('cm_categorie', base);
+    const mie = [{ id: 'a', label: 'A2' }];
+    assert.strictEqual(await app.save('cm_categorie', mie), false);
+    assert.deepStrictEqual(scritture, [], 'sovrascritto in silenzio');
+    assert.deepStrictEqual(app.load('cm_categorie'), altrui);
+    assert.ok(app.__alerts.some((m) => /modificat[io] da un'altra persona/.test(m)), app.__alerts.join('|'));
+    // Rifatta la modifica sopra la versione aggiornata, il salvataggio passa.
+    assert.strictEqual(await app.save('cm_categorie', [...altrui, { id: 'c', label: 'C' }]), true);
+    assert.strictEqual(scritture.length, 1);
+  });
+  it('dati globali: server invariato = salvataggio normale; base mai letta = nessun confronto', async () => {
+    const app = loadApp();
+    app.render = () => {};
+    const scritture = [];
+    const base = [{ id: 'a' }];
+    app._fb = fbCon(() => ({ exists: () => true, data: () => ({ value: JSON.stringify(base) }) }), scritture);
+    app.setServerSnap('cm_categorie', base);
+    assert.strictEqual(await app.save('cm_categorie', [{ id: 'a', label: 'x' }]), true);
+    const app2 = loadApp();
+    app2.render = () => {};
+    const s2 = [];
+    app2._fb = fbCon(() => ({ exists: () => true, data: () => ({ value: '[]' }) }), s2);
+    assert.strictEqual(await app2.save('cm_branding', { nomeProdotto: 'X' }), true);
+    assert.strictEqual(s2.length, 1);
+  });
+
+  it('millesimi (ADV-FUNC-026): dopo un minuto si rileggono in silenzio e la scheda spesa vede la tabella nuova; mai con una scheda aperta', async () => {
+    const app = loadApp();
+    let versione = 1;
+    app._fb = fbCon(() => snapDi(versione, { attivo: true, dal: '2027-01-01', tabelle: [{ id: 't' + versione }] }));
+    let ridisegni = 0; app.renderPresto = () => { ridisegni++; };
+    app.__set('state', { ...app.__get('state'), user: { id: 1 }, edificioAttivo: 1, page: 'spese', modal: null });
+    app.assicuraMillesimi();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.strictEqual(app.tabelleMillesimi(1)[0].id, 't1');
+    versione = 2;
+    app.assicuraMillesimi(); // appena letti: nessuna nuova lettura
+    await new Promise((r) => setTimeout(r, 0));
+    assert.strictEqual(app.tabelleMillesimi(1)[0].id, 't1');
+    app.__get('_millesimiLetti')[1] = Date.now() - 61000;
+    app.__set('state', { ...app.__get('state'), modal: { type: 'spesa', data: null } });
+    app.assicuraMillesimi(); // scheda aperta: non si tocca
+    await new Promise((r) => setTimeout(r, 0));
+    assert.strictEqual(app.tabelleMillesimi(1)[0].id, 't1');
+    app.__set('state', { ...app.__get('state'), modal: null });
+    const prima = ridisegni;
+    app.assicuraMillesimi();
+    await new Promise((r) => setTimeout(r, 0));
+    assert.strictEqual(app.tabelleMillesimi(1)[0].id, 't2');
+    assert.strictEqual(ridisegni, prima + 1);
+  });
+});
+
+// Lotto A (2026-10-25): ADV-FUNC-032/034/017/026, ADV-TECH-020, CR-004/005/006.
+describe('UNIT — lotto A: subentro futuro, rappresentante, editor, millesimi, piano rate', () => {
+  const Y = new Date().getFullYear();
+  const FUT = `${Y + 1}-06-01`;
+  const base = (extra = {}) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], pendingFiles: [], spese: [], entrate: [],
+      user: { id: 900, nome: 'Admin', isAdmin: true, canEdit: true, edificioId: 1 }, ...extra });
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    return app;
+  };
+  const condSubentro = () => [
+    { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1, dataUscita: FUT, disabledNote: 'Subentro: Carlo dal 01/06/' + (Y + 1) },
+    { id: 105, nome: 'Carlo', appartamento: 'Int. 1', edificioId: 1, dataIngresso: FUT },
+    { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 },
+  ];
+
+  // ADV-FUNC-032
+  it('ADV-FUNC-032: su chi ha un subentro futuro il pulsante Subentro e la conferma sono bloccati con un avviso', async () => {
+    const app = base({ condomini: condSubentro() });
+    const btn = { dataset: { subentroCond: '101' } };
+    app.document.querySelectorAll = (s) => (s === '[data-subentro-cond]' ? [btn] : []);
+    app.bindAzioniCondomini();
+    btn.onclick();
+    assert.ok(!app.__get('state').modal, 'la scheda del secondo subentro non deve aprirsi');
+    assert.ok(app.__alerts.some((m) => /ha già un subentro registrato/.test(m)), app.__alerts.join('|'));
+    // anche la conferma, se la scheda fosse già aperta
+    app.__set('state', { ...app.__get('state'), modal: { type: 'subentro', data: { id: 101 } } });
+    let salvati = 0; app.save = () => { salvati++; return true; };
+    const campi = { 'btn-sub-conferma': { dataset: { cond: '101' } }, 'sub-data': { value: `${Y + 1}-08-01` }, 'sub-nome': { value: 'Elena' },
+      'sub-email': { value: '' }, 'sub-ruolo': { value: 'lettura' }, 'sub-passa': { checked: false }, 'sub-err': { style: {}, textContent: '' } };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.bindSchedaSubentro();
+    await campi['btn-sub-conferma'].onclick();
+    assert.strictEqual(salvati, 0);
+    assert.strictEqual(app.__get('state').condomini.length, 3, 'creato un secondo subentrante');
+    assert.ok(/ha già un subentro registrato/.test(campi['sub-err'].textContent));
+  });
+
+  it('ADV-FUNC-032: Archivia su chi ha un subentro futuro chiede conferma e non sostituisce la nota; senza conferma non cambia nulla', async () => {
+    for (const risposta of [false, true]) {
+      const app = base({ condomini: condSubentro() });
+      let salvati = null; app.save = (k, v) => { salvati = v; };
+      let chiesto = 0; app.chiedi = async () => { chiesto++; return risposta; };
+      const campi = { 'btn-confirm-disable': { dataset: { uid: '101' } }, 'disable-note': { value: 'Trasloco' }, 'disable-uscita': { value: `${Y}-01-05` } };
+      app.document.getElementById = (id) => campi[id] || null;
+      app.bindSchedaCondomini();
+      await campi['btn-confirm-disable'].onclick();
+      assert.strictEqual(chiesto, 1);
+      const anna = app.__get('state').condomini.find((c) => c.id === 101);
+      if (!risposta) {
+        assert.strictEqual(salvati, null, 'salvato senza conferma');
+        assert.strictEqual(anna.dataUscita, FUT);
+        assert.ok(!anna.disabled);
+      } else {
+        assert.ok(/^Subentro: Carlo/.test(anna.disabledNote), anna.disabledNote);
+        assert.ok(anna.disabledNote.includes('Trasloco'));
+      }
+    }
+    // chi non ha un subentro: nessuna domanda in più
+    const app = base({ condomini: condSubentro() });
+    app.save = () => {}; let chiesto = 0; app.chiedi = async () => { chiesto++; return true; };
+    const campi = { 'btn-confirm-disable': { dataset: { uid: '102' } }, 'disable-note': { value: '' }, 'disable-uscita': { value: `${Y}-01-05` } };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.bindSchedaCondomini();
+    await campi['btn-confirm-disable'].onclick();
+    assert.strictEqual(chiesto, 0);
+    assert.ok(app.__get('state').condomini.find((c) => c.id === 102).disabled);
+  });
+
+  it('ADV-FUNC-032: "Uscito il" non si svuota su chi ha un subentro futuro (resterebbero attivi sia lui sia chi entra); cambiarlo è consentito', async () => {
+    const campiBase = (uscita) => ({ 'm-nome': { value: 'Anna' }, 'm-apt': { value: 'Int. 1' }, 'm-email': { value: '' }, 'm-ruolo': { value: 'lettura' },
+      'm-edificio': { value: '1' }, 'm-ingresso': { value: '' }, 'm-tel': { value: '' }, 'm-username': { value: '' }, 'm-uscita': { value: uscita },
+      'm-email-notifiche': { checked: true }, 'm-wa-notifiche': { checked: true } });
+    const app = base({ condomini: condSubentro() });
+    let salvati = null; app.save = (k, v) => { salvati = v; };
+    let campi = campiBase('');
+    app.document.getElementById = (id) => campi[id] || null;
+    await app.salvaSchedaCondomino({ data: { id: 101 } });
+    assert.strictEqual(salvati, null, 'salvato con la data svuotata');
+    assert.ok(app.__alerts.some((m) => /non si può lasciare vuota la data di uscita/.test(m)), app.__alerts.join('|'));
+    assert.strictEqual(app.__get('state').condomini.find((c) => c.id === 101).dataUscita, FUT);
+    campi = campiBase(`${Y + 1}-07-01`);
+    await app.salvaSchedaCondomino({ data: { id: 101 } });
+    assert.strictEqual(salvati.find((c) => c.id === 101).dataUscita, `${Y + 1}-07-01`);
+  });
+
+  // ADV-FUNC-034
+  it('ADV-FUNC-034: nominare il nuovo rappresentante non toglie il flag a chi è uscito: la proposta alle date passate non cambia', async () => {
+    const CFG = { attivo: true, dal: `${Y}-01-01`, categorie: {}, tabelle: [{ id: 'generale', nome: 'Generale', valori: { 'int. 1': 400, 'int. 2': 300, 'int. 3': 300 } }] };
+    const condomini = [
+      { id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 },
+      { id: 102, nome: 'Aldo', appartamento: 'Int. 2', edificioId: 1, rappresentante: true, disabled: true, disabledOn: `${Y}-03-01T00:00:00.000Z`, dataUscita: `${Y}-03-01` },
+      { id: 103, nome: 'Bea', appartamento: 'Int. 2', edificioId: 1 },
+      { id: 104, nome: 'Dora', appartamento: 'Int. 3', edificioId: 1 },
+      { id: 106, nome: 'Ciro', appartamento: 'Int. 2', edificioId: 1, dataIngresso: `${Y}-03-01` },
+    ];
+    const app = base({ condomini });
+    app.__get('_millesimi')[1] = CFG;
+    let salvati = null; app.save = (k, v) => { salvati = v; };
+    const campi = { 'm-nome': { value: 'Ciro' }, 'm-apt': { value: 'Int. 2' }, 'm-email': { value: '' }, 'm-ruolo': { value: 'lettura' }, 'm-edificio': { value: '1' },
+      'm-ingresso': { value: `${Y}-03-01` }, 'm-tel': { value: '' }, 'm-username': { value: '' }, 'm-email-notifiche': { checked: true }, 'm-wa-notifiche': { checked: true }, 'm-rappresentante': { checked: true } };
+    app.document.getElementById = (id) => campi[id] || null;
+    await app.salvaSchedaCondomino({ data: { id: 106 } });
+    assert.strictEqual(salvati.find((c) => c.id === 106).rappresentante, true);
+    assert.strictEqual(salvati.find((c) => c.id === 102).rappresentante, true, 'il flag di chi è uscito è stato tolto');
+    const p = app.propostaMillesimi('generale', `${Y}-02-01`);
+    const perc = (id) => p.split.find((x) => x.id === id).perc;
+    assert.strictEqual(perc(102), 30, 'Aldo era il rappresentante prima di marzo');
+    assert.strictEqual(perc(103), 0);
+  });
+
+  // ADV-FUNC-017
+  describe('ADV-FUNC-017', () => {
+    const NOW = Date.UTC(2026, 9, 24);
+    const condomini = [{ id: 1, nome: 'Edi Tore', edificioId: 1, uid: 'u-ed', canEdit: true, isAdmin: false, dataIngresso: '2020-01-01' },
+      { id: 3, nome: 'Altro', edificioId: 1 }];
+    const run = (app, spese, by = 'u-ed') => app.segnalazioniEditor({ condomini, edificioId: 1, adesso: NOW, entrate: [], spese,
+      autore: () => ({ by, at: NOW - 86400000 }) });
+    it('editor con la quota a 0% o senza riga, presente alla data: segnalato con il motivo; senza data valida o non ancora entrato: no', () => {
+      const app = loadApp();
+      const spese = [
+        { id: 20, edificioId: 1, titolo: 'A', data: '2026-10-01', split: [{ id: 1, perc: 0 }, { id: 3, perc: 100 }] },
+        { id: 21, edificioId: 1, titolo: 'B', data: '2026-10-01', split: [{ id: 3, perc: 100 }] },
+        { id: 22, edificioId: 1, titolo: 'C', data: '2019-10-01', split: [{ id: 3, perc: 100 }] }, // l'editor non c'era ancora
+        { id: 23, edificioId: 1, titolo: 'D', split: [{ id: 3, perc: 100 }] }, // nessuna data
+        { id: 24, edificioId: 1, titolo: 'E', data: '2026-10-01', split: [{ id: 1, perc: 40 }, { id: 3, perc: 60 }] },
+      ];
+      const r = run(app, spese);
+      assert.deepStrictEqual(Array.from(r.map((x) => x.rec.id).sort()), [20, 21, 24]);
+      assert.strictEqual(r.find((x) => x.rec.id === 20).quota, 'zero');
+      assert.strictEqual(r.find((x) => x.rec.id === 21).quota, 'assente');
+      assert.strictEqual(r.find((x) => x.rec.id === 24).quota, undefined);
+      assert.deepStrictEqual(Array.from(run(app, spese, 'u-altro')), [], 'scritta da un altro: nessuna segnalazione');
+    });
+    it('il riquadro in pagina dice quando la quota dell\'editor è a 0% o tolta', () => {
+      const app = loadApp();
+      app.ricordaAutore('buildings/1/expenses/20', { _updatedBy: 'u-ed', _updatedAt: { toMillis: () => Date.now() } });
+      app.__set('state', { ...app.__get('state'), edificioAttivo: 1, user: { isAdmin: true }, condomini, entrate: [],
+        spese: [{ id: 20, edificioId: 1, titolo: 'Luce', data: '2026-10-01', split: [{ id: 3, perc: 100 }] }] });
+      const html = app.renderSegnalazioniEditor('spesa');
+      assert.ok(/senza la sua riga/.test(html) && html.includes('Edi Tore'), html);
+    });
+  });
+
+  // ADV-FUNC-026 e CR-004
+  describe('millesimi: rilettura all\'apertura della scheda spesa e nessun ridisegno con scheda aperta', () => {
+    const snapDi = (ms, extra) => ({ exists: () => true, data: () => ({ ...extra, aggiornatoIl: { toMillis: () => ms } }) });
+    const fb = (lettura) => ({ auth: { currentUser: { uid: 'u' } }, db: {}, doc: (_db, ...p) => ({ path: p.join('/') }), getDoc: async () => lettura() });
+    it('ADV-FUNC-026: rileggiMillesimiSeVecchi legge solo se l\'ultima lettura ha più di un minuto; "+ Aggiungi spesa" aspetta la lettura prima di aprire la scheda', async () => {
+      let versione = 1; let letture = 0;
+      const app = base();
+      app._fb = fb(() => { letture++; return snapDi(versione, { attivo: true, dal: `${Y}-01-01`, tabelle: [{ id: 't' + versione }] }); });
+      app.__get('_millesimi')[1] = { attivo: true, dal: `${Y}-01-01`, tabelle: [{ id: 't1' }] };
+      app.__get('_millesimiLetti')[1] = Date.now();
+      versione = 2;
+      await app.rileggiMillesimiSeVecchi();
+      assert.strictEqual(letture, 0, 'letti da poco: nessuna lettura');
+      app.__get('_millesimiLetti')[1] = Date.now() - 120000;
+      const btn = {};
+      app.document.getElementById = (id) => (id === 'btn-add-spesa' ? btn : null);
+      app.document.querySelectorAll = () => [];
+      app.bindAzioniSpese();
+      const ordine = [];
+      const setStatePrima = app.setState;
+      app.setState = (p) => { if (p.modal) ordine.push('apre:' + app.tabelleMillesimi(1)[0].id); return setStatePrima(p); };
+      await btn.onclick();
+      assert.strictEqual(letture, 1);
+      assert.deepStrictEqual(ordine, ['apre:t2'], 'la scheda si apre dopo la rilettura, con la tabella nuova');
+    });
+    it('CR-004: se durante la lettura si apre una scheda, i dati si aggiornano ma la pagina non viene ridisegnata', async () => {
+      let versione = 1;
+      const app = base({ page: 'spese', modal: null, user: { id: 1 } });
+      app._fb = fb(() => snapDi(versione, { attivo: true, dal: `${Y}-01-01`, tabelle: [{ id: 't' + versione }] }));
+      let ridisegni = 0; app.renderPresto = () => { ridisegni++; };
+      app.assicuraMillesimi();
+      await new Promise((r) => setTimeout(r, 0));
+      const dopoPrima = ridisegni;
+      versione = 2;
+      app.__get('_millesimiLetti')[1] = Date.now() - 120000;
+      app._fb = fb(() => { app.__set('state', { ...app.__get('state'), modal: { type: 'spesa', data: null } }); return snapDi(versione, { attivo: true, dal: `${Y}-01-01`, tabelle: [{ id: 't2' }] }); });
+      app.assicuraMillesimi();
+      await new Promise((r) => setTimeout(r, 0));
+      assert.strictEqual(app.tabelleMillesimi(1)[0].id, 't2');
+      assert.strictEqual(ridisegni, dopoPrima, 'ridisegno con una scheda aperta');
+    });
+  });
+
+  // ADV-TECH-020
+  describe('ADV-TECH-020: il subentro calcola il passaggio delle quote dopo la conferma dei condomini', () => {
+    const prepara = () => {
+      const app = base({ condomini: [{ id: 201, nome: 'Dario', appartamento: 'Int. 3', edificioId: 1 }],
+        spese: [{ id: 5, data: `${Y + 1}-03-01`, titolo: 'Tetto', preventivo: '1000', consuntivo: '', edificioId: 1, split: [{ id: 201, perc: 100 }] }],
+        modal: { type: 'subentro', data: { id: 201 } } });
+      let sblocca; const attesa = new Promise((r) => { sblocca = r; });
+      const salvateSpese = [];
+      app.save = (k, v) => { if (k === 'cm_condomini') return attesa.then(() => true); salvateSpese.push(v); return Promise.resolve(true); };
+      const campi = { 'btn-sub-conferma': { dataset: { cond: '201' } }, 'sub-data': { value: `${Y + 1}-01-01` }, 'sub-nome': { value: 'Elena' },
+        'sub-email': { value: '' }, 'sub-ruolo': { value: 'lettura' }, 'sub-passa': { checked: true }, 'sub-err': { style: {} } };
+      app.document.getElementById = (id) => campi[id] || null;
+      app.bindSchedaSubentro();
+      return { app, salvateSpese, sblocca, clic: () => campi['btn-sub-conferma'].onclick() };
+    };
+    it('una correzione fatta durante l\'attesa resta, e la quota passa comunque sulla spesa aggiornata', async () => {
+      const t = prepara();
+      const p = t.clic();
+      await new Promise((r) => setTimeout(r, 0));
+      t.app.__set('state', { ...t.app.__get('state'), spese: t.app.__get('state').spese.map((s) => ({ ...s, titolo: 'Tetto corretto', preventivo: '1200' })) });
+      t.sblocca();
+      await p;
+      assert.strictEqual(t.salvateSpese.length, 1);
+      const s = t.salvateSpese[0][0];
+      assert.strictEqual(s.titolo, 'Tetto corretto', 'la correzione è stata annullata');
+      assert.strictEqual(s.preventivo, '1200');
+      assert.strictEqual(s.split.find((x) => x.id === 201).perc, 0);
+      assert.strictEqual(s.split.find((x) => x.id !== 201).perc, 100);
+      assert.ok(t.app.__alerts.some((m) => /^✅ Subentro registrato/.test(m)), t.app.__alerts.join('|'));
+    });
+    it('se nell\'attesa la spesa diventa consuntivata (quota non più passabile) non si dice "Subentro registrato" e basta: avviso', async () => {
+      const t = prepara();
+      const p = t.clic();
+      await new Promise((r) => setTimeout(r, 0));
+      t.app.__set('state', { ...t.app.__get('state'), spese: t.app.__get('state').spese.map((s) => ({ ...s, consuntivo: '900' })) });
+      t.sblocca();
+      await p;
+      assert.strictEqual(t.salvateSpese.length, 0, 'quote passate su una spesa consuntivata');
+      assert.ok(!t.app.__alerts.some((m) => /^✅ Subentro registrato/.test(m)), t.app.__alerts.join('|'));
+      assert.ok(t.app.__alerts.some((m) => /nessuna quota è passata/.test(m)), t.app.__alerts.join('|'));
+    });
+  });
+
+  // CR-005
+  describe('CR-005: spesa vecchia con la quota di un condomino che non esiste più', () => {
+    const prova = (split) => {
+      const app = base({ condomini: [{ id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 }, { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }] });
+      let salvati = 0; app.save = () => { salvati++; };
+      const err = { style: {}, textContent: '' };
+      const campi = { 'm-titolo': { value: 'Tetto' }, 'm-desc': { value: '' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '' },
+        'm-cons': { value: '1000' }, 'm-data': { value: `${Y}-03-01` }, 'm-err': err };
+      app.document.getElementById = (id) => campi[id] || null;
+      app.document.querySelectorAll = (sel) => (sel === '.split-perc-inp' ? [[101, 30], [102, 30]].map(([id, p]) => ({ dataset: { cid: String(id) }, value: String(p) })) : []);
+      const vecchia = { id: 1, titolo: 'Tetto', categoria: 'tetto', tipoSpesa: 'ordinaria', consuntivo: '1000', data: `${Y}-03-01`, edificioId: 1, allegati: [], split };
+      return app.salvaSchedaSpesa({ data: vecchia }).then(() => ({ err, salvati: () => salvati }));
+    };
+    it('resta bloccata al 100% ma il messaggio spiega la causa e cosa fare', async () => {
+      const r = await prova([{ id: 101, perc: 30 }, { id: 102, perc: 30 }, { id: 999, perc: 40 }]);
+      assert.strictEqual(r.salvati(), 0, 'il blocco al 100% è stato indebolito');
+      assert.ok(/non esiste più/.test(r.err.textContent) && /40\.00%/.test(r.err.textContent) && /Parti uguali/.test(r.err.textContent), r.err.textContent);
+    });
+    it('senza quote orfane il messaggio resta quello generico', async () => {
+      const r = await prova([{ id: 101, perc: 30 }, { id: 102, perc: 30 }]);
+      assert.strictEqual(r.salvati(), 0);
+      assert.ok(/ora fa 60\.00%/.test(r.err.textContent) && !/non esiste più/.test(r.err.textContent), r.err.textContent);
+    });
+  });
+
+  // CR-006
+  it('CR-006: piano rate di un anno passato: lo stato si rilegge dopo la conferma, così un versamento arrivato nell\'attesa non viene perso', async () => {
+    const vecchia = { id: 50, condominoId: 101, importo: '10', importoPrevisto: '10', data: `${Y - 1}-03-01`, descrizione: 'Rata', categoria: 'quote', edificioId: 1, previsionale: true, pianoRataAuto: true, pianoAnno: Y - 1, pianoRataN: 1 };
+    const app = base({ condomini: [{ id: 101, nome: 'Anna', appartamento: 'Int. 1', edificioId: 1 }], entrate: [vecchia], filterAnno: Y - 1, filterAnni: [Y - 1] });
+    let salvate = null; app.save = (k, v) => { salvate = v; };
+    app.chiedi = async () => {
+      // nell'attesa arriva un versamento nuovo
+      app.__set('state', { ...app.__get('state'), entrate: [...app.__get('state').entrate, { id: 777, condominoId: 101, importo: '5', data: `${Y}-01-02`, edificioId: 1 }] });
+      return true;
+    };
+    const btn = {};
+    app.document.getElementById = (id) => (id === 'btn-conferma-rate-piano' ? btn : null);
+    app.document.querySelectorAll = () => [];
+    app.bindAzioniEntrate();
+    await btn.onclick();
+    assert.ok(salvate, 'non salvato');
+    assert.ok(salvate.some((e) => e.id === 777), 'il versamento arrivato nell\'attesa è stato cancellato dalla copia vecchia');
+    assert.ok(!salvate.some((e) => e.id === 50), 'la proposta non più necessaria doveva essere rimossa');
+  });
+});
+
+// ─── Lotto B (2026-10-25) ───────────────────────────────────────────────────
+describe('UNIT — lotto B: data di ingresso, serie con importo vecchio, tipi di allegato, versione dopo setUserRole', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const Y = new Date().getFullYear();
+  const base = (extra = {}) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], pendingFiles: [], spese: [], entrate: [], page: 'spese', filterAnno: Y,
+      user: { id: 102, nome: 'Bruno', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [{ id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1 }], ...extra });
+    app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
+    return app;
+  };
+
+  // DAT-001: stessa semantica del server (functions/notifiche.js, ingressoFuturo)
+  describe('DAT-001: data di ingresso', () => {
+    const male = ['25/12/2099', '2099', '2099-12', '2099-1-5', '31-12-2099', '2099-13-45', '2099-02-30', '2099-12-01T10:00', ' 2099-12-01', 'domani', '', 20991201, true, { a: 1 }, ['2099-12-01'], null, undefined];
+    it('una data non ISO o impossibile vale "nessuna data": non esclude dalle email né segnala un ingresso futuro', () => {
+      const app = loadApp();
+      for (const dataIngresso of male) {
+        assert.strictEqual(app.ingressoFuturo({ dataIngresso }, '2026-11-30'), false, JSON.stringify(dataIngresso));
+        assert.strictEqual(app.motivoNoEmail({ email: 'a@qa.test', dataIngresso }), null, JSON.stringify(dataIngresso));
+      }
+      assert.strictEqual(app.ingressoFuturo({ dataIngresso: '2099-12-01' }, '2026-11-30'), true);
+      assert.strictEqual(app.ingressoFuturo({ dataIngresso: '2026-11-30' }, '2026-11-30'), false);
+      assert.strictEqual(app.motivoNoEmail({ email: 'a@qa.test', dataIngresso: '2099-12-01' }), 'non ancora entrato');
+    });
+    it('client e server danno lo stesso risultato su ogni caso', () => {
+      process.env.FUNCTIONS_EMULATOR = 'true';
+      const fnReq = require('module').createRequire(path.join(__dirname, '..', 'functions', 'package.json'));
+      const server = fnReq('./notifiche')._test.ingressoFuturo;
+      const app = loadApp();
+      for (const dataIngresso of [...male, '2099-12-01', '2026-11-30', '2026-11-29', '2024-02-29', '2099-02-29', '2100-02-29', '2000-01-01']) {
+        assert.strictEqual(app.ingressoFuturo({ dataIngresso }, '2026-11-30'), server({ dataIngresso }, '2026-11-30'), JSON.stringify(dataIngresso));
+      }
+    });
+    it('la lista dei condomini non mostra "Entra il" per una data non ISO', () => {
+      const app = base({ page: 'condomini', condomini: [
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1, dataIngresso: '25/12/2099' },
+        { id: 103, nome: 'Carla', appartamento: 'Int. 3', edificioId: 1, dataIngresso: '2099-12-25' }] });
+      const html = app.renderCondomini();
+      assert.strictEqual((html.match(/Entra il/g) || []).length, 1, 'solo la data ISO futura');
+    });
+  });
+
+  // DAT-003: la serie copia l'importo della spesa; un importo vecchio non valido farebbe rifiutare l'intero lotto
+  describe('DAT-003: spesa ricorrente con un importo vecchio non valido', () => {
+    const campi = (extra = {}) => ({ 'm-titolo': { value: 'Pulizie' }, 'm-desc': { value: '' }, 'm-cat': { value: 'pulizie' }, 'm-tipo': { value: 'ordinaria' },
+      'm-prev': { value: '' }, 'm-cons': { value: '' }, 'm-data': { value: `${Y}-03-01` }, 'm-err': { style: {}, textContent: '' },
+      'm-ricorrente': { checked: false }, 'm-freq': { value: 'mensile' }, 'm-freq-fine': { value: '' }, 'm-serie-applica': { checked: false }, ...extra });
+    const prova = async (vecchia, c, spese = vecchia ? [vecchia] : []) => {
+      const app = base({ spese });
+      let salvate = null; app.save = (k, v) => { salvate = v; };
+      app.document.getElementById = (id) => c[id] || null;
+      app.document.querySelectorAll = (sel) => (sel === '.split-perc-inp' ? [{ dataset: { cid: '102' }, value: '100' }] : []);
+      await app.salvaSchedaSpesa({ data: vecchia });
+      return { salvate, errore: c['m-err'].textContent, avvisi: app.__alerts };
+    };
+    const vecchia = (extra = {}) => ({ id: 9, titolo: 'Pulizie', categoria: 'pulizie', tipoSpesa: 'ordinaria', data: `${Y}-03-01`, split: [{ id: 102, perc: 100 }], edificioId: 1, allegati: [], ...extra });
+
+    it('nuova serie con importo valido: crea la spesa e le occorrenze', async () => {
+      const r = await prova(null, campi({ 'm-prev': { value: '90' }, 'm-ricorrente': { checked: true }, 'm-freq-fine': { value: `${Y}-06-30` } }));
+      assert.ok(r.salvate && r.salvate.length === 4, 'attese 4 spese (marzo-giugno), ottenute ' + (r.salvate && r.salvate.length));
+      assert.ok(r.salvate.every((s) => s.preventivo === '90'));
+    });
+    it('una spesa vecchia con preventivo 0 o consuntivo negativo, resa ricorrente: nessun salvataggio, messaggio chiaro nella scheda', async () => {
+      for (const [prev, cons] of [['0', ''], ['', '-50'], ['0', '500'], ['10.999', ''], ['', '0.00']]) {
+        const v = vecchia({ preventivo: prev, consuntivo: cons });
+        const r = await prova(v, campi({ 'm-prev': { value: prev }, 'm-cons': { value: cons }, 'm-ricorrente': { checked: true }, 'm-freq-fine': { value: `${Y}-06-30` } }));
+        assert.strictEqual(r.salvate, null, `salvata la serie con ${prev}/${cons}`);
+        assert.match(r.errore, /occorrenze della serie copiano l'importo/);
+        assert.match(r.errore, /maggiore di zero/);
+      }
+    });
+    it('cambiare la data di fine di una serie esistente con un importo vecchio non valido è bloccato allo stesso modo', async () => {
+      const v = vecchia({ preventivo: '0', consuntivo: '', ricorrente: true, frequenza: 'mensile', ricorrenzaFine: `${Y}-05-31`, ricGruppoId: 'g1' });
+      const r = await prova(v, campi({ 'm-prev': { value: '0' }, 'm-ricorrente': { checked: true }, 'm-freq-fine': { value: `${Y}-08-31` } }));
+      assert.strictEqual(r.salvate, null);
+      assert.match(r.errore, /occorrenze della serie/);
+    });
+    it('"Applica anche alle successive" con un preventivo vecchio non valido che le successive non hanno: bloccato; se è lo stesso valore, no', async () => {
+      const v = vecchia({ preventivo: '0', consuntivo: '500', ricorrente: true, frequenza: 'mensile', ricorrenzaFine: `${Y}-05-31`, ricGruppoId: 'g1' });
+      const succ = (prev) => ({ ...vecchia({ id: 10, data: `${Y}-04-01`, preventivo: prev, consuntivo: '', ricorrente: true, frequenza: 'mensile', ricorrenzaFine: `${Y}-05-31`, ricGruppoId: 'g1' }) });
+      const c = () => campi({ 'm-prev': { value: '0' }, 'm-cons': { value: '500' }, 'm-ricorrente': { checked: true }, 'm-freq-fine': { value: `${Y}-05-31` }, 'm-serie-applica': { checked: true } });
+      let r = await prova(v, c(), [v, succ('90')]);
+      assert.strictEqual(r.salvate, null, 'scriverebbe 0 nelle successive');
+      assert.match(r.errore, /occorrenze della serie copiano/);
+      r = await prova(v, c(), [v, succ('0')]);
+      assert.ok(r.salvate, 'le successive hanno già lo stesso valore: la regola le lascia passare');
+    });
+    it('senza serie, una spesa vecchia con un importo non valido lasciato com\'è si salva come prima', async () => {
+      const v = vecchia({ preventivo: '0', consuntivo: '500' });
+      const r = await prova(v, campi({ 'm-prev': { value: '0' }, 'm-cons': { value: '500' } }));
+      assert.ok(r.salvate, 'bloccata una modifica che non crea occorrenze');
+    });
+    it('un importo valido corretto sulla spesa permette di creare la serie', async () => {
+      const v = vecchia({ preventivo: '0', consuntivo: '' });
+      const r = await prova(v, campi({ 'm-prev': { value: '120' }, 'm-ricorrente': { checked: true }, 'm-freq-fine': { value: `${Y}-05-31` } }));
+      assert.ok(r.salvate && r.salvate.length === 3, 'serie non creata (attese la spesa e 2 occorrenze)');
+    });
+  });
+
+  // DAT-009: le tre copie dell'elenco dei tipi di allegato devono coincidere
+  describe('DAT-009: elenco dei tipi di allegato uguale in regole Firestore, regole Storage e pagina', () => {
+    const root = path.join(__dirname, '..');
+    const leggi = (f) => fs.readFileSync(path.join(root, f), 'utf8').replace(/\r\n/g, '\n');
+    // regole Firestore: la quarta parte dell'espressione regolare di validAllegato (dopo l'ultimo "<("), a corrispondenza intera
+    const daFirestore = () => {
+      const m = /function validAllegato\(a\) \{[\s\S]*?\.matches\(\s*"((?:[^"\\]|\\.)*)"\)/.exec(leggi('firestore.rules'));
+      assert.ok(m, 'validAllegato non trovata in firestore.rules');
+      const lett = m[1].replace(/\\\\/g, '\\'); // dentro la stringa delle regole la barra è raddoppiata
+      const mime = lett.slice(lett.lastIndexOf('<(') + 1);
+      return new RegExp('^' + mime + '$');
+    };
+    // regole Storage: le espressioni di allowedType, in alternativa tra loro, a corrispondenza intera
+    const daStorage = () => {
+      const corpo = /function allowedType\(\) \{([\s\S]*?)\n\}/.exec(leggi('storage.rules'));
+      assert.ok(corpo, 'allowedType non trovata in storage.rules');
+      const parti = [...corpo[1].matchAll(/contentType\.matches\('((?:[^'\\]|\\.)*)'\)/g)].map((x) => x[1].replace(/\\\\/g, '\\'));
+      assert.ok(parti.length >= 4, 'attese almeno 4 espressioni, trovate ' + parti.length);
+      return new RegExp('^(?:' + parti.join('|') + ')$');
+    };
+    const tipi = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/heic', 'image/heif', 'image/bmp', 'image/tiff', 'image/svg+xml', 'image/x-icon', 'image/avif',
+      'application/pdf', 'application/octet-stream', 'application/msword', 'application/rtf', 'application/zip', 'application/json', 'application/javascript', 'application/xhtml+xml',
+      'application/vnd.ms-excel', 'application/vnd.ms-powerpoint', 'application/vnd.ms-word',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+      'application/vnd.openxmlformats-officedocument.evil', 'application/vnd.oasis.opendocument.text', 'application/vnd.oasis.opendocument.spreadsheet',
+      'application/vnd.oasis.opendocument.presentation', 'application/vnd.oasis.opendocument.graphics', 'application/vnd.oasis.opendocument.formula',
+      'application/vnd.oasis.opendocument.formula-template', 'text/plain', 'text/csv', 'text/html', 'text/css', 'text/javascript', 'text/xml',
+      'APPLICATION/PDF', 'application/pdf;x=1', 'image/png<x', 'pdf', '', ' image/png', 'image/png\n'];
+    it('le tre copie accettano e rifiutano esattamente gli stessi tipi', () => {
+      const app = loadApp();
+      const client = app.__get('MIME_ALLEGATI');
+      const fire = daFirestore();
+      const stor = daStorage();
+      const accettati = tipi.filter((t) => fire.test(t));
+      assert.ok(accettati.length >= 20 && accettati.length < tipi.length, 'elenco di prova non significativo: ' + accettati.length);
+      for (const t of tipi) {
+        assert.strictEqual(client.test(t), fire.test(t), `pagina e regole Firestore divergono su "${t}"`);
+        assert.strictEqual(stor.test(t), fire.test(t), `regole Storage e Firestore divergono su "${t}"`);
+      }
+    });
+    it('il tipo scelto dalla pagina per un file senza tipo (octet-stream) è ammesso da tutte e tre', () => {
+      const app = loadApp();
+      assert.ok(app.__get('MIME_ALLEGATI').test('application/octet-stream') && daFirestore().test('application/octet-stream') && daStorage().test('application/octet-stream'));
+    });
+    it('la pagina ha una sola copia dell\'elenco (MIME_ALLEGATI): nessun\'altra espressione con gli stessi tipi in js/', () => {
+      const trovati = [];
+      const visita = (dir) => {
+        for (const n of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+          const rel = path.posix.join(dir, n.name);
+          if (n.isDirectory()) { if (n.name !== 'vendor') visita(rel); } else if (n.name.endsWith('.js')) {
+            if (/oasis\\?\.opendocument/.test(leggi(rel))) trovati.push(rel);
+          }
+        }
+      };
+      visita('js');
+      assert.deepStrictEqual(trovati, ['js/sezioni/allegati.js']);
+    });
+  });
+
+  // ADV-TECH-021: setUserRole scrive la scheda lato server; la pagina riprende la versione prima di salvare la stessa scheda
+  describe('ADV-TECH-021: versione della scheda dopo setUserRole', () => {
+    const finta = (leggi) => ({ db: {}, doc: (db, ...p) => ({ path: p.join('/') }), getDoc: leggi });
+    it('rinfrescaVersione memorizza la versione scritta dal server, così il salvataggio della scheda non risulta un conflitto', async () => {
+      const app = base();
+      app.window._fb = finta(async () => ({ exists: () => true, data: () => ({ id: 103, _updatedBy: 'u-admin1', _updatedAt: { toMillis: () => 4242 } }) }));
+      app.__get('_versioni').cm_condomini = new Map([['buildings/1/members/103', 1111]]);
+      await app.rinfrescaVersione('cm_condomini', { id: 103, edificioId: 1 });
+      assert.strictEqual(app.__get('_versioni').cm_condomini.get('buildings/1/members/103'), 4242);
+    });
+    it('se la lettura non riesce la versione si dimentica (nessun controllo, come prima) e non si lancia nessun errore', async () => {
+      const app = base();
+      app.window._fb = finta(async () => { throw new Error('rete'); });
+      app.__get('_versioni').cm_condomini = new Map([['buildings/1/members/103', 1111]]);
+      await app.rinfrescaVersione('cm_condomini', { id: 103, edificioId: 1 });
+      assert.ok(!app.__get('_versioni').cm_condomini.has('buildings/1/members/103'));
+    });
+    it('la scheda che cambia ruolo riprende la versione dopo setUserRole e prima di salvare', async () => {
+      const app = base({ condomini: [{ id: 103, nome: 'Marta', appartamento: 'Int. 3', edificioId: 1, uid: 'u-member1' }] });
+      const ordine = [];
+      app.window._fb = { ...finta(async () => { ordine.push('lettura'); return { exists: () => true, data: () => ({ id: 103, _updatedAt: { toMillis: () => 5 } }) }; }),
+        functionsInstance: {}, httpsCallable: () => async () => { ordine.push('setUserRole'); return { data: { ok: true } }; } };
+      app.save = () => { ordine.push('salvataggio'); return true; };
+      const sel = { dataset: { ruoloId: '103' }, value: 'modifica' };
+      app.document.querySelectorAll = (q) => (q === '.ruolo-select' ? [sel] : []);
+      app.bindAzioniCondomini();
+      await sel.onchange();
+      assert.deepStrictEqual(ordine, ['setUserRole', 'lettura', 'salvataggio']);
+    });
   });
 });

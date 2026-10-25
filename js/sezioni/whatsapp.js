@@ -96,6 +96,7 @@ function sitoApp() {
 let _impWa = null;      // { modelli, firma, eventiSpenti }
 let _impWaDi = null;    // "uid/edificio" a cui si riferiscono
 let _impWaInCarico = false;
+let _impWaVer;          // versione letta dal server (firmaImpostazione), per il controllo prima di salvare
 
 function edificioWa() { return getUserEdificio(state.user) || state.edificioAttivo; }
 function chiWa() { return (window._fb?.auth?.currentUser?.uid || '') + '/' + edificioWa(); }
@@ -113,11 +114,21 @@ function assicuraWhatsApp() {
   const chi = chiWa();
   if (_impWaDi === chi) return;
   _impWaInCarico = true;
-  const { db, doc, getDoc } = window._fb;
-  getDoc(doc(db, 'buildings', String(edificioWa()), 'impostazioni', 'whatsapp'))
-    .then(s => { _impWa = s.data() || {}; _impWaDi = chi; })
-    .catch(e => { console.warn('Impostazioni WhatsApp non lette:', e.code || e.message); _impWa = {}; _impWaDi = chi; })
+  leggiImpostazione(edificioWa(), 'whatsapp')
+    .then(r => { _impWa = r.dati || {}; _impWaDi = chi; _impWaVer = r.firma; })
+    .catch(e => { console.warn('Impostazioni WhatsApp non lette:', e.code || e.message); _impWa = {}; _impWaDi = chi; _impWaVer = undefined; })
     .finally(() => { _impWaInCarico = false; if (typeof renderPresto === 'function' && !state.modal) renderPresto(); });
+}
+
+// Rilettura dal server all'apertura della scheda delle impostazioni (QA-CONS-010).
+// Se non riesce si resta con quanto già letto.
+async function rileggiImpWa() {
+  const chi = chiWa();
+  try {
+    const r = await leggiImpostazione(edificioWa(), 'whatsapp');
+    if (chiWa() !== chi) return;
+    _impWa = r.dati || {}; _impWaDi = chi; _impWaVer = r.firma;
+  } catch (e) { console.warn('Impostazioni WhatsApp non rilette:', e.code || e.message); }
 }
 
 // ─── Valori delle variabili per un condomino ────────────────────────
@@ -340,8 +351,13 @@ function disegnaImpostazioniWa() {
       eventiSpenti: Object.keys(EVENTI_WA).filter(k => !document.getElementById('wa-on-' + k).checked),
       aggiornatoDa: window._fb.auth.currentUser?.uid, aggiornatoIl: serverTimestamp() };
     try {
+      // QA-CONS-010: se un altro ha salvato dopo che hai aperto la scheda, non si sovrascrive in silenzio.
+      if (await impostazioneCambiataAltrove(edificioWa(), 'whatsapp', _impWaVer, 'WhatsApp',
+        (d, firma) => { _impWa = d || {}; _impWaDi = chiWa(); _impWaVer = firma; disegnaImpostazioniWa(); })) return;
       await setDoc(doc(db, 'buildings', String(edificioWa()), 'impostazioni', 'whatsapp'), dati);
       _impWa = dati; _impWaDi = chiWa();
+      // La versione appena scritta è la nuova base: un secondo Salva non deve risultare un conflitto.
+      try { _impWaVer = (await leggiImpostazione(edificioWa(), 'whatsapp')).firma; } catch (e) { _impWaVer = undefined; }
       avvisa('✅ Impostazioni WhatsApp salvate.');
     } catch (e) { avvisa('⚠️ Impostazioni WhatsApp non salvate: ' + (e.message || e)); }
   };
@@ -367,7 +383,8 @@ async function bindSezioneWhatsApp() {
   const chi = chiWa();
   // Finché le impostazioni non arrivano niente modulo: Salva coprirebbe quelle
   // vere con i testi predefiniti. Quando arrivano, assicuraWhatsApp ridisegna.
-  if (_impWaDi === chi) disegnaImpostazioniWa(); else assicuraWhatsApp();
+  // Già lette in questa sessione: si rileggono comunque dal server prima di mostrare il modulo (QA-CONS-010).
+  if (_impWaDi === chi) rileggiImpWa().then(disegnaImpostazioniWa); else assicuraWhatsApp();
   const agg = document.getElementById('btn-wa-storico-aggiorna');
   if (agg) agg.onclick = () => { _storicoWa = null; bindSezioneWhatsApp(); };
   try {

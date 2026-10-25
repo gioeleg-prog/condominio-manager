@@ -162,6 +162,15 @@ function quotaSuSpesa(s, condId, importo, nAttivi) {
 // è archiviato senza data di uscita vale la data dell'archiviazione, e se manca
 // anche quella non partecipa (come prima dei subentri). La data di uscita è il
 // primo giorno in cui non partecipa più: a quella data subentra il nuovo.
+// Ingresso ancora da venire (DAT-001). Come sul server (ingressoFuturo in functions/notifiche.js):
+// conta solo una data AAAA-MM-GG esistente; un altro formato vale "nessuna data".
+function ingressoFuturo(c, oggi = ymdLocale(new Date())) {
+  const t = c && c.dataIngresso;
+  if (typeof t !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
+  const d = new Date(`${t}T00:00:00Z`);
+  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t) return false;
+  return t > oggi;
+}
 function periodoCondomino(c) {
   const inizio = /^\d{4}-\d{2}-\d{2}/.test(c.dataIngresso || '') ? c.dataIngresso.slice(0, 10) : '';
   let fine = /^\d{4}-\d{2}-\d{2}/.test(c.dataUscita || '') ? c.dataUscita.slice(0, 10) : '';
@@ -256,6 +265,139 @@ function partiUguali(n) {
   return Array.from({ length: n }, (_, i) => (Math.floor(10000 / n) + (i < 10000 % n ? 1 : 0)) / 100);
 }
 
+// Vero se il condomino ha una quota maggiore di zero nella ripartizione di almeno una delle spese date
+// (anche se è uscito prima: quota aggiunta a mano). Usata da Bilancio, Rendiconto ed Entrate.
+function haQuotaNelleSpese(condId, spese) {
+  return (spese || []).some(s => s.split?.some(x => x.id === condId && (x.perc || 0) > 0));
+}
+
+// Vero se il condomino ha movimenti registrati: una quota maggiore di zero in una spesa o un
+// versamento (anche previsionale). Il riporto deriva da questi due, quindi li comprende.
+// Un condomino con movimenti non si elimina, si archivia (CONS-025, ADV-FUNC-012): eliminarlo
+// lo toglie dalle viste per condomino ma le sue quote restano nei totali.
+function haMovimenti(condId, spese, entrate) {
+  return (entrate || []).some(e => e.condominoId === condId) || haQuotaNelleSpese(condId, spese);
+}
+
+// Segnalazione per l'amministratore (CONS-028, decisione RA-7): versamenti e spese con una
+// quota che un editor (può modificare, non è amministratore) ha inserito o modificato per
+// ultimo e che riguardano il condomino collegato al suo stesso account. Nessun blocco: l'editor
+// resta libero di farlo, ma l'amministratore lo vede. autore(tipo, record) restituisce
+// { by: uid, at: millisecondi } dell'ultima scrittura (da _updatedBy/_updatedAt). La
+// segnalazione dura 60 giorni; se un amministratore ritocca il record l'autore cambia e
+// scompare. Con più di un record dello stesso editor si elencano tutti.
+const GIORNI_SEGNALAZIONE_EDITOR = 60;
+function segnalazioniEditor({ condomini, entrate, spese, autore, edificioId, adesso }) {
+  const ora = adesso == null ? Date.now() : adesso;
+  const limite = ora - GIORNI_SEGNALAZIONE_EDITOR * 86400000;
+  const editorPerUid = new Map();
+  (condomini || []).forEach(c => {
+    if (c && c.uid && c.canEdit && !c.isAdmin && !c.superAdmin && String(c.edificioId) === String(edificioId)) editorPerUid.set(c.uid, c);
+  });
+  if (!editorPerUid.size) return [];
+  const out = [];
+  const esamina = (tipo, rec, riguarda) => {
+    if (!rec || String(rec.edificioId) !== String(edificioId)) return;
+    const a = autore(tipo, rec);
+    if (!a || !a.by || (a.at != null && a.at < limite)) return;
+    const ed = editorPerUid.get(a.by);
+    const esito = ed && riguarda(ed);
+    if (esito) out.push({ tipo, rec, editor: ed, at: a.at, ...(typeof esito === 'string' ? { quota: esito } : {}) });
+  };
+  (entrate || []).forEach(e => esamina('entrata', e, ed => String(e.condominoId) === String(ed.id)));
+  // Spese (ADV-FUNC-017): oltre a chi ha una quota > 0, si segnala l'editor che era nel condominio alla data
+  // della spesa ma ora ha la quota a 0% ('zero') o non ha più la riga ('assente'): è il modo di togliersi una
+  // spesa. Serve una data valida per sapere chi c'era; senza data si segnala solo la quota > 0.
+  (spese || []).forEach(s => esamina('spesa', s, ed => {
+    const riga = (s.split || []).find(x => String(x.id) === String(ed.id));
+    if (riga && (parseFloat(riga.perc) || 0) > 0) return true;
+    if (!/^\d{4}-\d{2}-\d{2}/.test(s.data || '') || !attivoAllaData(ed, s.data)) return false;
+    return riga ? 'zero' : 'assente';
+  }));
+  return out.sort((x, y) => (y.at || 0) - (x.at || 0));
+}
+
+// Riquadro di avviso (solo amministratori) con le segnalazioni di un tipo: 'entrata' o 'spesa'.
+function renderSegnalazioniEditor(tipo) {
+  if (!canUserAdmin(state.user)) return '';
+  const chiave = tipo === 'entrata' ? 'cm_entrate' : 'cm_spese';
+  const voci = segnalazioniEditor({
+    condomini: state.condomini, entrate: state.entrate, spese: state.spese,
+    autore: (t, r) => autoreRecord(t === 'entrata' ? 'cm_entrate' : 'cm_spese', r),
+    edificioId: state.edificioAttivo,
+  }).filter(v => v.tipo === tipo);
+  if (!voci.length) return '';
+  const riga = (v) => {
+    const quando = v.at ? new Date(v.at).toLocaleDateString('it-IT') : '';
+    const cosa = tipo === 'entrata'
+      ? `versamento del ${esc(v.rec.data || '')} di ${fmt(v.rec.importo)}`
+      : `spesa "${esc(v.rec.titolo || '')}" del ${esc(v.rec.data || '')}`;
+    const nota = v.quota === 'zero' ? ' — la sua quota è a 0%' : (v.quota === 'assente' ? ' — senza la sua riga di ripartizione' : '');
+    return `<li>${esc(v.editor.nome)}: ${cosa}${nota}${quando ? ` (modificato il ${esc(quando)})` : ''}</li>`;
+  };
+  const frase = tipo === 'entrata'
+    ? 'Versamenti registrati o modificati dall\'editor a proprio nome'
+    : 'Spese inserite o modificate dall\'editor in cui lui è condomino (con una sua quota, o con la quota azzerata o tolta)';
+  return `<div class="alert alert-warning" style="font-size:13px;margin-bottom:1rem" data-segnalazioni-editor="${chiave}">
+    <strong>👁 ${frase} (ultimi ${GIORNI_SEGNALAZIONE_EDITOR} giorni, ${voci.length})</strong>
+    <ul style="margin:.4rem 0 0 1.1rem;padding:0">${voci.slice(0, 5).map(riga).join('')}</ul>
+    ${voci.length > 5 ? `<div style="margin-top:.3rem">… e altri ${voci.length - 5}.</div>` : ''}
+    <div style="margin-top:.4rem;color:var(--text2)">Non è un blocco: serve a controllare. La voce resta qui finché non passano ${GIORNI_SEGNALAZIONE_EDITOR} giorni o finché un amministratore non la modifica.</div>
+  </div>`;
+}
+
+// Lettura uniforme di un importo salvato (di solito un testo: "1200.50"). Un valore vuoto
+// o non numerico vale 0, così non diventa NaN nei totali (consolidato QA-CONS-020).
+function importoNum(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Importo ammesso in un nuovo salvataggio: strettamente maggiore di zero, al massimo due
+// decimali, punto come separatore (QA-CONS-020, scelta del proprietario: solo importi positivi).
+function importoValido(v) {
+  const t = String(v ?? '').trim();
+  return /^\d+(\.\d{1,2})?$/.test(t) && parseFloat(t) > 0;
+}
+const MSG_IMPORTO = 'L\'importo deve essere maggiore di zero, con al massimo due decimali (niente zero né negativi). '
+  + 'Una nota di credito o un rimborso si registra come entrata, oppure riducendo l\'importo della spesa originale.';
+
+// Anno già passato (QA-CONS-029, ADV-FUNC-018, scelta del proprietario: nessun blocco, ma avviso).
+// Inserire, modificare o eliminare una spesa o un versamento con data in un anno precedente a
+// quello di oggi cambia i riporti e i rendiconti già inviati: prima di salvare l'amministratore
+// deve confermare. Per una modifica l'avviso compare solo se cambia qualcosa che tocca i conti:
+// data, importi, ripartizione tra i condomini (per un versamento: il condomino). Il solo testo
+// (titolo, descrizione, categoria, allegati) non avvisa.
+const MSG_ANNO_PASSATO = 'Stai modificando un anno già passato: i riporti e i rendiconti già inviati cambiano.';
+const CAMPI_ANNO_SPESA = ['data', 'preventivo', 'consuntivo', 'split'];
+const CAMPI_ANNO_ENTRATA = ['data', 'condominoId', 'importo', 'previsionale'];
+function dataInAnnoPassato(data, oggi = ymdLocale(new Date())) {
+  const a = parseInt(String(data ?? '').slice(0, 4), 10);
+  return Number.isFinite(a) && a < parseInt(String(oggi).slice(0, 4), 10);
+}
+// Ripartizione in forma confrontabile: le righe a zero equivalgono a righe assenti.
+function _quoteConfronto(split) {
+  return (split || []).filter(x => (parseFloat(x.perc) || 0) > 0)
+    .map(x => x.id + ':' + (parseFloat(x.perc) || 0).toFixed(2)).sort().join('|');
+}
+// prima = record com'era (null se nuovo), dopo = record com'è (null se eliminato).
+function modificaAnnoPassato(prima, dopo, campi, oggi) {
+  if (!prima && !dopo) return false;
+  if (!dataInAnnoPassato(prima?.data, oggi) && !dataInAnnoPassato(dopo?.data, oggi)) return false;
+  if (!prima || !dopo) return true;
+  return campi.some(k => {
+    if (k === 'split') return _quoteConfronto(prima.split) !== _quoteConfronto(dopo.split);
+    if (k === 'preventivo' || k === 'consuntivo' || k === 'importo') return importoNum(prima[k]) !== importoNum(dopo[k]);
+    if (k === 'previsionale') return !!prima[k] !== !!dopo[k];
+    return String(prima[k] ?? '') !== String(dopo[k] ?? '');
+  });
+}
+// Domanda di conferma per i salvataggi: true se si può procedere.
+// Dove c'è già una domanda di conferma (eliminazioni) si aggiunge il testo alla stessa domanda.
+function confermaAnnoPassato() {
+  return chiedi(MSG_ANNO_PASSATO, { titolo: 'Anno già passato', conferma: 'Continua', pericolo: false });
+}
+
 // Riporto di un condomino: versamenti reali meno quota delle spese consuntivate,
 // sui movimenti la cui data soddisfa nelRiporto (es. tutti gli anni prima di quello scelto).
 function riportoCondomino(condId, nelRiporto, nAttivi) {
@@ -296,7 +438,7 @@ function getAnniConTutti() {
 function getSaldoRiporto(annoTarget) {
   const spesePrec  =     state.spese.filter(s=>!s.edificioId||s.edificioId===state.edificioAttivo).filter(s=>annoDi(s.data) < annoTarget)
   const entratePrec =     state.entrate.filter(e=>(!e.edificioId||e.edificioId===state.edificioAttivo)&&!e.previsionale&&annoDi(e.data)<annoTarget)
-  const totSpesePrec   = spesePrec.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-  const totEntratePrec = entratePrec.reduce((a,e)=>a+parseFloat(e.importo||0),0);
+  const totSpesePrec   = spesePrec.reduce((a,s)=>a+importoNum(s.consuntivo),0);
+  const totEntratePrec = entratePrec.reduce((a,e)=>a+importoNum(e.importo),0);
   return totEntratePrec - totSpesePrec; // saldo riportato dagli anni precedenti
 }

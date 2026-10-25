@@ -11,3 +11,6 @@ qa/assessment-report.html
 
 # Segreti finti per gli emulatori (scripts/secret-emulatore.js)
 functions/.secret.local
+
+# Report della squadra qualita: descrivono difetti non ancora corretti, il repository e pubblico
+quality/reports/

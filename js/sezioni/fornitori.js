@@ -36,15 +36,15 @@ function renderFornitori() {
 
   // Con fornitore
   const _conFornAnno = _speseEdAnno.filter(s=>s.fornitoreId);
-  const speseAnnoActual   = _conFornAnno.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-  const speseAnnoForecast = _conFornAnno.filter(s=>!parseFloat(s.consuntivo||0)).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-  const speseTotali       = _speseEd.filter(s=>s.fornitoreId && parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const speseAnnoActual   = _conFornAnno.filter(s=>importoNum(s.consuntivo)>0).reduce((a,s)=>a+importoNum(s.consuntivo),0);
+  const speseAnnoForecast = _conFornAnno.filter(s=>!importoNum(s.consuntivo)).reduce((a,s)=>a+importoNum(s.preventivo),0);
+  const speseTotali       = _speseEd.filter(s=>s.fornitoreId && importoNum(s.consuntivo)>0).reduce((a,s)=>a+importoNum(s.consuntivo),0);
 
   // Senza fornitore — stesse metriche, per riconciliare col resto dell'app
   const _senzaFornAnno = _speseEdAnno.filter(s=>!s.fornitoreId);
-  const senzaAnnoActual   = _senzaFornAnno.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-  const senzaAnnoForecast = _senzaFornAnno.filter(s=>!parseFloat(s.consuntivo||0)).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-  const senzaTotali       = _speseEd.filter(s=>!s.fornitoreId && parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const senzaAnnoActual   = _senzaFornAnno.filter(s=>importoNum(s.consuntivo)>0).reduce((a,s)=>a+importoNum(s.consuntivo),0);
+  const senzaAnnoForecast = _senzaFornAnno.filter(s=>!importoNum(s.consuntivo)).reduce((a,s)=>a+importoNum(s.preventivo),0);
+  const senzaTotali       = _speseEd.filter(s=>!s.fornitoreId && importoNum(s.consuntivo)>0).reduce((a,s)=>a+importoNum(s.consuntivo),0);
 
   // Totali combinati (con + senza fornitore) — questi devono coincidere con Dashboard/Bilancio
   const totaleAnnoActual   = speseAnnoActual + senzaAnnoActual;
@@ -132,11 +132,11 @@ function renderFornitoreCard(f, canEdit, archived=false) {
 
   // Separa actual da forecast — filtrato per anno selezionato
   const speseFAnno   = speseF.filter(s=>inAnniSelezionati(s.data, anniSel));
-  const actualAnno   = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)>0);
-  const forecastAnno = speseFAnno.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
-  const totActual    = actualAnno.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-  const totForecast  = forecastAnno.reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-  const totaleStorico= speseF.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const actualAnno   = speseFAnno.filter(s=>importoNum(s.consuntivo)>0);
+  const forecastAnno = speseFAnno.filter(s=>importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0);
+  const totActual    = actualAnno.reduce((a,s)=>a+importoNum(s.consuntivo),0);
+  const totForecast  = forecastAnno.reduce((a,s)=>a+importoNum(s.preventivo),0);
+  const totaleStorico= speseF.filter(s=>importoNum(s.consuntivo)>0).reduce((a,s)=>a+importoNum(s.consuntivo),0);
   const ultimaSpesa  = speseF[0];
 
   return `<div class="fornitore-card${archived?' disabled':''}">
@@ -287,12 +287,12 @@ function renderModalStoricoFornitore(f) {
   const _edFornSt = f.edificioId || getUserEdificio(state.user);
   const speseF = state.spese.filter(s=>s.fornitoreId===f.id && (!s.edificioId||s.edificioId===_edFornSt))
     .sort((a,b)=>new Date(b.data)-new Date(a.data));
-  const totale = speseF.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
+  const totale = speseF.reduce((a,s)=>a+importoNum(s.consuntivo||s.preventivo), 0);
   // Anni scelti nel filtro (prima sempre l'anno di oggi); con "Tutti" l'anno corrente,
   // perché il totale di tutti gli anni è già nel riquadro accanto.
   const anniSt = anniSelezionati().length ? anniSelezionati() : [new Date().getFullYear()];
   const totAnno = speseF.filter(s=>inAnniSelezionati(s.data, anniSt))
-    .reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
+    .reduce((a,s)=>a+importoNum(s.consuntivo||s.preventivo), 0);
 
   // Raggruppa per anno
   const perAnno = {};
@@ -318,7 +318,7 @@ function renderModalStoricoFornitore(f) {
 
         ${Object.keys(perAnno).sort((a,b)=>b-a).map(y => {
           const items = perAnno[y];
-          const totY = items.reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0), 0);
+          const totY = items.reduce((a,s)=>a+importoNum(s.consuntivo||s.preventivo), 0);
           return `<div style="margin-bottom:1.25rem">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
               <div style="font-weight:600;font-size:14px">📅 ${y}</div>

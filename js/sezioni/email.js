@@ -14,6 +14,7 @@ function edificioEmail() { return getUserEdificio(state.user) || state.edificioA
 function motivoNoEmail(c) {
   const oggi = ymdLocale(new Date());
   if (c.disabled || (c.dataUscita && c.dataUscita <= oggi)) return 'archiviato';
+  if (ingressoFuturo(c, oggi)) return 'non ancora entrato';
   if (c.emailNotifiche === false) return 'non vuole email';
   if (!EMAIL_VALIDA.test(String(c.email || '').trim())) return 'senza email';
   return null;
@@ -298,6 +299,7 @@ function bindSchedeEmail() {
 // ─── Impostazioni: promemoria automatici e storico invii ───────────
 let _storicoEmail = null;   // { at, voci } — ricaricato al massimo ogni minuto
 let _impEmail = null;
+let _impEmailVer;   // versione letta dal server (firmaImpostazione), per il controllo prima di salvare
 // Di chi e di quale condominio sono i due dati qui sopra ("uid/edificio"):
 // cambiando condominio (superAdmin) o utente si rileggono. Prima si vedevano
 // impostazioni e storico del condominio di prima, e Salva li copiava nel nuovo.
@@ -354,8 +356,13 @@ function disegnaImpostazioniEmail() {
     const dati = { promemoriaAuto: document.getElementById('imp-prom-auto').checked, giorniPreavviso: parseInt(document.getElementById('imp-prom-giorni').value, 10),
       aggiornatoDa: window._fb.auth.currentUser?.uid, aggiornatoIl: serverTimestamp() };
     try {
+      // QA-CONS-010: se un altro ha salvato dopo che hai aperto la scheda, non si sovrascrive in silenzio.
+      if (await impostazioneCambiataAltrove(edificioEmail(), 'email', _impEmailVer, 'Email ai condomini',
+        (d, firma) => { _impEmail = d || { promemoriaAuto: false, giorniPreavviso: 3 }; _impEmailVer = firma; disegnaImpostazioniEmail(); })) return;
       await setDoc(doc(db, 'buildings', String(edificioEmail()), 'impostazioni', 'email'), dati);
       _impEmail = { ...dati };
+      // La versione appena scritta è la nuova base: un secondo Salva non deve risultare un conflitto.
+      try { _impEmailVer = (await leggiImpostazione(edificioEmail(), 'email')).firma; } catch (e) { _impEmailVer = undefined; }
       avvisa(dati.promemoriaAuto ? `✅ Promemoria automatici accesi: ${dati.giorniPreavviso} ${dati.giorniPreavviso === 1 ? 'giorno' : 'giorni'} prima della rata.` : '✅ Promemoria automatici spenti.');
     } catch (e) { avvisa('⚠️ Impostazione non salvata: ' + (e.message || e)); }
   };
@@ -366,15 +373,18 @@ async function bindSezioneEmail() {
   const { db, collection, doc, getDoc, getDocs, query, orderBy, limit } = window._fb;
   const b = String(edificioEmail());
   const chi = (window._fb.auth?.currentUser?.uid || '') + '/' + b;
-  if (_emailDi !== chi) { _impEmail = null; _storicoEmail = null; _emailDi = chi; }
+  if (_emailDi !== chi) { _impEmail = null; _impEmailVer = undefined; _storicoEmail = null; _emailDi = chi; }
   const agg = document.getElementById('btn-email-storico-aggiorna');
   if (agg) agg.onclick = () => { _storicoEmail = null; bindSezioneEmail(); };
   try {
-    if (!_impEmail) {
-      const imp = (await getDoc(doc(db, 'buildings', b, 'impostazioni', 'email'))).data() || { promemoriaAuto: false, giorniPreavviso: 3 };
+    // Sempre dal server all'apertura della scheda (QA-CONS-010). Se la rilettura non
+    // riesce, con impostazioni già in memoria si prosegue con quelle.
+    try {
+      const r = await leggiImpostazione(b, 'email');
       if (_emailDi !== chi) return; // nel frattempo è cambiato condominio o utente
-      _impEmail = imp;
-    }
+      _impEmail = r.dati || { promemoriaAuto: false, giorniPreavviso: 3 };
+      _impEmailVer = r.firma;
+    } catch (e) { if (!_impEmail) throw e; }
     disegnaImpostazioniEmail();
     if (!_storicoEmail || Date.now() - _storicoEmail.at > 60000) {
       const snap = await getDocs(query(collection(db, 'buildings', b, 'invii'), orderBy('creatoIl', 'desc'), limit(50)));

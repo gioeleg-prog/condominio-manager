@@ -58,7 +58,24 @@ function versioneDi(d) {
 }
 function setVersioni(key, docs) {
   _versioni[key] = _versioni[key] || new Map();
-  docs.forEach(d => { const v = d.data(); if (v && v.id != null) _versioni[key].set(d.ref.path, versioneDi(v)); });
+  docs.forEach(d => { const v = d.data(); if (v && v.id != null) { _versioni[key].set(d.ref.path, versioneDi(v)); ricordaAutore(d.ref.path, v); } });
+}
+
+// Ultimo autore di ogni record (_updatedBy) e quando, per percorso del documento.
+// fromDocs toglie i metadati dai record in memoria: questa mappa serve alla
+// segnalazione "versamenti e quote registrati da un editor a proprio nome"
+// (CONS-028), che l'amministratore vede in Entrate e Spese. Il registro modifiche
+// (auditEvents) lo legge solo il superAdmin, quindi l'amministratore di edificio
+// ricava l'informazione dal record stesso.
+const _autori = new Map();
+function ricordaAutore(path, v) {
+  if (v && v._updatedBy && !v._deleted) _autori.set(path, { by: v._updatedBy, at: versioneDi(v) });
+  else _autori.delete(path);
+}
+function autoreRecord(key, rec) {
+  const cfg = APPDATA_CONFIG[key];
+  if (!cfg || !cfg.coll || !rec) return null;
+  return _autori.get(`buildings/${rec.edificioId}/${cfg.coll}/${rec.id}`) || null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -87,6 +104,10 @@ function contattiRef(rec) {
 // Salvataggi in coda per chiave: due salvataggi ravvicinati della stessa
 // sezione devono partire in ordine, ognuno confrontato con l'esito del precedente.
 const _saveQueue = {};
+// Quanti salvataggi della stessa chiave sono in coda o in corso (compreso quello
+// che sta girando): dopo un rifiuto, se ce ne sono altri, lo schermo non va
+// riportato indietro, perché i successivi contengono già la stessa modifica.
+const _inCoda = {};
 
 // Salvataggi non ancora confermati dal server: chiudere o ricaricare la pagina
 // in quel momento li interromperebbe, quindi il browser chiede conferma prima di uscire.
@@ -99,8 +120,9 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 function fbSaveKey(key, val) {
   if (!window._fb) return Promise.resolve(true);
   _salvataggiInCorso++;
+  _inCoda[key] = (_inCoda[key] || 0) + 1;
   const run = () => fbSaveKeyNow(key, val);
-  const p = (_saveQueue[key] || Promise.resolve()).then(run, run).finally(() => { _salvataggiInCorso--; });
+  const p = (_saveQueue[key] || Promise.resolve()).then(run, run).finally(() => { _salvataggiInCorso--; _inCoda[key]--; });
   _saveQueue[key] = p;
   return p;
 }
@@ -246,6 +268,66 @@ async function controllaConflitti(key, writes) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Impostazioni per edificio (QA-CONS-010): buildings/{b}/impostazioni/{nome}
+// (millesimi, affitti, WhatsApp, email). Ogni salvataggio riscrive il documento
+// intero: senza un controllo vinceva l'ultimo che salvava. Stesso schema di
+// controllaConflitti: si ricorda la versione letta (`aggiornatoIl`) e, prima di
+// scrivere, si rilegge dal server; se è cambiata si ferma e si lascia scegliere
+// se ricaricare. Il controllo è dell'app e lascia una finestra di pochi
+// millisecondi: quello vincolante lo darebbero le regole (QA-CONS-009, da fare).
+// ═══════════════════════════════════════════════════════════════
+function firmaImpostazione(snap) {
+  if (!snap || !snap.exists()) return 'assente';
+  const t = snap.data() && snap.data().aggiornatoIl;
+  return t && typeof t.toMillis === 'function' ? 'v' + t.toMillis() : 'v?';
+}
+function refImpostazione(edId, nome) {
+  const { db, doc } = window._fb;
+  return doc(db, 'buildings', String(edId), 'impostazioni', nome);
+}
+// Lettura dal server: i dati (null se il documento non esiste) e la versione letta.
+async function leggiImpostazione(edId, nome) {
+  const snap = await window._fb.getDoc(refImpostazione(edId, nome));
+  return { dati: snap.exists() ? snap.data() : null, firma: firmaImpostazione(snap) };
+}
+// Prima di salvare: se sul server c'è una versione diversa da quella su cui si è
+// lavorato, avvisa e lascia scegliere. Restituisce true se il salvataggio va
+// fermato. `ricarica(dati, firma)` applica i valori del server alla pagina.
+// Senza una versione di partenza (lettura mai riuscita) non c'è nulla da confrontare.
+async function impostazioneCambiataAltrove(edId, nome, firmaBase, etichetta, ricarica) {
+  if (!firmaBase) return false;
+  const att = await leggiImpostazione(edId, nome);
+  if (att.firma === firmaBase) return false;
+  const ricarico = await chiedi(
+    'Le impostazioni «' + etichetta + '» sono state cambiate da un\'altra persona dopo che le hai aperte. Il salvataggio è stato fermato per non cancellare la sua modifica. '
+    + 'Ricaricando vedi i valori aggiornati (le tue modifiche non salvate si perdono) e poi puoi rifare le tue; altrimenti resti qui e non viene salvato nulla.',
+    { titolo: 'Impostazioni modificate da un altro', conferma: 'Ricarica i valori', annulla: 'Resta qui', pericolo: false });
+  if (ricarico) ricarica(att.dati, att.firma);
+  return true;
+}
+
+// Dati globali con un solo documento per chiave (categorie, marchio): stesso
+// controllo, con la base che è già l'ultimo stato letto o scritto (_serverSnap).
+const CHIAVI_GLOBALI_CONTROLLATE = ['cm_categorie', 'cm_branding'];
+const _daServer = {};   // chiave -> valore trovato sul server quando il controllo ha fermato un salvataggio
+async function controllaGlobale(key) {
+  if (!CHIAVI_GLOBALI_CONTROLLATE.includes(key)) return;
+  if (key in _daServer) { const e = new Error('modificato da un\'altra persona'); e.code = 'conflitto'; throw e; }
+  if (_serverSnap[key] === undefined) return; // mai letto: niente su cui confrontare
+  let attuale;
+  try {
+    const { db, doc, getDoc } = window._fb;
+    const snap = await getDoc(doc(db, 'appdata', key));
+    attuale = snap.exists() ? JSON.parse(snap.data().value) : undefined;
+  } catch (e) { return; } // lettura impossibile: nessun confronto, come per le versioni dei record
+  if (stableStringify(attuale) === stableStringify(_serverSnap[key])) return;
+  _daServer[key] = attuale;
+  const err = new Error('questi dati sono stati modificati da un\'altra persona dopo che hai aperto la pagina. Ora vedi la versione aggiornata: ripeti la modifica.');
+  err.code = 'conflitto';
+  throw err;
+}
+
 // Dopo il salvataggio si rilegge la versione dei record scritti, così la
 // prossima modifica della stessa voce da questa pagina non risulta un conflitto.
 async function aggiornaVersioni(key, writes) {
@@ -256,9 +338,23 @@ async function aggiornaVersioni(key, writes) {
   // dimenticarne la versione.
   writes.filter(([, data]) => data && data._deleted === true).forEach(([ref]) => _versioni[key].delete(ref.path));
   await Promise.all(writes.filter(([, data]) => !(data && data._deleted === true)).map(async ([ref]) => {
-    try { const snap = await getDoc(ref); if (snap.exists()) _versioni[key].set(ref.path, versioneDi(snap.data())); }
+    try { const snap = await getDoc(ref); if (snap.exists()) { _versioni[key].set(ref.path, versioneDi(snap.data())); ricordaAutore(ref.path, snap.data()); } }
     catch (e) { _versioni[key].delete(ref.path); } // versione sconosciuta: nessun controllo, come prima
   }));
+}
+
+// Rilegge la versione di un solo record dopo che l'ha scritto il server (ADV-TECH-021: setUserRole aggiorna
+// anche i flag di ruolo della scheda). Senza, il salvataggio successivo della stessa scheda risulterebbe un
+// conflitto con sé stessi. Se la lettura non riesce, si dimentica la versione (nessun controllo, come prima).
+async function rinfrescaVersione(key, rec) {
+  let path = null;
+  try {
+    const ref = recordRef(key, rec);
+    path = ref.path;
+    const snap = await window._fb.getDoc(ref);
+    _versioni[key] = _versioni[key] || new Map();
+    if (snap.exists()) { _versioni[key].set(path, versioneDi(snap.data())); ricordaAutore(path, snap.data()); }
+  } catch (e) { if (path && _versioni[key]) _versioni[key].delete(path); }
 }
 
 async function fbSaveKeyNow(key, val) {
@@ -267,6 +363,7 @@ async function fbSaveKeyNow(key, val) {
     if (RECORD_KEYS.includes(key)) await saveRecords(key, val);
     else {
       const { db, doc, setDoc } = window._fb;
+      await controllaGlobale(key);
       await setDoc(doc(db, 'appdata', key), { value: JSON.stringify(val) });
     }
     setServerSnap(key, val);
@@ -276,7 +373,14 @@ async function fbSaveKeyNow(key, val) {
     // di lasciare a schermo un dato che non è stato salvato.
     console.warn('fbSave error', key, e);
     reportClientError('Salvataggio non riuscito (' + key + '): ' + (e.code || e.message || e), e.stack);
-    if (_serverSnap[key] !== undefined) {
+    // Se dopo questo ce ne sono altri in coda per la stessa chiave NON si torna
+    // indietro: ognuno contiene già anche questa modifica, e ripristinare lo
+    // snapshot lascerebbe lo schermo diverso dal server (audit 2026-10-24,
+    // ADV-TECH-001). Lo stato lo sistema l'ultimo salvataggio della coda.
+    const altriInCoda = (_inCoda[key] || 0) > 1;
+    // Conflitto su un dato globale: si torna a ciò che c'è davvero sul server.
+    if (!altriInCoda && key in _daServer) { setServerSnap(key, _daServer[key]); delete _daServer[key]; }
+    if (!altriInCoda && _serverSnap[key] !== undefined) {
       const restored = JSON.parse(JSON.stringify(_serverSnap[key]));
       _cache[key] = restored;
       if (cfg.stateProp) state[cfg.stateProp] = cfg.writeRole ? normalizeRecords(restored) : restored;
@@ -285,7 +389,9 @@ async function fbSaveKeyNow(key, val) {
     const msg = /permission|insufficient/i.test(e.code || e.message || '')
       ? 'Non hai i permessi per questa modifica, oppure l’app è stata aggiornata: ricarica la pagina.'
       : (e.message || e);
-    avvisa('⚠️ Salvataggio non riuscito: ' + msg + '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.');
+    avvisa('⚠️ Salvataggio non riuscito: ' + msg + (altriInCoda
+      ? '\nCi sono altre modifiche in attesa: verranno salvate insieme a questa. Controlla l’esito dell’ultimo avviso.'
+      : '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.'));
     return false;
   }
 }
@@ -404,8 +510,8 @@ async function fbLoadBuildings(profile) {
 // Applica alla cache in memoria (state.*) i dati appena letti da Firestore.
 // Fattorizzata per poter essere richiamata sia al boot (best-effort) sia
 // dopo l'autenticazione (autoritativa — è qui che DEVE riuscire).
-// Forma minima dei record (stessi elenchi di RECORD_SCHEMA in
-// functions/index.js, che rifiuta i salvataggi non conformi). QA: un solo
+// Forma minima dei record (gli stessi campi che le firestore.rules controllano
+// nel salvataggio: validRecord). QA: un solo
 // record con un campo del tipo sbagliato (es. argomenti come testo invece che
 // elenco) faceva crollare l'intera pagina; qui i dati già salvati vengono
 // riportati alla forma attesa prima di essere mostrati.

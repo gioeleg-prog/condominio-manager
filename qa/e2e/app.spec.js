@@ -258,6 +258,49 @@ test.describe('Spese (modifica i dati)', () => {
     await vaiA(page, 'spese');
     await expect(page.locator('.table-wrap tr', { hasText: titolo })).toHaveCount(0);
   });
+
+  test('cambio data: la quota bloccata a mano resta bloccata e non si ricalcola (ADV-FUNC-028)', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await page.locator('#m-cons').fill('600');
+    await page.locator('.split-perc-inp[data-cid="101"]').fill('40');
+    await expect(page.locator('.split-lock-btn[data-lock-cid="101"]')).toHaveAttribute('data-locked', '1');
+    await page.locator('#m-data').fill(`${Y}-03-10`);
+    await page.locator('#m-data').dispatchEvent('change');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('40.00');
+    await expect(page.locator('.split-lock-btn[data-lock-cid="101"]')).toHaveAttribute('data-locked', '1');
+    // Il lucchetto vale ancora: toccare un'altra quota non ricalcola quella bloccata.
+    await page.locator('.split-perc-inp[data-cid="102"]').fill('10');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('40.00');
+    await page.locator('#modal-cancel').click();
+  });
+
+  test('spesa già salvata: il gruppo di base è chi abitava alla data; cambiando data compare un avviso e le quote non cambiano (ADV-FUNC-001, RA-12)', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    // Nino Nuovo (104) è entrato dopo la data della spesa di prova (solo in questa pagina, nessun salvataggio).
+    await page.evaluate((anno) => {
+      state.condomini.find((c) => c.id === 104).dataIngresso = `${anno + 1}-06-01`;
+      setState({ modal: { type: 'spesa', data: { ...state.spese.find((s) => s.id === 1003) } }, pendingFiles: [] });
+    }, Y);
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('40.00');
+    await expect(page.locator('.split-perc-inp[data-cid="104"]')).toHaveCount(0);
+    await expect(page.locator('#split-aggiungi option[value="104"]')).toHaveCount(1);
+    await expect(page.locator('#split-data-avviso')).toBeHidden();
+    await page.locator('#m-data').fill(`${Y + 1}-05-01`);
+    await page.locator('#m-data').dispatchEvent('change');
+    await expect(page.locator('#split-data-avviso')).toBeVisible();
+    await expect(page.locator('#split-data-avviso')).toContainText('non sono state ricalcolate');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('40.00');
+    await page.locator('#m-data').fill(`${Y + 1}-04-01`);
+    await page.locator('#m-data').dispatchEvent('change');
+    await expect(page.locator('#split-data-avviso')).toBeHidden();
+    // "Parti uguali" divide solo tra chi abitava alla data (101, 102, 103, 105, 107): 20% ciascuno, niente per 104.
+    await page.locator('#split-equal').click();
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('20.00');
+    await page.locator('#modal-cancel').click();
+  });
 });
 
 test.describe('Email ai condomini (modifica i dati)', () => {
@@ -427,6 +470,25 @@ test.describe('Millesimi (modifica i dati)', () => {
     await page.locator('.split-perc-inp[data-cid="101"]').fill('25');
     await page.locator('#m-cat').selectOption('ascensore');
     await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('25');
+  });
+
+  test('cambio data con i millesimi attivi: la quota scritta a mano e la riga aggiunta a mano non si azzerano (ADV-FUNC-028)', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('20.00');
+    // Riga aggiunta a mano (Dino, non più attivo) con una quota, e una quota di base scritta a mano.
+    await page.locator('#split-aggiungi').selectOption('106');
+    await page.locator('#split-aggiungi-btn').click();
+    await page.locator('.split-perc-inp[data-cid="106"]').fill('10');
+    await page.locator('.split-perc-inp[data-cid="101"]').fill('25');
+    await page.locator('#m-data').fill(`${Y}-06-15`);
+    await page.locator('#m-data').dispatchEvent('change');
+    await expect(page.locator('.split-perc-inp[data-cid="106"]')).toHaveValue('10.00');
+    await expect(page.locator('.split-perc-inp[data-cid="101"]')).toHaveValue('25.00');
+    await expect(page.locator('.split-lock-btn[data-lock-cid="106"]')).toHaveAttribute('data-locked', '1');
+    await expect(page.locator('.split-lock-btn[data-lock-cid="101"]')).toHaveAttribute('data-locked', '1');
+    await page.locator('#modal-cancel').click();
   });
 
   test('ripartizione fotografata: cambiare la tabella non modifica le spese già salvate; totale ≠ 1000 chiede conferma', async ({ page }) => {

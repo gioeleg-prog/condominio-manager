@@ -30,23 +30,53 @@ function millesimiInUsoNellAnno(anno, edId = state.edificioAttivo) {
   return !!(c && c.attivo && c.dal && c.dal <= anno + '-12-31');
 }
 
+const _millesimiVer = {};        // edificioId → versione letta dal server (firmaImpostazione)
+const _millesimiLetti = {};      // edificioId → quando (ms) sono stati letti l'ultima volta
+const MILLESIMI_VALIDITA_MS = 60000;
+
 async function caricaMillesimi(edId = state.edificioAttivo) {
   if (!window._fb?.getDoc || !edId) return;
-  const { db, doc, getDoc } = window._fb;
   try {
-    const s = await getDoc(doc(db, 'buildings', String(edId), 'impostazioni', 'millesimi'));
-    _millesimi[edId] = s.exists() ? s.data() : null;
+    const r = await leggiImpostazione(edId, 'millesimi');
+    _millesimi[edId] = r.dati;
+    _millesimiVer[edId] = r.firma;
+    _millesimiLetti[edId] = Date.now();
   } catch (e) {
-    _millesimi[edId] = null;
+    // Una rilettura fallita non cancella ciò che si ha già.
+    if (!(edId in _millesimi)) { _millesimi[edId] = null; delete _millesimiVer[edId]; }
+    _millesimiLetti[edId] = Date.now();
     console.warn('Millesimi non caricati', e.code || e.message);
   }
 }
-// Chiamata a ogni disegno: carica una volta per condominio, poi ridisegna.
+// Chiamata a ogni disegno: carica la prima volta per condominio, poi ridisegna.
+// Dopo un minuto li rilegge in silenzio (ADV-FUNC-026: la scheda di una spesa non
+// deve proporre la tabella vecchia se un altro amministratore l'ha cambiata) e
+// ridisegna solo se sono davvero cambiati, mai con una scheda aperta o nelle Impostazioni.
+// Il controllo "scheda aperta / Impostazioni" si ripete alla fine della lettura (CR-004): l'utente può
+// aprire una scheda mentre la risposta è in viaggio, e un ridisegno cancellerebbe ciò che sta scrivendo.
+function ridisegnoConsentito() { return !state.modal && state.page !== 'impostazioni'; }
 function assicuraMillesimi() {
   const ed = state.edificioAttivo;
-  if (!state.user || !window._fb?.getDoc || ed in _millesimi || _millesimiInCarico[ed]) return;
+  if (!state.user || !window._fb?.getDoc || _millesimiInCarico[ed]) return;
+  const primo = !(ed in _millesimi);
+  const scaduti = !primo && Date.now() - (_millesimiLetti[ed] || 0) > MILLESIMI_VALIDITA_MS && ridisegnoConsentito();
+  if (!primo && !scaduti) return;
+  const prima = _millesimiVer[ed];
   _millesimiInCarico[ed] = true;
-  caricaMillesimi(ed).finally(() => { _millesimiInCarico[ed] = false; if (typeof renderPresto === 'function') renderPresto(); });
+  caricaMillesimi(ed).finally(() => {
+    _millesimiInCarico[ed] = false;
+    if (!primo && !ridisegnoConsentito()) return; // scheda aperta nel frattempo: i dati sono aggiornati, nessun ridisegno
+    if ((primo || prima !== _millesimiVer[ed]) && typeof renderPresto === 'function') renderPresto();
+  });
+}
+// Aprendo la scheda spesa: se i millesimi sono stati letti più di un minuto fa si rileggono dal server
+// (stesso meccanismo delle impostazioni) PRIMA di aprirla, così la proposta usa la tabella di adesso.
+// Nessun ridisegno: la scheda non è ancora aperta.
+async function rileggiMillesimiSeVecchi(edId = state.edificioAttivo) {
+  if (!window._fb?.getDoc || !edId || !(edId in _millesimi) || _millesimiInCarico[edId]) return;
+  if (Date.now() - (_millesimiLetti[edId] || 0) <= MILLESIMI_VALIDITA_MS) return;
+  _millesimiInCarico[edId] = true;
+  try { await caricaMillesimi(edId); } finally { _millesimiInCarico[edId] = false; }
 }
 
 function tabelleMillesimi(edId = state.edificioAttivo) { return configMillesimi(edId)?.tabelle || []; }
@@ -71,18 +101,60 @@ function percDaPesi(pesi) {
 // Ripartizione proposta da una tabella per una spesa di quella data: tra chi
 // abita nel condominio alla data, in proporzione ai millesimi del suo appartamento.
 // Chi ha 0 (o non è in tabella) non paga quella spesa; `senza` li elenca.
+// Un solo peso per appartamento (CONS-022, scelta del proprietario: un rappresentante per appartamento).
+// Se un appartamento ha più condomini presenti, il peso va al rappresentante (campo `rappresentante`);
+// gli altri hanno fattore 0. Se nessuno è indicato (scelta prudente) il peso NON si raddoppia: si divide
+// in parti uguali tra i presenti dell'appartamento, e l'appartamento è elencato in `senzaScelta` perché
+// l'amministratore indichi il rappresentante. Con più rappresentanti indicati vale il primo.
+// Appartamento vuoto: nessun raggruppamento (non si sa chi condivide cosa) e peso 0 comunque.
+function fattoriAppartamento(presenti) {
+  const gruppi = new Map();
+  presenti.forEach((c, i) => {
+    const k = chiaveApt(c.appartamento);
+    if (k) gruppi.set(k, [...(gruppi.get(k) || []), i]);
+  });
+  const fattori = presenti.map(() => 1);
+  const senzaScelta = [];
+  gruppi.forEach((idx, chiave) => {
+    if (idx.length < 2) return;
+    const rep = idx.find(i => presenti[i].rappresentante === true);
+    if (rep !== undefined) { idx.forEach(i => { fattori[i] = i === rep ? 1 : 0; }); return; }
+    idx.forEach(i => { fattori[i] = 1 / idx.length; });
+    senzaScelta.push({ chiave, etichetta: presenti[idx[0]].appartamento, nomi: idx.map(i => presenti[i].nome) });
+  });
+  return { fattori, senzaScelta };
+}
+
 function propostaMillesimi(tabId, data, edId = state.edificioAttivo) {
   const t = tabelleMillesimi(edId).find(x => x.id === tabId);
   const presenti = condominiAllaData(data, edId);
   if (!t || !presenti.length) return null;
-  const pesi = presenti.map(c => parseFloat(t.valori?.[chiaveApt(c.appartamento)]) || 0);
-  if (!pesi.some(p => p > 0)) return null;
+  const grezzi = presenti.map(c => parseFloat(t.valori?.[chiaveApt(c.appartamento)]) || 0);
+  if (!grezzi.some(p => p > 0)) return null;
+  const { fattori, senzaScelta } = fattoriAppartamento(presenti);
+  const pesi = grezzi.map((p, i) => p * fattori[i]);
   const perc = percDaPesi(pesi);
   return {
     tabella: t,
     split: presenti.map((c, i) => ({ id: c.id, perc: perc[i], locked: false })),
-    senza: presenti.filter((c, i) => !pesi[i]).map(c => c.nome),
+    senza: presenti.filter((c, i) => !grezzi[i]).map(c => c.nome),
+    // appartamenti con più condomini e nessun rappresentante, che hanno un peso in questa tabella
+    senzaRappresentante: senzaScelta.filter(a => presenti.some((c, i) => chiaveApt(c.appartamento) === a.chiave && grezzi[i] > 0)).map(a => a.etichetta),
   };
+}
+
+// Appartamenti di OGGI con più condomini attivi e nessun rappresentante (avviso nella pagina
+// Millesimi e nella scheda condomino). Solo se i millesimi sono accesi.
+function appartamentiSenzaRappresentante(edId = state.edificioAttivo) {
+  if (!configMillesimi(edId)?.attivo) return [];
+  return fattoriAppartamento(condominiAllaData(ymdLocale(new Date()), edId)).senzaScelta;
+}
+// Ci sono altri condomini attivi oggi nello stesso appartamento?
+function condividenti(c) {
+  const k = chiaveApt(c?.appartamento);
+  if (!k) return [];
+  return condominiAllaData(ymdLocale(new Date()), c.edificioId || state.edificioAttivo)
+    .filter(x => x.id !== c.id && chiaveApt(x.appartamento) === k);
 }
 
 // Millesimi di un condomino (sola lettura, per l'anagrafica).
@@ -124,13 +196,22 @@ function disegnaMillesimi() {
   const b = _bozzaMill;
   const apt = appartamentiEdificio();
   const categorie = getCategorie().filter(c => c.tipo !== 'entrata');
+  const cambiati = !!(b.__ver && _millesimiVer[state.edificioAttivo] && b.__ver !== _millesimiVer[state.edificioAttivo]);
   box.innerHTML = `
+    ${cambiati ? `<div class="alert alert-warning" id="mill-cambiati" style="font-size:13px;margin:0 0 .75rem">Un'altra persona ha salvato nuovi millesimi dopo che hai aperto questa scheda. Se salvi ora il salvataggio viene fermato per non cancellare la sua modifica.
+      <button type="button" class="btn btn-secondary btn-sm" id="mill-ricarica" style="width:auto;margin-left:.5rem">Ricarica i valori</button></div>` : ''}
     <label class="casella-email" for="mill-attivo" style="margin-top:0">
       <input type="checkbox" id="mill-attivo" ${b.attivo ? 'checked' : ''}>
       <span><strong>Usa i millesimi in questo condominio</strong>
       <span class="hint" style="display:block;margin-top:2px">Spento: le spese si dividono come sempre (in parti uguali o come le imposti). Acceso: le spese nuove dalla data indicata propongono la ripartizione per millesimi, sempre modificabile nella spesa. Le spese già inserite non cambiano.</span></span>
     </label>
     <div class="field" style="max-width:240px"><label for="mill-dal">Valgono per le spese dal</label><input type="date" id="mill-dal" value="${esc(b.dal || '')}"></div>
+    ${(() => {
+      const senza = appartamentiSenzaRappresentante();
+      return senza.length ? `<div class="alert alert-warning" id="mill-senza-rapp" style="font-size:13px;margin:.75rem 0">
+        <strong>Manca il rappresentante</strong> in: ${senza.map(a => esc(a.etichetta) + ' (' + a.nomi.map(esc).join(', ') + ')').join('; ')}.
+        Ogni appartamento conta una volta sola: finché non indichi chi lo rappresenta (Condomini → Modifica), il suo peso è diviso in parti uguali tra i condomini attivi. Gli altri non portano peso né quote proprie.</div>` : '';
+    })()}
     ${b.tabelle.map((t, ti) => {
       const tot = totaleTabella(t);
       const ok = Math.abs(tot - 1000) < 0.0005;
@@ -199,6 +280,9 @@ function disegnaMillesimi() {
     const { db, doc, setDoc, serverTimestamp, auth } = window._fb;
     const dati = { attivo: b.attivo, dal: b.dal || '', tabelle: b.tabelle, categorie: b.categorie, aggiornatoDa: auth.currentUser?.uid, aggiornatoIl: serverTimestamp() };
     try {
+      // QA-CONS-010: se un altro ha salvato dopo che hai aperto la scheda, non si sovrascrive in silenzio.
+      const ed = state.edificioAttivo;
+      if (await impostazioneCambiataAltrove(ed, 'millesimi', b.__ver, 'Tabelle millesimali', ricaricaMillesimi)) return;
       await setDoc(doc(db, 'buildings', String(state.edificioAttivo), 'impostazioni', 'millesimi'), dati);
       _millesimi[state.edificioAttivo] = { ...dati };
       _bozzaMill = null;
@@ -206,15 +290,27 @@ function disegnaMillesimi() {
       render();
     } catch (e) { errore('Millesimi non salvati: ' + (e.message || e)); }
   };
+  const ric = document.getElementById('mill-ricarica');
+  if (ric) ric.onclick = () => ricaricaMillesimi(_millesimi[state.edificioAttivo], _millesimiVer[state.edificioAttivo]);
   const ap = document.getElementById('mill-applica');
   if (ap) ap.onclick = () => setState({ modal: { type: 'millesimiApplica', data: {} } });
 }
 
+// Applica i valori del server e riparte da una bozza nuova (dopo "Ricarica").
+function ricaricaMillesimi(dati, firma) {
+  const ed = state.edificioAttivo;
+  _millesimi[ed] = dati; _millesimiVer[ed] = firma; _millesimiLetti[ed] = Date.now();
+  _bozzaMill = null;
+  render();
+}
+
+// Alla apertura della scheda si rileggono sempre dal server (QA-CONS-010): la bozza
+// ricorda la versione da cui è partita, il salvataggio la confronta con quella attuale.
 async function bindSezioneMillesimi() {
   if (!document.getElementById('mill-box')) return;
-  if (!(state.edificioAttivo in _millesimi)) await caricaMillesimi();
+  await caricaMillesimi();
   if (_bozzaMill && _bozzaMill.__ed !== state.edificioAttivo) _bozzaMill = null;
-  if (!_bozzaMill) { _bozzaMill = nuovaBozzaMill(); _bozzaMill.__ed = state.edificioAttivo; }
+  if (!_bozzaMill) { _bozzaMill = nuovaBozzaMill(); _bozzaMill.__ed = state.edificioAttivo; _bozzaMill.__ver = _millesimiVer[state.edificioAttivo]; }
   disegnaMillesimi();
 }
 
@@ -225,12 +321,59 @@ function speseDaRipartireMillesimi() {
     && !(parseFloat(s.consuntivo) > 0));
 }
 
+// Ripartizione fatta a mano? (CONS-021, scelta del proprietario: queste spese non si toccano.)
+// Una spesa NON è a mano se: non ha ripartizione (parti uguali implicite), oppure la sua ripartizione
+// coincide con le parti uguali tra chi abitava alla data, oppure con la proposta di una delle tabelle
+// dei millesimi a quella data (tolleranza 0,011 punti percentuali). È a mano se ha una quota bloccata,
+// una quota > 0 per chi non abitava alla data (riga aggiunta a mano), o qualunque altra distribuzione.
+// Nel dubbio (es. millesimi cambiati dopo il salvataggio, quindi la vecchia proposta non coincide più)
+// la spesa conta come "a mano" e viene saltata: è la scelta prudente.
+function ripartizioneAMano(s) {
+  const split = (s.split || []).filter(x => x && x.id !== undefined);
+  if (!split.length) return false;
+  if (split.some(x => x.locked)) return true;
+  const mappa = (righe) => new Map(righe.map(x => [x.id, parseFloat(x.perc) || 0]));
+  const attuale = mappa(split);
+  const uguale = (altra) => {
+    const ids = new Set([...attuale.keys(), ...altra.keys()]);
+    for (const id of ids) if (Math.abs((attuale.get(id) || 0) - (altra.get(id) || 0)) > 0.011) return false;
+    return true;
+  };
+  const ed = s.edificioId || state.edificioAttivo;
+  const presenti = condominiAllaData(s.data, ed);
+  if (presenti.length) {
+    const pu = partiUguali(presenti.length);
+    if (uguale(new Map(presenti.map((c, i) => [c.id, pu[i]])))) return false;
+  }
+  for (const t of tabelleMillesimi(ed)) {
+    const p = propostaMillesimi(t.id, s.data, ed);
+    if (p && uguale(mappa(p.split))) return false;
+  }
+  return true;
+}
+
+// Sintesi leggibile di una ripartizione: "Anna 40% · Bruno 35%" (solo chi ha una quota).
+function sintesiRipartizione(s) {
+  if (!(s.split || []).length) return 'parti uguali';
+  const parti = s.split.filter(x => (parseFloat(x.perc) || 0) > 0).map(x => {
+    const c = state.condomini.find(k => k.id === x.id);
+    return `${c ? c.nome : 'ex condomino'} ${fmtMill(parseFloat(x.perc) || 0)}%`;
+  });
+  return parti.join(' · ') || 'nessuna quota';
+}
+
 function calcolaApplicazioneMillesimi() {
   const righe = new Map(); // condId → { nome, prima, dopo }
   const nuove = [];
+  const modificate = []; // { spesa, prima, dopo } per l'elenco dell'anteprima
+  const saltate = [];    // { spesa, motivo: 'prima-data' | 'a-mano' | 'senza-tabella' }
   for (const s of speseDaRipartireMillesimi()) {
-    const p = propostaMillesimi(tabellaPerCategoria(s.categoria), s.data);
-    if (!p) continue;
+    if (!millesimiAttiviAlla(s.data)) { saltate.push({ spesa: s, motivo: 'prima-data' }); continue; }
+    if (ripartizioneAMano(s)) { saltate.push({ spesa: s, motivo: 'a-mano' }); continue; }
+    // Tabella scelta nella spesa, se esiste ancora; altrimenti quella della categoria.
+    const tabId = tabelleMillesimi().some(t => t.id === s.tabellaMillesimi) ? s.tabellaMillesimi : tabellaPerCategoria(s.categoria);
+    const p = propostaMillesimi(tabId, s.data);
+    if (!p) { saltate.push({ spesa: s, motivo: 'senza-tabella' }); continue; }
     const importo = parseFloat(s.preventivo) || 0;
     const nAttivi = condominiAllaData(s.data).length;
     const ids = new Set([...(s.split || []).map(x => x.id), ...p.split.map(x => x.id)]);
@@ -244,27 +387,41 @@ function calcolaApplicazioneMillesimi() {
       righe.set(id, r);
     });
     nuove.push(dopoS);
+    modificate.push({ spesa: s, prima: sintesiRipartizione(s), dopo: sintesiRipartizione(dopoS) + ` (tabella ${p.tabella.nome})` });
   }
-  return { nuove, righe: [...righe.values()].sort((a, b) => String(a.apt).localeCompare(String(b.apt), 'it', { numeric: true })) };
+  return { nuove, modificate, saltate, righe: [...righe.values()].sort((a, b) => String(a.apt).localeCompare(String(b.apt), 'it', { numeric: true })) };
 }
 
+const MOTIVI_SALTO_MILL = {
+  'prima-data': 'data precedente a "Valgono per le spese dal"',
+  'a-mano': 'ripartizione fatta a mano',
+  'senza-tabella': 'nessun millesimo valido per quella data',
+};
+
 function renderModalMillesimiApplica() {
-  const { nuove, righe } = calcolaApplicazioneMillesimi();
+  const { nuove, modificate, saltate, righe } = calcolaApplicazioneMillesimi();
   const anno = new Date().getFullYear();
+  const dal = configMillesimi()?.dal;
+  const nome = (s) => esc(s.titolo || s.descrizione || ('Spesa ' + s.id));
   return `
   <div class="modal-overlay" id="modal-overlay">
-    <div class="modal" style="max-width:620px">
+    <div class="modal" style="max-width:700px">
       <div class="modal-header"><h2>⚖️ Applica i millesimi alle spese ${anno}</h2><button class="modal-close" id="modal-close" aria-label="Chiudi">✕</button></div>
       <div class="modal-body">
         <p style="font-size:14px;margin-bottom:.75rem">${nuove.length
-          ? `<strong>${nuove.length} ${nuove.length === 1 ? 'spesa' : 'spese'}</strong> del ${anno} non ancora consuntivate verranno ripartite con i millesimi (tabella secondo la categoria). Le spese consuntivate e gli anni passati non cambiano.`
-          : `Nessuna spesa del ${anno} da ripartire: sono tutte consuntivate oppure non ci sono millesimi validi.`}</p>
+          ? `<strong>${nuove.length} ${nuove.length === 1 ? 'spesa' : 'spese'}</strong> del ${anno} non ancora consuntivate verranno ripartite con i millesimi (tabella scelta nella spesa, altrimenti quella della categoria), a partire dal ${esc(dataPdf(dal))}. Le spese consuntivate, quelle con ripartizione fatta a mano e gli anni passati non cambiano.`
+          : `Nessuna spesa del ${anno} da ripartire: sono tutte consuntivate, precedenti alla data di inizio, con ripartizione fatta a mano oppure non ci sono millesimi validi.`}</p>
         ${nuove.length ? `<div class="table-wrap" style="overflow-x:auto"><table class="split-table" style="min-width:0">
           <thead><tr><th>Condomino</th><th style="text-align:right">Quota prima</th><th style="text-align:right">Quota dopo</th><th style="text-align:right">Differenza</th></tr></thead>
           <tbody>${righe.map(r => { const d = r.dopo - r.prima; return `<tr><td>${esc(r.nome)} <span class="hint">${esc(r.apt || '')}</span></td>
             <td style="text-align:right">${fmt(r.prima)}</td><td style="text-align:right">${fmt(r.dopo)}</td>
             <td style="text-align:right;color:${d > 0.005 ? 'var(--red)' : d < -0.005 ? 'var(--green)' : 'var(--text2)'}">${d > 0 ? '+' : ''}${fmt(d)}</td></tr>`; }).join('')}</tbody>
         </table></div><p class="hint" style="margin-top:.5rem">Importi calcolati sul preventivo delle spese non ancora consuntivate.</p>` : ''}
+        ${modificate.length ? `<h3 style="font-size:14px;margin:1rem 0 .4rem">Spese che cambiano (${modificate.length})</h3>
+        <ul id="mill-elenco-cambiano" style="font-size:13px;padding-left:1.1rem;margin:0">${modificate.map(m => `<li style="margin-bottom:.4rem"><strong>${esc(dataPdf(m.spesa.data))}</strong> · ${nome(m.spesa)}<br>
+          <span class="hint">Prima: ${esc(m.prima)}<br>Dopo: ${esc(m.dopo)}</span></li>`).join('')}</ul>` : ''}
+        ${saltate.length ? `<h3 style="font-size:14px;margin:1rem 0 .4rem">Spese saltate (${saltate.length})</h3>
+        <ul id="mill-elenco-saltate" style="font-size:13px;padding-left:1.1rem;margin:0">${saltate.map(x => `<li style="margin-bottom:.3rem"><strong>${esc(dataPdf(x.spesa.data))}</strong> · ${nome(x.spesa)} <span class="hint">— ${esc(MOTIVI_SALTO_MILL[x.motivo])}</span></li>`).join('')}</ul>` : ''}
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
