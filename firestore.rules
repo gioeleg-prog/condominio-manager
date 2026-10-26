@@ -70,13 +70,21 @@ function isRef(v) {
 // (storagePath; che sia il proprio lo controllano le storage.rules alla
 // lettura) oppure, per i vecchi allegati incorporati, è un indirizzo data: in
 // base64 (data64). Un data64 "javascript:…" veniva eseguito dal visualizzatore.
-// id, storagePath e data64 in un'unica espressione regolare, separati da "<"
+// id, storagePath, data64 e mime in un'unica espressione regolare, separati da "<"
 // (che nessuno dei tre può contenere; "null" = campo assente): ogni
 // espressione in più per elemento conta per ciascun allegato.
+// Audit 2026-10-24: anche il tipo (mime) è un elenco chiuso, lo stesso di
+// storage.rules (allowedType) e di MIME_ALLEGATI in js/sezioni/allegati.js (le tre
+// copie le tiene allineate un test di qa/unit.spec.js, DAT-009); niente SVG né
+// HTML, che un visualizzatore potrebbe trattare come contenuto attivo.
+// Vale per gli allegati nuovi o cambiati: in un record che esiste già, un allegato
+// identico a uno salvato non si ricontrolla (validAllegatiAgg, CR-001).
 function validAllegato(a) {
-  return a.nome is string && a.mime is string
-    && (string(a.id) + '<' + string(a.get('storagePath', null)) + '<' + string(a.get('data64', null))).matches(
-         "[^'\"<>&]{1,100}<(null|buildings/[A-Za-z0-9_.-]{1,64}/allegati/[^/<]{1,300})<(null|data:[A-Za-z0-9.+/-]{1,100}(;[A-Za-z0-9=._-]{1,40})*;base64,[A-Za-z0-9+/=]*)");
+  // (a.mime non è controllato a parte: se non è un testo, la concatenazione dà
+  // errore e la regola nega; ogni controllo in meno vale per ciascun allegato)
+  return a.nome is string
+    && (string(a.id) + '<' + string(a.get('storagePath', null)) + '<' + string(a.get('data64', null)) + '<' + a.mime).matches(
+         "[^'\"<>&]{1,100}<(null|buildings/[A-Za-z0-9_.-]{1,64}/allegati/[^/<]{1,300})<(null|data:[A-Za-z0-9.+/-]{1,100}(;[A-Za-z0-9=._-]{1,40})*;base64,[A-Za-z0-9+/=]*)<(image/(png|jpe?g|gif|webp|heic|heif|bmp|tiff)|application/(pdf|octet-stream|msword|rtf|zip)|application/vnd\\.(ms-excel|ms-powerpoint|openxmlformats-officedocument\\.(wordprocessingml\\.document|spreadsheetml\\.sheet|presentationml\\.presentation)|oasis\\.opendocument\\.(text|spreadsheet|presentation|graphics))|text/(plain|csv))");
 }
 // Le regole non hanno cicli: si controllano uno per uno gli elementi, fino a
 // 10 (MAX_ALLEGATI in js/sezioni/allegati.js); una lista più lunga è
@@ -92,10 +100,51 @@ function validAllegati(l) {
     && (n <= 6 || validAllegato(l[6])) && (n <= 7 || validAllegato(l[7]))
     && (n <= 8 || validAllegato(l[8])) && (n <= 9 || validAllegato(l[9])));
 }
+// Come validAllegati, ma per un record che esiste già (CR-001, REL-002): un allegato
+// identico a uno già salvato nel record non si ricontrolla (un vecchio allegato con
+// un tipo oggi fuori elenco, o un data64, non rende il record non più modificabile
+// né cancellabile); solo gli allegati nuovi o cambiati passano dal controllo
+// completo, tipo compreso. Il confronto è con tutta la lista precedente, non con la
+// stessa posizione: togliere un allegato sposta gli altri e non li rende "nuovi".
+function validAllegatiAgg(l) {
+  let v = resource.data.get('allegati', null);
+  let w = v is list ? v : [];
+  let n = l is list ? l.size() : 99;
+  return l == null || (n <= 10
+    && (n <= 0 || l[0] in w || validAllegato(l[0])) && (n <= 1 || l[1] in w || validAllegato(l[1]))
+    && (n <= 2 || l[2] in w || validAllegato(l[2])) && (n <= 3 || l[3] in w || validAllegato(l[3]))
+    && (n <= 4 || l[4] in w || validAllegato(l[4])) && (n <= 5 || l[5] in w || validAllegato(l[5]))
+    && (n <= 6 || l[6] in w || validAllegato(l[6])) && (n <= 7 || l[7] in w || validAllegato(l[7]))
+    && (n <= 8 || l[8] in w || validAllegato(l[8])) && (n <= 9 || l[9] in w || validAllegato(l[9])));
+}
 // Colore di un condomino (campo color): finisce in style="…" (avatarStyle), dove
 // un ";" aggiungerebbe altro CSS. Audit 2026-10-21: solo un esadecimale.
 function isColor(v) {
   return v == null || (v is string && v.matches('#[0-9A-Fa-f]{3,8}'));
+}
+// Importi (importo, preventivo, consuntivo): vuoti, oppure maggiori di zero con punto e al massimo due
+// decimali (come li salva la pagina; un numero si confronta come testo). Consolidato QA-CONS-020.
+// Percorso rapido: una sola espressione regolare sui tre valori insieme (conta per il limite di 1000
+// espressioni). Solo se non basta (aggiornamento di un record con un importo vecchio, zero o negativo)
+// si controlla campo per campo, e un valore invariato non blocca altri salvataggi.
+function importoOk(d, k) {
+  let v = d.get(k, null);
+  return v == null || v == '' || (resource != null && v == resource.data.get(k, null))
+    || (v is number ? v > 0
+        : v is string && v.matches('(0*[1-9][0-9]*([.][0-9]{1,2})?|0+[.](0[1-9]|[1-9][0-9]?))'));
+}
+function importiOk(d) {
+  return (string(d.get('importo', '')) + '<' + string(d.get('preventivo', '')) + '<' + string(d.get('consuntivo', ''))).matches(
+      '(0*[1-9][0-9]*([.][0-9]{1,2})?|0+[.](0[1-9]|[1-9][0-9]?))?<(0*[1-9][0-9]*([.][0-9]{1,2})?|0+[.](0[1-9]|[1-9][0-9]?))?<(0*[1-9][0-9]*([.][0-9]{1,2})?|0+[.](0[1-9]|[1-9][0-9]?))?')
+    || (resource != null && importoOk(d, 'importo') && importoOk(d, 'preventivo') && importoOk(d, 'consuntivo'));
+}
+// Date di ingresso e uscita di un condomino (DAT-008): vuote oppure AAAA-MM-GG, come le scrive la
+// pagina (campo data). Un valore diverso già salvato non blocca altri salvataggi se non cambia; che
+// la data esista davvero lo verifica il server quando la usa (ingressoFuturo in functions/notifiche.js).
+function dataOk(d, k) {
+  let v = d.get(k, null);
+  return v == null || v == '' || (v is string && v.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}'))
+    || (resource != null && v == resource.data.get(k, null));
 }
 // Testo di un messaggio WhatsApp in impostazioni/whatsapp.
 function testoWa(v) {
@@ -116,19 +165,33 @@ function validRecord(b, docId) {
           : d.get('_createdBy', null) == resource.data.get('_createdBy', null)
             && d.get('_createdAt', null) == resource.data.get('_createdAt', null))
     && d.get('_deleted', false) is bool
-    && (d.get('_deleted', false) == false || d.get('_deletedBy', null) == request.auth.uid
-          || (resource != null && resource.data.get('_deleted', false) == true))
+    // Cancellazione logica (audit 2026-10-24): chi cancella firma _deletedBy; su un
+    // record già cancellato _deletedBy non si cambia più, e un record non
+    // cancellato non ne porta uno nuovo (il registro modifiche non si falsifica).
+    // SEC-020: nemmeno una firma vecchia, rimasta dopo un ripristino, vale per una
+    // cancellazione nuova: a ogni passaggio da attivo a cancellato _deletedBy è
+    // chi scrive (se è la stessa persona di prima, il valore coincide).
+    && (d.get('_deleted', false) == true
+          ? d.get('_deletedBy', null) != null
+            && (resource != null && resource.data.get('_deleted', false) == true
+                  ? d.get('_deletedBy', null) == resource.data.get('_deletedBy', null)
+                  : d.get('_deletedBy', null) == request.auth.uid)
+          : d.get('_deletedBy', null) == null
+            || (resource != null && d.get('_deletedBy', null) == resource.data.get('_deletedBy', null)))
     // _restoredAt lo scrive solo il ripristino da backup (functions/backup.js,
     // Admin SDK) e fa saltare il registro modifiche a auditTrail: il client
     // può solo conservarlo o toglierlo, mai impostarlo o cambiarlo.
-    && (isSuperAdmin() || d.get('_restoredAt', null) == null
-          || (resource != null && d.get('_restoredAt', null) == resource.data.get('_restoredAt', null)))
+    && (d.get('_restoredAt', null) == null
+          || (resource != null && d.get('_restoredAt', null) == resource.data.get('_restoredAt', null))
+          || isSuperAdmin())
     // allegati: controllati solo se cambiano (ogni elemento costa espressioni)
-    && ((resource != null && d.get('allegati', null) == resource.data.get('allegati', null))
-          || validAllegati(d.get('allegati', null)))
+    && (resource == null ? validAllegati(d.get('allegati', null))
+          : (d.get('allegati', null) == resource.data.get('allegati', null)
+              || validAllegatiAgg(d.get('allegati', null))))
     // color: controllato solo se cambia (un valore già salvato non blocca altri salvataggi)
-    && ((resource != null && d.get('color', null) == resource.data.get('color', null))
-          || isColor(d.get('color', null)))
+    && (isColor(d.get('color', null))
+          || (resource != null && d.get('color', null) == resource.data.get('color', null)))
+    && importiOk(d)
     && isList(d.get('split', null))
     && isList(d.get('argomenti', null)) && isList(d.get('decisioni', null))
     && isList(d.get('storicoAggiornamenti', null))
@@ -210,8 +273,11 @@ service cloud.firestore {
         && request.resource.data.get('stack', '') is string && request.resource.data.get('stack', '').size() <= 2000
         && request.resource.data.get('page', '') is string && request.resource.data.get('page', '').size() <= 40
         && request.resource.data.get('ua', '') is string && request.resource.data.get('ua', '').size() <= 200
-        && (request.resource.data.get('role', null) == null || request.resource.data.get('role', null) is string)
-        && (request.resource.data.get('buildingId', null) == null || request.resource.data.get('buildingId', null) is string);
+        && (request.resource.data.get('role', null) == null
+            || (request.resource.data.get('role', null) is string && request.resource.data.get('role', null).size() <= 40))
+        && (request.resource.data.get('buildingId', null) == null
+            || (request.resource.data.get('buildingId', null) is string && request.resource.data.get('buildingId', null).size() <= 64))
+        && request.resource.data.uid is string && request.resource.data.uid.size() <= 128;
       allow update: if false;
     }
 
@@ -231,8 +297,8 @@ service cloud.firestore {
     // - avere id ed edificioId coerenti con il percorso;
     // - firmare _updatedBy (= chi scrive) e _updatedAt (= ora del server):
     //   la Cloud Function auditTrail ne ricava il registro delle modifiche;
-    // - rispettare la forma minima dei campi (elenchi e testi, come
-    //   RECORD_SCHEMA in index.html e functions/index.js).
+    // - rispettare la forma minima dei campi (elenchi e testi: la pagina li riporta
+    //   alla stessa forma in RECORD_SCHEMA, js/core/dati.js).
     // Le cancellazioni sono logiche (_deleted: true, con _deletedBy): così
     // l'audit sa chi ha cancellato cosa e il record è recuperabile. La
     // cancellazione fisica resta al superAdmin.
@@ -252,6 +318,11 @@ service cloud.firestore {
         allow read: if inBuilding(buildingId);
         allow create, update: if canAdmin(buildingId) && validRecord(buildingId, docId)
           && !request.resource.data.keys().hasAny(['email', 'emailLower', 'telefono'])
+          // DAT-008: rappresentante è un booleano (un testo come "false" conterrebbe vero nel
+          // codice) e le date hanno la forma attesa; controlli solo se il valore cambia.
+          && (request.resource.data.get('rappresentante', false) is bool
+              || (resource != null && request.resource.data.get('rappresentante', null) == resource.data.get('rappresentante', null)))
+          && dataOk(request.resource.data, 'dataIngresso') && dataOk(request.resource.data, 'dataUscita')
           && (isSuperAdmin() || (
                 request.resource.data.get('superAdmin', false) == (resource == null ? false : resource.data.get('superAdmin', false))
              && request.resource.data.get('uid', null) == (resource == null ? null : resource.data.get('uid', null))));
@@ -357,8 +428,15 @@ service cloud.firestore {
     // Profilo whoami/bootstrap: ognuno legge/scrive solo il proprio.
     // Non contiene flag di ruolo autorevoli (quelli sono nel custom claim
     // e nello specchio roles/{uid}, mai scrivibili dal client).
+    // Audit 2026-10-24: il codice non usa più questa collezione (whoami e il resto
+    // passano dall'Admin SDK): la scrittura resta solo per il proprio profilo,
+    // con i soli campi email e displayName, brevi, e senza cancellazione.
     match /users/{uid} {
-      allow read, write: if isSignedIn() && request.auth.uid == uid;
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      allow create, update: if isSignedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'displayName'])
+        && request.resource.data.get('email', '') is string && request.resource.data.get('email', '').size() <= 200
+        && request.resource.data.get('displayName', '') is string && request.resource.data.get('displayName', '').size() <= 200;
       allow read: if isSuperAdmin();
     }
 

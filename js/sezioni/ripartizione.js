@@ -4,6 +4,29 @@
 // ===========================
 // SPLIT LOGIC
 // ===========================
+// Nuove righe della ripartizione quando cambia la data della spesa (spesa nuova o senza ripartizione salvata).
+// attuali: [{id, base, perc, locked}]. idsNuovi: chi abitava alla data. Chi esce dal gruppo ma ha una quota
+// scritta a mano (bloccata) resta come riga a mano; gli altri escono. Chi entra parte da zero e le quote
+// libere si ridividono sul residuo, quindi il totale resta 100% e le quote già inserite non si perdono.
+function righeSplitPerData(attuali, idsNuovi) {
+  const nuovi = new Set(idsNuovi);
+  const out = [];
+  attuali.forEach(r => {
+    if (!r.base) out.push({ ...r });
+    else if (nuovi.has(r.id)) out.push({ ...r });
+    else if (r.locked) out.push({ ...r, base: false });
+  });
+  const presenti = new Set(out.map(r => r.id));
+  idsNuovi.forEach(id => { if (!presenti.has(id)) out.push({ id, base: true, perc: 0, locked: false }); });
+  const liberi = out.filter(r => r.base && !r.locked);
+  if (liberi.length) {
+    const fissi = out.filter(r => !(r.base && !r.locked)).reduce((a, r) => a + (r.perc || 0), 0);
+    const cent = Math.max(0, Math.round((100 - fissi) * 100));
+    liberi.forEach((r, i) => { r.perc = (Math.floor(cent / liberi.length) + (i < cent % liberi.length ? 1 : 0)) / 100; });
+  }
+  return out;
+}
+
 function bindSplit() {
   const tbody = document.getElementById('split-tbody');
   if (!tbody) return;
@@ -23,6 +46,16 @@ function bindSplit() {
       if (b.dataset.locked === '1') locked[b.dataset.lockCid] = true;
     });
     return locked;
+  }
+
+  // Righe "di base" (chi abitava alla data): partecipano al ricalcolo automatico. Le altre (aggiunte a mano,
+  // o di chi è uscito con una quota salvata) tengono la quota scritta.
+  const isBase = (inp) => { const tr = inp.closest ? inp.closest('tr') : null; return !tr || tr.dataset.base !== '0'; };
+  function cidsBase() {
+    return [...document.querySelectorAll('.split-perc-inp')].filter(isBase).map(inp => inp.dataset.cid);
+  }
+  function cidsTutti() {
+    return [...document.querySelectorAll('.split-perc-inp')].map(inp => inp.dataset.cid);
   }
 
   function getPercInputs() {
@@ -83,7 +116,7 @@ function bindSplit() {
     // Barra colorata — solo condomini dell'edificio attivo (strict)
     const barEl = document.getElementById('split-bar');
     if (barEl) {
-      const condBar = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin);
+      const condBar = cidsTutti().map(cid => state.condomini.find(c => String(c.id) === cid)).filter(Boolean);
       barEl.innerHTML = condBar.map(c=>{
         const w = Math.max(0, Math.min(100, percs[String(c.id)]||0));
         return `<div class="split-bar-seg" style="width:${w}%;background:${coloreSicuro(c.color)};opacity:.8"></div>`;
@@ -96,9 +129,10 @@ function bindSplit() {
     const locked   = getLocked();
     const percs    = getPercInputs();
     const ref      = getRef();
-    const allCids  = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).map(c=>String(c.id));
+    const allCids  = cidsBase();
     const freeCids = allCids.filter(cid => cid !== changedCid && !locked[cid]);
-    const lockedSum = allCids.filter(cid => cid !== changedCid && locked[cid])
+    // Quote che non si ricalcolano: righe bloccate e righe fuori dal gruppo di base.
+    const lockedSum = cidsTutti().filter(cid => cid !== changedCid && (locked[cid] || !allCids.includes(cid)))
                              .reduce((a,cid)=>a+(percs[cid]||0), 0);
     const newVal   = percs[changedCid] || 0;
     const remaining = 100 - newVal - lockedSum;
@@ -126,7 +160,7 @@ function bindSplit() {
     if (ref <= 0) return; // senza importo non possiamo calcolare %
     const locked  = getLocked();
     const euros   = getEuroInputs();
-    const allCids = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).map(c=>String(c.id));
+    const allCids = cidsBase();
     const changedEuro = euros[changedCid] || 0;
     const changedPerc = (changedEuro / ref) * 100;
 
@@ -136,7 +170,7 @@ function bindSplit() {
     setPercInputs(percMap);
 
     // Ricalcola gli altri come se avessimo cambiato la %
-    const lockedEuroSum = allCids.filter(c => c !== changedCid && locked[c])
+    const lockedEuroSum = cidsTutti().filter(c => c !== changedCid && (locked[c] || !allCids.includes(c)))
                                  .reduce((a,cid)=>a+(euros[cid]||0), 0);
     const freeCids = allCids.filter(c => c !== changedCid && !locked[c]);
     const remaining = ref - changedEuro - lockedEuroSum;
@@ -157,18 +191,21 @@ function bindSplit() {
   // ── parti uguali ──────────────────────────────────────────────────────
   function equalSplit() {
     const ref  = getRef();
-    // USA SOLO i condomini dell'edificio attivo (strict, no superAdmin)
-    const condAttivi = state.condomini.filter(c =>
-      c.edificioId === state.edificioAttivo && !c.disabled && !c.superAdmin
-    );
+    // Solo le righe di base (chi abitava alla data); le righe a mano tengono la loro quota e si divide il residuo.
+    const condAttivi = cidsBase().map(cid => ({ id: cid }));
+    const percs0 = getPercInputs();
+    const euros0 = getEuroInputs();
+    const manuali = cidsTutti().filter(cid => !cidsBase().includes(cid));
+    const centManuali = Math.round(manuali.reduce((a, cid) => a + (percs0[cid] || 0), 0) * 100);
+    const eurManuali = Math.round(manuali.reduce((a, cid) => a + (euros0[cid] || 0), 0) * 100);
     const n    = condAttivi.length || 1;
     // QA: si ripartisce in centesimi e il resto va ai primi condomini, così
     // percentuali ed euro sommano esattamente a 100% e al totale (prima
     // 6 × 16,67% = 100,02%, cioè 6 € in più su 30.000 €).
     const parti = (totCent) => condAttivi.map((_, i) =>
       (Math.floor(totCent / n) + (i < totCent % n ? 1 : 0)) / 100);
-    const percs = parti(10000);
-    const euros = ref > 0 ? parti(Math.round(ref * 100)) : condAttivi.map(() => 0);
+    const percs = parti(Math.max(0, 10000 - centManuali));
+    const euros = ref > 0 ? parti(Math.max(0, Math.round(ref * 100) - eurManuali)) : condAttivi.map(() => 0);
     const pMap = {}, eMap = {};
     condAttivi.forEach((c, i) => {
       pMap[String(c.id)] = percs[i];
@@ -184,8 +221,9 @@ function bindSplit() {
   }
 
   // ── event listeners ───────────────────────────────────────────────────
-  document.querySelectorAll('.split-perc-inp').forEach(inp => {
-    inp.addEventListener('focus', () => {
+  // Si può richiamare dopo aver ridisegnato le righe: ogni controllo viene collegato una volta sola.
+  function collegaRighe() {
+    const blocca = (inp) => {
       // Al focus: blocca automaticamente questo campo così non viene sovrascritto dal ricalcolo
       const btn = document.querySelector(`.split-lock-btn[data-lock-cid="${inp.dataset.cid}"]`);
       if (btn && btn.dataset.locked !== '1') {
@@ -193,29 +231,81 @@ function bindSplit() {
         btn.textContent = '🔒';
         btn.classList.add('locked');
       }
-    });
-    inp.addEventListener('input', () => onPercChange(inp.dataset.cid));
-  });
-  document.querySelectorAll('.split-euro-inp').forEach(inp => {
-    inp.addEventListener('focus', () => {
-      // Al focus: blocca automaticamente questo campo
-      const btn = document.querySelector(`.split-lock-btn[data-lock-cid="${inp.dataset.cid}"]`);
-      if (btn && btn.dataset.locked !== '1') {
-        btn.dataset.locked = '1';
-        btn.textContent = '🔒';
-        btn.classList.add('locked');
-      }
-    });
-    inp.addEventListener('input', () => onEuroChange(inp.dataset.cid));
-  });
-  document.querySelectorAll('.split-lock-btn').forEach(btn => {
-    btn.onclick = () => {
-      const locked = btn.dataset.locked === '1';
-      btn.dataset.locked = locked ? '0' : '1';
-      btn.textContent = locked ? '🔓' : '🔒';
-      btn.classList.toggle('locked', !locked);
     };
-  });
+    document.querySelectorAll('.split-perc-inp').forEach(inp => {
+      if (inp.dataset.legato) return; inp.dataset.legato = '1';
+      inp.addEventListener('focus', () => blocca(inp));
+      inp.addEventListener('input', () => onPercChange(inp.dataset.cid));
+    });
+    document.querySelectorAll('.split-euro-inp').forEach(inp => {
+      if (inp.dataset.legato) return; inp.dataset.legato = '1';
+      inp.addEventListener('focus', () => blocca(inp));
+      inp.addEventListener('input', () => onEuroChange(inp.dataset.cid));
+    });
+    document.querySelectorAll('.split-lock-btn').forEach(btn => {
+      btn.onclick = () => {
+        const locked = btn.dataset.locked === '1';
+        btn.dataset.locked = locked ? '0' : '1';
+        btn.textContent = locked ? '🔓' : '🔒';
+        btn.classList.toggle('locked', !locked);
+      };
+    });
+  }
+  collegaRighe();
+
+  // ── aggiunta a mano di un condomino (es. chi è uscito) ────────────────
+  function aggiornaAggiungibili() {
+    const sel = document.getElementById('split-aggiungi');
+    const box = document.getElementById('split-aggiungi-box');
+    if (!sel || !box) return;
+    const presenti = new Set(cidsTutti());
+    const altri = state.condomini.filter(c => c.edificioId === state.edificioAttivo && !c.superAdmin && !presenti.has(String(c.id)));
+    sel.innerHTML = altri.map(c => `<option value="${c.id}">${esc(c.nome)}${c.appartamento ? ' · ' + esc(c.appartamento) : ''}${c.disabled ? ' (non più attivo)' : ''}</option>`).join('');
+    box.style.display = altri.length ? 'flex' : 'none';
+  }
+  const btnAgg = document.getElementById('split-aggiungi-btn');
+  if (btnAgg) btnAgg.onclick = () => {
+    const id = document.getElementById('split-aggiungi')?.value;
+    const c = state.condomini.find(x => String(x.id) === String(id) && x.edificioId === state.edificioAttivo);
+    if (!c || cidsTutti().includes(String(c.id))) return;
+    tbody.insertAdjacentHTML('beforeend', htmlRigaSplit(c, { id: c.id, perc: 0, locked: false }, false, getRef()));
+    collegaRighe();
+    aggiornaAggiungibili();
+    updateTotals();
+  };
+
+  // ── cambio data: le righe seguono chi abitava alla data ───────────────
+  if (tbody.dataset.segueData === '1') {
+    document.getElementById('m-data')?.addEventListener('change', () => {
+      const data = document.getElementById('m-data').value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return;
+      const idsNuovi = condominiAllaData(data).filter(c => c.edificioId === state.edificioAttivo).map(c => c.id);
+      if (!idsNuovi.length) return;
+      const percs = getPercInputs(), locked = getLocked();
+      const attuali = [...document.querySelectorAll('.split-perc-inp')].map(inp => ({
+        id: parseInt(inp.dataset.cid), base: isBase(inp), perc: percs[inp.dataset.cid] || 0, locked: !!locked[inp.dataset.cid] }));
+      const righe = righeSplitPerData(attuali, idsNuovi);
+      const ref = getRef();
+      tbody.innerHTML = righe.map(r => {
+        const c = state.condomini.find(x => x.id === r.id);
+        return c ? htmlRigaSplit(c, r, r.base, ref) : '';
+      }).join('');
+      collegaRighe();
+      aggiornaAggiungibili();
+      updateTotals();
+    });
+  }
+
+  // Spesa già salvata: cambiando la data le righe NON cambiano da sole (i conti salvati restano com'erano);
+  // si avvisa l'amministratore che le quote non sono state ricalcolate.
+  if (tbody.dataset.segueData === '0' && tbody.dataset.dataOriginale) {
+    document.getElementById('m-data')?.addEventListener('change', () => {
+      const av = document.getElementById('split-data-avviso');
+      if (!av) return;
+      const nuova = document.getElementById('m-data').value;
+      av.style.display = nuova && nuova !== tbody.dataset.dataOriginale ? 'block' : 'none';
+    });
+  }
 
   const btnEqual = document.getElementById('split-equal');
   if (btnEqual) btnEqual.onclick = equalSplit;
@@ -240,13 +330,15 @@ function bindSplit() {
     if (ref > 0) setEuroInputs(eMap);
     updateTotals();
     sel.dataset.applicata = '1';
-    if (nota) nota.textContent = 'Proposta dai millesimi, tabella "' + p.tabella.nome + '"' + (p.senza.length ? ' · senza millesimi: ' + p.senza.join(', ') : '') + '. Puoi modificarla.';
+    if (nota) nota.textContent = 'Proposta dai millesimi, tabella "' + p.tabella.nome + '"' + (p.senza.length ? ' · senza millesimi: ' + p.senza.join(', ') : '') + (p.senzaRappresentante.length ? ' · manca il rappresentante di: ' + p.senzaRappresentante.join(', ') + ' (peso diviso tra i suoi condomini)' : '') + '. Puoi modificarla.';
   }
   const btnMill = document.getElementById('split-millesimi');
   if (btnMill) btnMill.onclick = () => applicaMillesimi(false);
   const selTab = document.getElementById('split-tabella');
   // Spesa nuova: se nessuna quota è stata toccata, la proposta segue categoria e data.
-  const nonToccata = () => ![...document.querySelectorAll('.split-lock-btn')].some(b => b.dataset.locked === '1');
+  // "Toccata" = una quota bloccata (scritta a mano) o una riga fuori dal gruppo di base con una quota (aggiunta a mano).
+  const nonToccata = () => !([...document.querySelectorAll('.split-lock-btn')].some(b => b.dataset.locked === '1')
+    || [...document.querySelectorAll('.split-perc-inp')].some(inp => !isBase(inp) && (parseFloat(inp.value) || 0) > 0));
   if (selTab && selTab.dataset.nuova === '1') {
     document.getElementById('m-cat')?.addEventListener('change', (e) => {
       if (!nonToccata()) return;
@@ -279,7 +371,7 @@ function bindSplit() {
     if (el) el.addEventListener('input', () => {
       const ref = getRef();
       const percs = getPercInputs();
-    const allCids = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).map(c=>String(c.id));
+    const allCids = cidsTutti();
       if (ref > 0) {
         const eMap = {};
         allCids.forEach(cid => eMap[cid] = (percs[cid]||0)/100*ref);

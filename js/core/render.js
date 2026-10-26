@@ -318,8 +318,11 @@ function bindApp() {
   };
   // FAB
   const fab = document.getElementById('fab-add');
-  if (fab) fab.onclick = () => {
-    if (state.page==='spese') setState({modal:{type:'spesa',data:null}, pendingFiles:[]});
+  if (fab) fab.onclick = async () => {
+    if (state.page==='spese') {
+      try { if (typeof rileggiMillesimiSeVecchi === 'function') await rileggiMillesimiSeVecchi(); } catch (e) {} // ADV-FUNC-026
+      setState({modal:{type:'spesa',data:null}, pendingFiles:[]});
+    }
     else if (state.page==='entrate') setState({modal:{type:'entrata',data:null}});
   };
   const hb = document.getElementById('btn-hamburger');

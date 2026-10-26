@@ -78,7 +78,8 @@ function oggiRoma() { return dataTraGiorni(0); }
 // Perché un condomino non può ricevere email (null = può).
 function motivoEsclusione(m, oggi = oggiRoma()) {
   if (!m || m._deleted) return 'non trovato';
-  if (m.disabled || (m.dataUscita && String(m.dataUscita) <= oggi)) return 'archiviato';
+  if (m.disabled || uscitaArrivata(m, oggi)) return 'archiviato';
+  if (ingressoFuturo(m, oggi)) return 'non ancora entrato';
   if (m.emailNotifiche === false) return 'ha tolto "Riceve le email"';
   if (!emailValida(m.email)) return 'senza email';
   return null;
@@ -212,12 +213,16 @@ function contenuto(coll, r) {
     testo: `Assemblea ${r.tipo || ''} del ${dataIt(r.data)}\n${(r.decisioni || []).map((d) => '- ' + d).join('\n')}` };
 }
 
-exports.notificaVita = onDocumentWritten({ document: 'buildings/{buildingId}/{coll}/{docId}', secrets: [GMAIL_APP_PASSWORD] }, async (event) => {
+exports.notificaVita = onDocumentWritten({ document: 'buildings/{buildingId}/{coll}/{docId}', region: 'europe-west1', secrets: [GMAIL_APP_PASSWORD] }, async (event) => {
   const { buildingId, coll, docId } = event.params;
   if (!TIPI[coll]) return;
   const prima = event.data?.before?.exists ? event.data.before.data() : null;
   const dopo = event.data?.after?.exists ? event.data.after.data() : null;
   if (!dopo || dopo._deleted) return;
+  // Scrittura di un ripristino da backup (functions/backup.js): non è una nuova
+  // richiesta di invio, anche se in un database vuoto il codice sembra nuovo.
+  const ripristino = (r) => { const t = r?._restoredAt; return t == null ? '' : (typeof t.toMillis === 'function' ? String(t.toMillis()) : JSON.stringify(t)); };
+  if (dopo._restoredAt && ripristino(dopo) !== ripristino(prima)) return;
   const codice = dopo.notificaEmail;
   // Solo una richiesta nuova: stesso codice di prima = semplice modifica del testo.
   if (!codice || typeof codice !== 'string' || codice === prima?.notificaEmail) return;
@@ -243,11 +248,13 @@ exports.notificaVita = onDocumentWritten({ document: 'buildings/{buildingId}/{co
 });
 
 // ─── Invii dall'app (solo amministratori) ──────────────────────────
-function controllaPermesso(request, buildingId) {
-  const t = request.auth?.token || {};
+async function controllaPermesso(request, buildingId) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Accesso richiesto.');
-  if (t.role === 'superAdmin') return;
-  if (t.role === 'adminEdificio' && String(t.buildingId) === String(buildingId)) return;
+  // Ruolo riletto dal database, non dal token (QA-CONS-011). Caricato qui e non
+  // in cima: ruolo.js usa permessi.js, che a sua volta carica questo file.
+  const adesso = await require('./ruolo').ruoloAttuale(request);
+  if (adesso.role === 'superAdmin') return;
+  if (adesso.role === 'adminEdificio' && String(adesso.buildingId) === String(buildingId)) return;
   throw new HttpsError('permission-denied', 'Solo l\'amministratore del condominio può inviare email.');
 }
 
@@ -269,7 +276,7 @@ async function inviaDaApp(request) {
   const d = request.data || {};
   const buildingId = String(d.buildingId || '');
   if (!/^\d+$/.test(buildingId)) throw new HttpsError('invalid-argument', 'Condominio non valido.');
-  controllaPermesso(request, buildingId);
+  await controllaPermesso(request, buildingId);
   // Prima di pubblicare un avviso o un verbale con l'email l'app chiede se
   // l'invio passerebbe, per avvisare subito invece che dopo la pubblicazione.
   if (d.tipo === 'verifica') {
@@ -336,6 +343,28 @@ function dataTraGiorni(n) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
+// Una data AAAA-MM-GG esistente (DAT-001, ADV-TECH-025): un valore in un altro formato, o impossibile,
+// vale "nessuna data".
+function dataIsoValida(t) {
+  if (typeof t !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
+  const d = new Date(`${t}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
+}
+
+// Data di ingresso ancora da venire (DAT-001). Un valore non valido è trattato come assente e non toglie
+// l'accesso a nessuno.
+function ingressoFuturo(m, oggi = dataTraGiorni(0)) {
+  const t = m && m.dataIngresso;
+  return dataIsoValida(t) && t > oggi;
+}
+
+// Data di uscita arrivata (ADV-TECH-025): stessa validazione dell'ingresso. Una data non ISO (per esempio
+// 01/12/2099) vale "nessuna uscita"; confrontata come testo toglieva subito l'accesso.
+function uscitaArrivata(m, oggi = dataTraGiorni(0)) {
+  const t = m && m.dataUscita;
+  return dataIsoValida(t) && t <= oggi;
+}
+
 async function inviaPromemoriaRate() {
   const edifici = await db().collection('buildings').listDocuments();
   let n = 0;
@@ -372,6 +401,6 @@ exports.promemoriaRate = onSchedule({ schedule: '0 8 * * *', timeZone: 'Europe/R
 });
 
 // Per gli avvisi al Super Admin (controllo.js).
-exports.posta = { GMAIL_APP_PASSWORD, EMULATORE, spedisci, pagina, escHtml, unaRiga, emailValida, dataTraGiorni };
+exports.posta = { GMAIL_APP_PASSWORD, EMULATORE, spedisci, pagina, escHtml, unaRiga, emailValida, dataTraGiorni, ingressoFuturo, uscitaArrivata };
 
-exports._test = { inviaPromemoriaRate, inviaDaApp, motivoEsclusione, dataTraGiorni, contenuto, unaRiga };
+exports._test = { inviaPromemoriaRate, inviaDaApp, motivoEsclusione, dataTraGiorni, ingressoFuturo, uscitaArrivata, contenuto, unaRiga };

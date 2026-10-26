@@ -498,6 +498,41 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
     });
   });
 
+  // Consolidato 2026-10-24, QA-CONS-020 (decisione RA-2: solo importi positivi)
+  describe('importi: importo, preventivo e consuntivo solo maggiori di zero', () => {
+    it('importi positivi (testo con al massimo due decimali o numero) e vuoti: accettati', async () => {
+      let i = 0;
+      for (const v of ['1200', '1200.5', '0.05', '0.5', '12.34', '007.50', 25, 0.5, '']) {
+        await assertSucceeds(editor().doc(`buildings/1/payments/${300 + i}`).set(rec('u_editor', 300 + i, { importo: v })));
+        await assertSucceeds(editor().doc(`buildings/1/expenses/${400 + i}`).set(rec('u_editor', 400 + i, { preventivo: v, consuntivo: v })));
+        i++;
+      }
+      await assertSucceeds(editor().doc('buildings/1/expenses/499').set(rec('u_editor', 499, { titolo: 'senza importi' })));
+    });
+    it('zero, negativi, troppi decimali, virgola, testo e tipi sbagliati: rifiutati', async () => {
+      let i = 0;
+      for (const v of ['0', '0.00', '-50', '-0.01', '10.123', '10,50', 'abc', '1e3', ' 5', 'NaN', 0, -5, true, [5], { a: 1 }]) {
+        await assertFails(editor().doc(`buildings/1/payments/${600 + i}`).set(rec('u_editor', 600 + i, { importo: v })));
+        await assertFails(editor().doc(`buildings/1/expenses/${700 + i}`).set(rec('u_editor', 700 + i, { preventivo: v })));
+        await assertFails(editor().doc(`buildings/1/expenses/${800 + i}`).set(rec('u_editor', 800 + i, { consuntivo: v })));
+        i++;
+      }
+    });
+    it('un importo vecchio (zero o negativo) già salvato non blocca altri salvataggi, ma non si può cambiare in un altro non valido', async () => {
+      const base = { id: 900, edificioId: 1, _createdBy: 'backfill', _createdAt: T0, importo: '-100' };
+      await seedDoc('buildings/1/payments/900', base);
+      await assertSucceeds(editor().doc('buildings/1/payments/900').set(rec('u_editor', 900, { _createdBy: 'backfill', _createdAt: T0, importo: '-100', descrizione: 'Nuova nota' })));
+      await assertFails(editor().doc('buildings/1/payments/900').set(rec('u_editor', 900, { _createdBy: 'backfill', _createdAt: T0, importo: '-200' })));
+      await assertSucceeds(editor().doc('buildings/1/payments/900').set(rec('u_editor', 900, { _createdBy: 'backfill', _createdAt: T0, importo: '100' })));
+    });
+    it('caso peggiore per il limite di 1000 espressioni: 10 allegati vecchi incorporati, riferimenti e tutti gli importi da controllare', async () => {
+      const pesanti = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, nome: 'f.jpg', mime: 'image/jpeg', size: 1, data64: 'data:image/jpeg;base64,/9j/AA==' }));
+      await assertSucceeds(editor().doc('buildings/1/expenses/901').set(rec('u_editor', 901, { allegati: pesanti, fornitoreId: 1, ricGruppoId: 2, tabellaMillesimi: 'generale',
+        preventivo: '1200.50', consuntivo: '999.99', importo: '5.5',
+        split: [], descrizione: 'd', note: 'n', data: '2026-01-01', testo: 't', nome: 'x', descrizioneSintetica: 's', argomenti: [], decisioni: [], storicoAggiornamenti: [] })));
+    });
+  });
+
   // Audit 2026-10-15
   describe('allegati: forma di ogni elemento', () => {
     const all = (extra = {}) => ({ id: 1700000000001, nome: 'fattura.pdf', mime: 'application/pdf', size: 10, storagePath: 'buildings/1/allegati/x', ...extra });
@@ -689,5 +724,341 @@ describe('clientErrors — segnalazioni di errore dai browser (fase 3)', () => {
     await assertFails(superA().doc(`clientErrors/${ref.id}`).update({ message: 'y' }));
     await assertFails(member().doc(`clientErrors/${ref.id}`).delete());
     await assertSucceeds(superA().doc(`clientErrors/${ref.id}`).delete());
+  });
+});
+
+// ─── Audit 2026-10-24 (lotto L3) ───────────────────────────────────────────
+describe('allegati: tipo (mime) da elenco chiuso (QA-CONS-001)', () => {
+  const firebase = require('firebase/compat/app').default;
+  require('firebase/compat/firestore');
+  const now = () => firebase.firestore.FieldValue.serverTimestamp();
+  const editor = () => testEnv.authenticatedContext('u_editor', { role: 'editor', buildingId: '1' }).firestore();
+  const rec = (id, allegati) => ({ id, edificioId: 1, titolo: 'T', _createdBy: 'u_editor', _createdAt: now(), _updatedBy: 'u_editor', _updatedAt: now(), allegati });
+  const all = (mime) => ({ id: 5, nome: 'f', mime, size: 1, storagePath: 'buildings/1/allegati/x' });
+
+  it('i tipi dell\'elenco sono accettati', async () => {
+    const ok = ['application/pdf', 'image/png', 'image/jpeg', 'text/csv', 'application/octet-stream',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.oasis.opendocument.text', 'application/vnd.ms-excel'];
+    for (const [i, m] of ok.entries()) await assertSucceeds(editor().doc(`buildings/1/expenses/${300 + i}`).set(rec(300 + i, [all(m)])));
+  });
+  it('SVG, HTML, script e tipi con coda sono rifiutati', async () => {
+    const no = ['image/svg+xml', 'text/html', 'application/xhtml+xml', 'application/javascript', 'image/png<x', 'application/pdf;x=1',
+      'application/vnd.openxmlformats-officedocument.evil', 'APPLICATION/PDF', '', 'pdf'];
+    for (const [i, m] of no.entries()) await assertFails(editor().doc(`buildings/1/expenses/${320 + i}`).set(rec(320 + i, [all(m)])));
+  });
+});
+
+describe('cancellazione logica: _deletedBy non falsificabile (QA-CONS-016)', () => {
+  const firebase = require('firebase/compat/app').default;
+  require('firebase/compat/firestore');
+  const now = () => firebase.firestore.FieldValue.serverTimestamp();
+  const T0 = firebase.firestore.Timestamp.fromMillis(1700000000000);
+  const as = (uid) => testEnv.authenticatedContext(uid, { role: 'editor', buildingId: '1' }).firestore();
+  const rec = (uid, id, extra = {}) => ({ id, edificioId: 1, titolo: 'T', _createdBy: 'backfill', _createdAt: T0, _updatedBy: uid, _updatedAt: now(), ...extra });
+  const seed = (id, extra = {}) => testEnv.withSecurityRulesDisabled((c) => c.firestore().doc(`buildings/1/expenses/${id}`).set({ id, edificioId: 1, _createdBy: 'backfill', _createdAt: T0, ...extra }));
+
+  it('chi cancella firma sé stesso, non un altro', async () => {
+    await seed(400);
+    await assertFails(as('u_editor').doc('buildings/1/expenses/400').set(rec('u_editor', 400, { _deleted: true, _deletedBy: 'u_altro' })));
+    await assertSucceeds(as('u_editor').doc('buildings/1/expenses/400').set(rec('u_editor', 400, { _deleted: true, _deletedBy: 'u_editor' })));
+  });
+  it('su un record già cancellato _deletedBy non si cambia né si toglie', async () => {
+    await seed(401, { _deleted: true, _deletedBy: 'u_primo' });
+    await assertFails(as('u_editor').doc('buildings/1/expenses/401').set(rec('u_editor', 401, { _deleted: true, _deletedBy: 'u_altro' })));
+    await assertFails(as('u_editor').doc('buildings/1/expenses/401').set(rec('u_editor', 401, { _deleted: true })));
+    await assertSucceeds(as('u_editor').doc('buildings/1/expenses/401').set(rec('u_editor', 401, { _deleted: true, _deletedBy: 'u_primo', titolo: 'Altro' })));
+  });
+  it('un record non cancellato non porta un _deletedBy nuovo; il ripristino conserva o toglie il vecchio', async () => {
+    await assertFails(as('u_editor').doc('buildings/1/expenses/402').set(rec('u_editor', 402, { _deleted: false, _deletedBy: 'u_altro' })));
+    await seed(403, { _deleted: true, _deletedBy: 'u_primo' });
+    await assertFails(as('u_editor').doc('buildings/1/expenses/403').set(rec('u_editor', 403, { _deleted: false, _deletedBy: 'u_altro' })));
+    await assertSucceeds(as('u_editor').doc('buildings/1/expenses/403').set(rec('u_editor', 403, { _deleted: false, _deletedBy: 'u_primo' })));
+  });
+});
+
+describe('users/{uid}: solo campi e lunghezze previsti (QA-CONS-031)', () => {
+  const db = () => testEnv.authenticatedContext('u1', { role: 'member', buildingId: 'b1' }).firestore();
+  it('campi sconosciuti, valori lunghi o di altro tipo e cancellazione sono rifiutati', async () => {
+    await assertFails(db().doc('users/u1').set({ email: 'a@b.com', role: 'superAdmin' }));
+    await assertFails(db().doc('users/u1').set({ blob: 'x'.repeat(5000) }));
+    await assertFails(db().doc('users/u1').set({ email: 'x'.repeat(201) }));
+    await assertFails(db().doc('users/u1').set({ email: { a: 1 } }));
+    await assertSucceeds(db().doc('users/u1').set({ email: 'a@b.com', displayName: 'Mario' }));
+    await assertFails(db().doc('users/u1').delete());
+  });
+});
+
+describe('clientErrors: limiti su tutti i campi (QA-CONS-032)', () => {
+  const firebase = require('firebase/compat/app').default;
+  require('firebase/compat/firestore');
+  const now = () => firebase.firestore.FieldValue.serverTimestamp();
+  const member = () => testEnv.authenticatedContext('u_member', { role: 'member', buildingId: '1' }).firestore();
+  const ok = (extra = {}) => ({ message: 'x', stack: 's', page: 'spese', uid: 'u_member', role: 'member', buildingId: '1', ua: 'u', at: now(), ...extra });
+  it('role, buildingId e gli altri campi hanno una lunghezza massima e il tipo giusto', async () => {
+    await assertSucceeds(member().collection('clientErrors').add(ok()));
+    await assertFails(member().collection('clientErrors').add(ok({ role: 'x'.repeat(41) })));
+    await assertFails(member().collection('clientErrors').add(ok({ buildingId: 'x'.repeat(65) })));
+    await assertFails(member().collection('clientErrors').add(ok({ role: 5 })));
+    await assertFails(member().collection('clientErrors').add(ok({ stack: 'x'.repeat(2001) })));
+    await assertFails(member().collection('clientErrors').add(ok({ page: 'x'.repeat(41) })));
+    await assertFails(member().collection('clientErrors').add(ok({ ua: 'x'.repeat(201) })));
+  });
+});
+
+describe('Storage: solo allegati, tipi ristretti (QA-CONS-033)', () => {
+  require('firebase/compat/storage');
+  let st;
+  before(async () => {
+    st = await initializeTestEnvironment({
+      projectId: 'neridarimini-storage',
+      storage: { rules: fs.readFileSync(path.join(__dirname, '..', 'storage.rules'), 'utf8'), host: 'localhost', port: 9199 },
+    });
+  });
+  after(async () => { await st.cleanup(); });
+  const editor = () => st.authenticatedContext('u_editor', { role: 'editor', buildingId: '1' }).storage();
+  const member = () => st.authenticatedContext('u_member', { role: 'member', buildingId: '1' }).storage();
+  const put = (s, p, type) => s.ref(p).put(new Uint8Array([1, 2, 3]), { contentType: type });
+
+  it('si carica solo sotto buildings/{id}/allegati/, un file per percorso', async () => {
+    await assertSucceeds(put(editor(), 'buildings/1/allegati/a.pdf', 'application/pdf'));
+    await assertFails(put(editor(), 'buildings/1/altro/a.pdf', 'application/pdf'));
+    await assertFails(put(editor(), 'buildings/1/allegati/sotto/a.pdf', 'application/pdf'));
+    await assertFails(put(editor(), 'buildings/1/a.pdf', 'application/pdf'));
+    await assertFails(put(editor(), 'buildings/2/allegati/a.pdf', 'application/pdf'));
+    await assertFails(put(editor(), 'buildings/1/allegati/' + 'x'.repeat(301), 'application/pdf'));
+  });
+  it('tipi: documenti noti sì; SVG, HTML e tipi Office fuori elenco no', async () => {
+    await assertSucceeds(put(editor(), 'buildings/1/allegati/b.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'));
+    await assertSucceeds(put(editor(), 'buildings/1/allegati/c.png', 'image/png'));
+    await assertFails(put(editor(), 'buildings/1/allegati/d.svg', 'image/svg+xml'));
+    await assertFails(put(editor(), 'buildings/1/allegati/e.html', 'text/html'));
+    await assertFails(put(editor(), 'buildings/1/allegati/f.x', 'application/vnd.openxmlformats-officedocument.evil'));
+    await assertFails(put(editor(), 'buildings/1/allegati/g.x', 'application/vnd.oasis.opendocument.formula-template'));
+  });
+  it('lettura per il condominio, scrittura non per i member', async () => {
+    await assertSucceeds(put(editor(), 'buildings/1/allegati/r.pdf', 'application/pdf'));
+    await assertSucceeds(member().ref('buildings/1/allegati/r.pdf').getMetadata());
+    await assertFails(put(member(), 'buildings/1/allegati/h.pdf', 'application/pdf'));
+  });
+});
+
+// ─── Lotto B (2026-10-25): margine delle 1000 espressioni, ripristino, tipo degli allegati vecchi, tipi dei condomini ───
+describe('lotto B: allegati vecchi, margine delle espressioni, ripristino e tipi (SEC-019, SEC-020, CR-001/REL-002, DAT-008)', () => {
+  const firebase = require('firebase/compat/app').default;
+  require('firebase/compat/firestore');
+  const now = () => firebase.firestore.FieldValue.serverTimestamp();
+  const T0 = firebase.firestore.Timestamp.fromMillis(1700000000000);
+  const ctx = (uid, claims) => testEnv.authenticatedContext(uid, claims).firestore();
+  const editor = () => ctx('u_editor', { role: 'editor', buildingId: '1' });
+  const admin = () => ctx('u_admin', { role: 'adminEdificio', buildingId: '1' });
+  const BASE = { _createdBy: 'backfill', _createdAt: T0 };
+  const seed = (coll, id, extra = {}) => testEnv.withSecurityRulesDisabled((c) => c.firestore().doc(`buildings/1/${coll}/${id}`).set({ id, edificioId: 1, ...BASE, ...extra }));
+  // Record valido scritto da `uid` su uno già esistente (autore della creazione: quello del seme)...
+  const rec = (uid, id, extra = {}) => ({ id, edificioId: 1, titolo: 'T', ...BASE, _updatedBy: uid, _updatedAt: now(), ...extra });
+  // ...e record nuovo.
+  const recNuovo = (uid, id, extra = {}) => ({ id, edificioId: 1, titolo: 'T', _createdBy: uid, _createdAt: now(), _updatedBy: uid, _updatedAt: now(), ...extra });
+  // Vecchi allegati incorporati (data64), come quelli dei dati più vecchi
+  const incorporati = (n, nome = 'f.jpg') => Array.from({ length: n }, (_, i) => ({ id: i + 1, nome, mime: 'image/jpeg', size: 1, data64: 'data:image/jpeg;base64,/9j/AA==' }));
+  const nuovoSp = { id: 99, nome: 'nuova.pdf', mime: 'application/pdf', size: 1, storagePath: 'buildings/1/allegati/nuova' };
+  const riferimenti = { fornitoreId: 1, ricGruppoId: 2, tabellaMillesimi: 'generale', condominoId: 3, delibereRifId: 4, verbaleRifId: 5 };
+  const testi = { descrizione: 'd', note: 'n', data: '2026-01-01', testo: 't', nome: 'x', descrizioneSintetica: 's', argomenti: [], decisioni: [], storicoAggiornamenti: [], split: [] };
+  const vecchiImporti = { importo: '0', preventivo: '-5', consuntivo: '0.00' };
+
+  // SEC-019: il caso peggiore in AGGIORNAMENTO. Un allegato identico a uno già salvato non si ricontrolla (CR-001), quindi
+  // pesano solo gli allegati nuovi o cambiati; questi casi hanno comunque tutti gli altri controlli al massimo (sei
+  // riferimenti, tre importi vecchi non validi da confrontare, colore, cancellazione). Margine misurato: vedi il log di riparazione.
+  describe('SEC-019: caso peggiore in aggiornamento (limite di 1000 espressioni)', () => {
+    it('spesa: 9 allegati incorporati vecchi invariati e 1 nuovo, sei riferimenti, tre importi vecchi non validi invariati, colore cambiato e cancellazione', async () => {
+      await seed('expenses', 1001, { allegati: incorporati(9), ...vecchiImporti, color: 'rgb(1,2,3)' });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1001').set(rec('u_editor', 1001, {
+        allegati: [...incorporati(9), nuovoSp], ...vecchiImporti, color: '#aabbcc', ...riferimenti, ...testi, _deleted: true, _deletedBy: 'u_editor' })));
+    });
+    it('spesa: 10 allegati incorporati vecchi, se ne toglie uno e se ne aggiunge uno nuovo (la lista cambia, gli altri restano uguali)', async () => {
+      await seed('expenses', 1002, { allegati: incorporati(10), ...vecchiImporti });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1002').set(rec('u_editor', 1002, {
+        allegati: [...incorporati(10).slice(1), nuovoSp], ...vecchiImporti, preventivo: '10.5', ...riferimenti, ...testi })));
+    });
+    it('condomino: 9 allegati incorporati vecchi invariati e 1 nuovo, colore, account collegato, rappresentante, date e cancellazione', async () => {
+      await seed('members', 1003, { allegati: incorporati(9), uid: 'u_x', superAdmin: false, color: 'rgb(1,2,3)' });
+      await assertSucceeds(admin().doc('buildings/1/members/1003').set(rec('u_admin', 1003, {
+        allegati: [...incorporati(9), nuovoSp], uid: 'u_x', superAdmin: false, color: '#aabbcc', ...riferimenti, ...testi, rappresentante: true,
+        dataIngresso: '2026-01-01', dataUscita: '2027-01-01', _deleted: true, _deletedBy: 'u_admin' })));
+    });
+    it('verbale: 9 allegati incorporati vecchi invariati e 1 nuovo, ripristino di un record cancellato', async () => {
+      await seed('minutes', 1004, { allegati: incorporati(9), _deleted: true, _deletedBy: 'u_primo' });
+      await assertSucceeds(admin().doc('buildings/1/minutes/1004').set(rec('u_admin', 1004, { allegati: [...incorporati(9), nuovoSp], ...riferimenti, ...testi, _deleted: false })));
+    });
+    // SEC-021: il caso che la pagina può produrre davvero (js/sezioni/allegati.js): i file caricati si accumulano e si salvano
+    // insieme, fino a dieci allegati NUOVI nello stesso salvataggio, tutti già in Storage (storagePath), con importi validi.
+    const nuoviStorage = (n, da = 1) => Array.from({ length: n }, (_, i) => ({ id: da + i, nome: `f${da + i}.pdf`, mime: 'application/pdf', size: 1, storagePath: `buildings/1/allegati/f${da + i}` }));
+    const importiValidi = { importo: '100.50', preventivo: '200', consuntivo: '150.25' };
+    // Residuo noto e accettato (SEC-019/SEC-021): in AGGIORNAMENTO, otto o più allegati NUOVI nello stesso salvataggio, insieme a tutti e sei i
+    // riferimenti e a tutti i campi di testo, superano il limite di 1000 espressioni (scrittura rifiutata, mai accettata). Non è un caso d'uso
+    // realistico: la pagina collega di norma due o tre riferimenti. Per questo qui si provano i casi che possono succedere.
+    it('SEC-021 spesa esistente senza allegati: dieci allegati nuovi in Storage in un solo salvataggio, con importi validi', async () => {
+      await seed('expenses', 1030, { ...importiValidi });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1030').set(rec('u_editor', 1030, { allegati: nuoviStorage(10), ...importiValidi })));
+    });
+    it('SEC-021 spesa esistente senza allegati: sette allegati nuovi insieme a tutti i riferimenti e ai campi di testo', async () => {
+      await seed('expenses', 1033, { ...importiValidi });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1033').set(rec('u_editor', 1033, { allegati: nuoviStorage(7), ...importiValidi, ...riferimenti, ...testi })));
+    });
+    it('SEC-021 spesa esistente con cinque allegati in Storage: se ne aggiungono altri cinque nuovi insieme', async () => {
+      await seed('expenses', 1031, { allegati: nuoviStorage(5), ...importiValidi });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1031').set(rec('u_editor', 1031, { allegati: [...nuoviStorage(5), ...nuoviStorage(5, 6)], ...importiValidi, ...riferimenti, ...testi })));
+    });
+    it('SEC-021 creazione di una spesa con dieci allegati nuovi in Storage, con i riferimenti', async () => {
+      await assertSucceeds(editor().doc('buildings/1/expenses/1032').set(recNuovo('u_editor', 1032, { allegati: nuoviStorage(10), ...importiValidi, ...riferimenti, ...testi })));
+    });
+    it('un allegato vecchio non è un lasciapassare: uno cambiato, accanto a quelli invariati, passa dal controllo completo', async () => {
+      await seed('expenses', 1005, { allegati: incorporati(3) });
+      const cambiato = { ...incorporati(3)[1], data64: 'javascript:alert(1)' };
+      await assertFails(editor().doc('buildings/1/expenses/1005').set(rec('u_editor', 1005, { allegati: [incorporati(3)[0], cambiato, incorporati(3)[2]] })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1005').set(rec('u_editor', 1005, { allegati: [incorporati(3)[0], { ...incorporati(3)[1], nome: 'rinominato.jpg' }, incorporati(3)[2]] })));
+    });
+  });
+
+  // SEC-020: la firma di chi cancella non si riusa dopo un ripristino. Resta valido il comportamento già provato (QA-CONS-016):
+  // il ripristino può conservare o togliere il vecchio _deletedBy; la cancellazione successiva però lo firma chi cancella.
+  describe('SEC-020: una cancellazione nuova porta la firma di chi cancella, non quella di una cancellazione precedente', () => {
+    it('dopo un ripristino che conserva la vecchia firma, un altro utente non può cancellare riusandola', async () => {
+      await seed('expenses', 1010, { _deleted: true, _deletedBy: 'u_primo' });
+      // ripristino con fusione, come fa l'app: la vecchia firma resta nel record
+      await assertSucceeds(editor().doc('buildings/1/expenses/1010').set({ _deleted: false, _updatedBy: 'u_editor', _updatedAt: now() }, { merge: true }));
+      // l'editor cancella senza cambiare la firma rimasta (u_primo): rifiutato
+      await assertFails(editor().doc('buildings/1/expenses/1010').set({ _deleted: true, _updatedBy: 'u_editor', _updatedAt: now() }, { merge: true }));
+      await assertFails(editor().doc('buildings/1/expenses/1010').set(rec('u_editor', 1010, { _deleted: true, _deletedBy: 'u_primo' })));
+      // con la propria firma sì
+      await assertSucceeds(editor().doc('buildings/1/expenses/1010').set(rec('u_editor', 1010, { _deleted: true, _deletedBy: 'u_editor' })));
+    });
+    it('chi aveva cancellato può cancellare di nuovo con la propria firma anche se è rimasta quella vecchia', async () => {
+      await seed('expenses', 1011, { _deleted: true, _deletedBy: 'u_editor' });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1011').set({ _deleted: false, _updatedBy: 'u_editor', _updatedAt: now() }, { merge: true }));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1011').set({ _deleted: true, _updatedBy: 'u_editor', _updatedAt: now() }, { merge: true }));
+    });
+    it('il ripristino che toglie la firma e la nuova cancellazione firmata', async () => {
+      await seed('expenses', 1012, { _deleted: true, _deletedBy: 'u_primo' });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1012').set(rec('u_editor', 1012, { _deleted: false })));
+      await assertFails(editor().doc('buildings/1/expenses/1012').set(rec('u_editor', 1012, { _deleted: true })));
+      await assertFails(editor().doc('buildings/1/expenses/1012').set(rec('u_editor', 1012, { _deleted: true, _deletedBy: 'u_altro' })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1012').set(rec('u_editor', 1012, { _deleted: true, _deletedBy: 'u_editor' })));
+    });
+    it('un record già cancellato conserva la firma di chi ha cancellato, anche se lo modifica un altro', async () => {
+      await seed('expenses', 1013, { _deleted: true, _deletedBy: 'u_primo' });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1013').set(rec('u_editor', 1013, { _deleted: true, _deletedBy: 'u_primo', titolo: 'Altro' })));
+      await assertFails(editor().doc('buildings/1/expenses/1013').set(rec('u_editor', 1013, { _deleted: true, _deletedBy: 'u_editor' })));
+    });
+  });
+
+  describe('CR-001 / REL-002: il tipo dell\'allegato si controlla solo se l\'allegato è nuovo o cambiato', () => {
+    const fuori = (extra = {}) => ({ id: 1, nome: 'modello.ppsx', mime: 'application/vnd.openxmlformats-officedocument.presentationml.slideshow', size: 1, storagePath: 'buildings/1/allegati/x', ...extra });
+    const ok = (extra = {}) => ({ id: 2, nome: 'fattura.pdf', mime: 'application/pdf', size: 1, storagePath: 'buildings/1/allegati/y', ...extra });
+    const legacy = (mime, extra = {}) => ({ id: 3, nome: 'vecchio.bin', mime, size: 1, data64: 'data:application/x-qualcosa;base64,AAAA', ...extra });
+    it('un record con allegati vecchi fuori elenco (anche data64) resta modificabile, aggiornabile, cancellabile e ripristinabile', async () => {
+      const vecchi = [fuori(), legacy('application/x-qualcosa'), legacy('image/svg+xml', { id: 4 })];
+      await seed('expenses', 1020, { allegati: vecchi });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1020').set(rec('u_editor', 1020, { allegati: vecchi, titolo: 'Nuovo titolo' })));
+      // la lista cambia (si aggiunge un allegato valido), gli elementi vecchi restano uguali
+      await assertSucceeds(editor().doc('buildings/1/expenses/1020').set(rec('u_editor', 1020, { allegati: [...vecchi, ok()] })));
+      // si toglie il primo: gli altri cambiano posizione ma non contenuto
+      await assertSucceeds(editor().doc('buildings/1/expenses/1020').set(rec('u_editor', 1020, { allegati: [vecchi[1], vecchi[2], ok()] })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1020').set(rec('u_editor', 1020, { allegati: [vecchi[1], ok()], _deleted: true, _deletedBy: 'u_editor' })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1020').set(rec('u_editor', 1020, { allegati: [vecchi[1], ok()], _deleted: false })));
+    });
+    it('un allegato nuovo o cambiato fuori elenco è rifiutato, anche accanto a uno vecchio fuori elenco', async () => {
+      const vecchi = [fuori()];
+      await seed('expenses', 1021, { allegati: vecchi });
+      await assertFails(editor().doc('buildings/1/expenses/1021').set(rec('u_editor', 1021, { allegati: [...vecchi, fuori({ id: 9 })] })));
+      await assertFails(editor().doc('buildings/1/expenses/1021').set(rec('u_editor', 1021, { allegati: [...vecchi, ok({ mime: 'image/svg+xml' })] })));
+      // lo stesso allegato con un tipo diverso (pure fuori elenco) è un allegato cambiato
+      await assertFails(editor().doc('buildings/1/expenses/1021').set(rec('u_editor', 1021, { allegati: [fuori({ mime: 'text/html' })] })));
+      await assertFails(editor().doc('buildings/1/expenses/1021').set(rec('u_editor', 1021, { allegati: [fuori({ mime: 'application/vnd.oasis.opendocument.formula-template' })] })));
+      // un allegato vecchio rinominato è cambiato: il tipo fuori elenco non passa più
+      await assertFails(editor().doc('buildings/1/expenses/1021').set(rec('u_editor', 1021, { allegati: [fuori({ nome: 'altro.ppsx' })] })));
+    });
+    it('in creazione l\'elenco resta chiuso', async () => {
+      await assertFails(editor().doc('buildings/1/expenses/1022').set(recNuovo('u_editor', 1022, { allegati: [fuori()] })));
+      await assertFails(editor().doc('buildings/1/expenses/1022').set(recNuovo('u_editor', 1022, { allegati: [ok(), legacy('image/svg+xml')] })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1022').set(recNuovo('u_editor', 1022, { allegati: [ok()] })));
+    });
+    it('un allegato nuovo accanto a uno vecchio non salta le altre regole (id, percorso e data64)', async () => {
+      const vecchi = [fuori()];
+      await seed('expenses', 1023, { allegati: vecchi });
+      await assertFails(editor().doc('buildings/1/expenses/1023').set(rec('u_editor', 1023, { allegati: [...vecchi, ok({ id: "x'" })] })));
+      await assertFails(editor().doc('buildings/1/expenses/1023').set(rec('u_editor', 1023, { allegati: [...vecchi, ok({ storagePath: 'buildings/1/altro/x' })] })));
+      await assertFails(editor().doc('buildings/1/expenses/1023').set(rec('u_editor', 1023, { allegati: [...vecchi, legacy('application/pdf', { data64: 'javascript:alert(1)' })] })));
+      await assertFails(editor().doc('buildings/1/expenses/1023').set(rec('u_editor', 1023, { allegati: [...vecchi, ...Array.from({ length: 10 }, (_, i) => ok({ id: 10 + i }))] })));
+    });
+    it('una lista precedente che non è una lista non fa passare nulla di nuovo', async () => {
+      await seed('expenses', 1024, { allegati: 'non-una-lista' });
+      await assertFails(editor().doc('buildings/1/expenses/1024').set(rec('u_editor', 1024, { allegati: [fuori()] })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1024').set(rec('u_editor', 1024, { allegati: [ok()] })));
+    });
+    it('10 allegati vecchi fuori elenco: si toglie il primo, con riferimenti e tre importi vecchi', async () => {
+      const fuoriElenco = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, nome: 'a', mime: 'application/x-vecchio', size: 1, data64: 'data:application/x-vecchio;base64,AAAA' }));
+      await seed('expenses', 1025, { allegati: fuoriElenco, ...vecchiImporti });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1025').set(rec('u_editor', 1025, { allegati: fuoriElenco.slice(1), ...vecchiImporti, fornitoreId: 1, ricGruppoId: 2, tabellaMillesimi: 'generale', ...testi })));
+    });
+  });
+
+  describe('DAT-008: rappresentante e date dei condomini', () => {
+    it('rappresentante: solo booleano (assente, true o false)', async () => {
+      await assertSucceeds(admin().doc('buildings/1/members/1030').set(recNuovo('u_admin', 1030, {})));
+      await assertSucceeds(admin().doc('buildings/1/members/1031').set(recNuovo('u_admin', 1031, { rappresentante: true })));
+      await assertSucceeds(admin().doc('buildings/1/members/1032').set(recNuovo('u_admin', 1032, { rappresentante: false })));
+      for (const [i, v] of ['false', 'x', 1, 0, [true], { a: 1 }].entries()) {
+        await assertFails(admin().doc(`buildings/1/members/${1033 + i}`).set(recNuovo('u_admin', 1033 + i, { rappresentante: v })));
+      }
+    });
+    it('un rappresentante non booleano già salvato non blocca altri salvataggi se non cambia', async () => {
+      await seed('members', 1040, { rappresentante: 'si' });
+      await assertSucceeds(admin().doc('buildings/1/members/1040').set(rec('u_admin', 1040, { rappresentante: 'si', nome: 'Nuovo' })));
+      await assertFails(admin().doc('buildings/1/members/1040').set(rec('u_admin', 1040, { rappresentante: 'no' })));
+      await assertSucceeds(admin().doc('buildings/1/members/1040').set(rec('u_admin', 1040, { rappresentante: true })));
+    });
+    it('date di ingresso e uscita: vuote o AAAA-MM-GG; un altro formato è rifiutato', async () => {
+      await assertSucceeds(admin().doc('buildings/1/members/1050').set(recNuovo('u_admin', 1050, { dataIngresso: '2026-03-01', dataUscita: '2027-01-31' })));
+      await assertSucceeds(admin().doc('buildings/1/members/1051').set(recNuovo('u_admin', 1051, { dataIngresso: '', dataUscita: null })));
+      for (const [i, v] of ['1/3/26', '2026-3-1', '01-03-2026', '2026', '2026-03-01T10:00', 'ieri', 20260301, true, { a: 1 }].entries()) {
+        await assertFails(admin().doc(`buildings/1/members/${1052 + i}`).set(recNuovo('u_admin', 1052 + i, { dataIngresso: v })));
+        await assertFails(admin().doc(`buildings/1/members/${1070 + i}`).set(recNuovo('u_admin', 1070 + i, { dataUscita: v })));
+      }
+    });
+    it('una data vecchia in un altro formato, già salvata, non blocca altri salvataggi finché non cambia', async () => {
+      await seed('members', 1090, { dataIngresso: '1/3/26', dataUscita: '2026-03-01T10:00' });
+      await assertSucceeds(admin().doc('buildings/1/members/1090').set(rec('u_admin', 1090, { dataIngresso: '1/3/26', dataUscita: '2026-03-01T10:00', nome: 'Nuovo' })));
+      await assertFails(admin().doc('buildings/1/members/1090').set(rec('u_admin', 1090, { dataIngresso: '2/3/26', dataUscita: '2026-03-01T10:00' })));
+      await assertSucceeds(admin().doc('buildings/1/members/1090').set(rec('u_admin', 1090, { dataIngresso: '2026-03-02', dataUscita: '' })));
+    });
+  });
+});
+
+// DAT-009: un file fuori da buildings/{id}/allegati/ non è leggibile da nessuno (i commenti e il log L3 dicevano il contrario)
+describe('Storage: i file fuori dallo spazio allegati non sono leggibili (DAT-009)', () => {
+  require('firebase/compat/storage');
+  let st;
+  before(async () => {
+    st = await initializeTestEnvironment({
+      projectId: 'neridarimini-storage-dat009',
+      storage: { rules: fs.readFileSync(path.join(__dirname, '..', 'storage.rules'), 'utf8'), host: 'localhost', port: 9199 },
+    });
+    await st.withSecurityRulesDisabled(async (c) => {
+      const s = c.storage();
+      await s.ref('buildings/1/altro/x.pdf').put(new Uint8Array([1, 2, 3]), { contentType: 'application/pdf' });
+      await s.ref('buildings/1/allegati/x.pdf').put(new Uint8Array([1, 2, 3]), { contentType: 'application/pdf' });
+    });
+  });
+  after(async () => { await st.cleanup(); });
+  const as = (uid, claims) => st.authenticatedContext(uid, claims).storage();
+  it('fuori da allegati/ nemmeno chi appartiene al condominio, né il superAdmin, può leggere o scrivere', async () => {
+    for (const s of [as('u_member', { role: 'member', buildingId: '1' }), as('u_admin', { role: 'adminEdificio', buildingId: '1' }), as('u_super', { role: 'superAdmin' })]) {
+      await assertFails(s.ref('buildings/1/altro/x.pdf').getMetadata());
+      await assertFails(s.ref('buildings/1/altro/x.pdf').delete());
+    }
+  });
+  it('dentro allegati/ il condominio legge, un altro condominio no', async () => {
+    await assertSucceeds(as('u_member', { role: 'member', buildingId: '1' }).ref('buildings/1/allegati/x.pdf').getMetadata());
+    await assertFails(as('u_altro', { role: 'member', buildingId: '2' }).ref('buildings/1/allegati/x.pdf').getMetadata());
   });
 });

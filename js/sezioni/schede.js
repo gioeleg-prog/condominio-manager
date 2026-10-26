@@ -3,7 +3,8 @@
 
 function bindModal() {
   // Collega i pulsanti della scheda aperta: comuni qui, specifici nella funzione della sezione.
-  const close = () => setState({modal:null});
+  // Chiusa senza salvare: i file già caricati e non collegati a nessun record si cancellano (QA-CONS-027).
+  const close = () => { if (state.pendingFiles?.length) scartaFilePendenti(); setState({modal:null}); };
   const ov = document.getElementById('modal-overlay');
   if (ov) ov.onclick = e => { if(e.target===ov) close(); };
   const mc = document.getElementById('modal-close');

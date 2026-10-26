@@ -301,6 +301,15 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.ok(ev, 'evento non registrato');
       assert.strictEqual(ev.titolo, 'Rifacimento tetto');
     });
+    it('AUD-07 l\'autore di una cancellazione è _updatedBy, non _deletedBy (metadato non attendibile)', async () => {
+      const t = new Date();
+      await admin.doc('buildings/1/expenses/9610').set({ id: 9610, edificioId: 1, titolo: 'Da cancellare', _createdBy: 'u-editor1', _createdAt: t, _updatedBy: 'u-editor1', _updatedAt: t, _deleted: false });
+      await admin.doc('buildings/1/expenses/9610').set({ id: 9610, edificioId: 1, titolo: 'Da cancellare', _createdBy: 'u-editor1', _createdAt: t,
+        _updatedBy: 'u-editor1', _updatedAt: new Date(), _deleted: true, _deletedBy: 'u-altro-finto' });
+      const ev = await waitFor(async () => (await auditOf(9610)).find((e) => e.type === 'record.deleted'), 30000);
+      assert.ok(ev, 'evento di cancellazione non registrato');
+      assert.strictEqual(ev.actorUid, 'u-editor1');
+    });
     it('AUD-02 la migrazione non genera eventi', async () => {
       await new Promise((r) => setTimeout(r, 1500));
       // (gli eventi role.* sono permessi tolti al condomino già disattivato del seed)
@@ -321,6 +330,17 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       await fs.setDoc(ref, signed(a, { ...dopo, isAdmin: false, canEdit: false }, dopo));
       await new Promise((r) => setTimeout(r, 3000));
       assert.strictEqual((await admin.collection('auditEvents').where('type', '==', 'role.nominated').get()).size, 1);
+    });
+    // QA-CONS-045 (ADV-TECH-011): un trigger riconsegnato per lo stesso evento non duplica la voce del registro.
+    it('AUD-06 la stessa consegna registrata due volte lascia una sola voce; voce di nomina e voce di modifica restano distinte', async () => {
+      const { scriviEvento } = fnReq('./eventi');
+      await scriviEvento(admin, 'evt-prova-1', '', { type: 'record.updated', recordId: 'dup-prova' });
+      await scriviEvento(admin, 'evt-prova-1', '', { type: 'record.updated', recordId: 'dup-prova' });
+      await scriviEvento(admin, 'evt-prova-1', 'nomina', { type: 'role.nominated', recordId: 'dup-prova' });
+      await scriviEvento(admin, 'evt-prova-1', 'nomina', { type: 'role.nominated', recordId: 'dup-prova' });
+      assert.deepStrictEqual((await auditOf('dup-prova')).map((e) => e.type).sort(), ['record.updated', 'role.nominated']);
+      await scriviEvento(admin, '', '', { type: 'record.updated', recordId: 'dup-prova' }); // senza id dell'evento: come prima
+      assert.strictEqual((await auditOf('dup-prova')).length, 3);
     });
     it('AUD-03 il registro non è leggibile né scrivibile da un adminEdificio', async () => {
       const a = await as('admin1@qa.test');
@@ -361,6 +381,25 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     });
     it('BAK-03 un file che non è un backup viene rifiutato dal ripristino', async () => {
       await assert.rejects(backupLib.restoreBackup(admin, { collections: {} }), /non riconosciuto/);
+    });
+    // QA-CONS-013 (ADV-TECH-006): ripristinando un database vuoto nessun avviso già inviato riparte per email.
+    it('BAK-06 un avviso già inviato e poi corretto, dopo backup, svuotamento e ripristino, non rispedisce l\'email', async () => {
+      const a = await as('admin1@qa.test');
+      const invii = async () => (await admin.collection('buildings/1/invii').get()).docs.map((d) => d.id);
+      const avviso = (extra) => ({ id: 9101, titolo: 'Acqua chiusa', testo: 'Martedì.', edificioId: 1, notificaEmail: 'c1', notificaDestinatari: [103], ...extra });
+      const ref = fs.doc(a.db, 'buildings', '1', 'notices', '9101');
+      await fs.setDoc(ref, signed(a, avviso({})));
+      assert.ok(await waitFor(async () => (await invii()).length === 1, 30000), 'primo invio non registrato');
+      await new Promise((r) => setTimeout(r, 1500));
+      const prev = (await fs.getDoc(ref)).data();
+      await fs.setDoc(ref, signed(a, avviso({ testo: 'Mercoledì.' }), prev)); // stesso codice: solo correzione, _updatedAt cambia
+      await new Promise((r) => setTimeout(r, 2500));
+      const res = await backupLib.runBackup(admin, bucket());
+      const [buf] = await bucket().file(res.file).download();
+      await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST}/emulator/v1/projects/${PROJECT}/databases/(default)/documents`, { method: 'DELETE' });
+      await backupLib.restoreBackup(admin, JSON.parse(buf.toString()));
+      await new Promise((r) => setTimeout(r, 6000));
+      assert.strictEqual((await invii()).length, 1, 'il ripristino ha rispedito l\'email: ' + (await invii()).join(', '));
     });
     it('BAK-04 backup notturno: esito salvato prima della copia su Drive; copia fallita non annulla il backup', async () => {
       const status = () => admin.doc('appSettings/backupStatus').get().then((s) => s.data());
@@ -430,6 +469,34 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     it('FT-ROLE-03 edificio inesistente → invalid-argument', async () => {
       const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'member', buildingId: '99' });
       assert.strictEqual(r.code, 'functions/invalid-argument');
+    });
+    // QA-CONS-011 (ADV-TECH-008, ADV-FUNC-023): le operazioni sensibili rileggono il ruolo dal
+    // database. Il token resta quello di prima (claim ancora validi), come nella finestra di un'ora.
+    it('SEC-ROLE-02 amministratore declassato con il token ancora valido: niente ruoli, niente email, niente verifica', async () => {
+      const a = await as('admin1@qa.test');
+      assert.strictEqual((await a.call('verificaEmail', { buildingId: '1', email: 'x@qa.test' })).ok, true, 'prima del declassamento funziona');
+      await admin.doc('buildings/1/members/101').update({ isAdmin: false, canEdit: false });
+      const set = await a.call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });
+      assert.strictEqual(set.code, 'functions/permission-denied');
+      assert.strictEqual((await claimsOf('u-member1')).role, 'member', 'nessun ruolo cambiato');
+      const PDF = Buffer.from('%PDF-1.4\n%prova\n%%EOF').toString('base64');
+      const mail = await a.call('inviaEmail', { tipo: 'rendiconto', buildingId: '1', destinatari: [103], allegato: { nome: 'x.pdf', base64: PDF } });
+      assert.strictEqual(mail.code, 'functions/permission-denied');
+      assert.strictEqual((await a.call('verificaEmail', { buildingId: '1', email: 'x@qa.test' })).code, 'functions/permission-denied');
+    });
+    it('SEC-ROLE-03 amministratore uscito (data di uscita passata) con il token ancora valido: stesso blocco', async () => {
+      const a = await as('admin1@qa.test');
+      await admin.doc('buildings/1/members/101').update({ dataUscita: '2020-01-01' });
+      const set = await a.call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });
+      assert.strictEqual(set.code, 'functions/permission-denied');
+    });
+    it('SEC-ROLE-04 superAdmin che non risulta più né in cm_config né in roles: bloccato; chi lo è ancora, no', async () => {
+      const s = await as('superadmin@qa.test');
+      assert.ok((await s.call('setUserRole', { targetUid: 'u-member1', role: 'member', buildingId: '1' })).ok);
+      await admin.doc('appdata/cm_config').set({ superAdminUid: 'altro' });
+      assert.ok((await s.call('setUserRole', { targetUid: 'u-member1', role: 'member', buildingId: '1' })).ok, 'roles/ lo conferma ancora');
+      await admin.doc('roles/u-super').set({ role: 'member', buildingId: '1' });
+      assert.strictEqual((await s.call('setUserRole', { targetUid: 'u-member1', role: 'member', buildingId: '1' })).code, 'functions/permission-denied');
     });
   });
 
@@ -505,6 +572,61 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     });
   });
 
+  // QA-CONS-012 (ADV-TECH-005): senza attese, con il trigger che arriva in ritardo sul record ancora vecchio.
+  describe('permessi: promozione e trigger in ritardo', () => {
+    const permessi = () => { process.env.FUNCTIONS_EMULATOR = 'true'; return fnReq('./permessi')._test; };
+    it('PERM-08 setUserRole, poi allineaPermessi sul record ancora vecchio: resta editor; un declassamento successivo del record vale', async () => {
+      const { allineaPermessi } = permessi();
+      const ref = admin.doc('buildings/1/members/103');
+      const prima = (await ref.get()).data();
+      const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });
+      assert.ok(r.ok, r.message);
+      await allineaPermessi(ref, prima); // il trigger di una scrittura precedente arriva ora
+      assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'editor', buildingId: '1' });
+      await new Promise((r2) => setTimeout(r2, 100));
+      await ref.update({ canEdit: true, _updatedBy: 'u-admin1', _updatedAt: new Date() }); // il record salvato dall'app
+      await allineaPermessi(ref, prima);
+      assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'editor', buildingId: '1' });
+      await new Promise((r2) => setTimeout(r2, 100));
+      await ref.update({ canEdit: false, _updatedBy: 'u-admin1', _updatedAt: new Date() }); // declassamento deciso dopo
+      await allineaPermessi(ref, prima);
+      assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'member', buildingId: '1' });
+    });
+  });
+
+  // QA-CONS-023 (ADV-FUNC-010, decisione RA-3/D3): subentro a data futura. Chi esce resta attivo fino alla
+  // data (la pagina scrive solo dataUscita), chi entra non ha accesso né email prima della data di ingresso.
+  describe('subentro a data futura: ingresso e uscita', () => {
+    const permessi = () => { process.env.FUNCTIONS_EMULATOR = 'true'; return fnReq('./permessi'); };
+    it('SUB-01 membroAttivo: dataIngresso nel futuro = non ancora attivo; chi esce resta attivo fino alla data', () => {
+      const { membroAttivo } = permessi();
+      assert.strictEqual(membroAttivo({ dataIngresso: '2026-12-01' }, '2026-11-30'), false);
+      assert.strictEqual(membroAttivo({ dataIngresso: '2026-12-01' }, '2026-12-01'), true);
+      assert.strictEqual(membroAttivo({ dataIngresso: '2020-01-01' }, '2026-11-30'), true);
+      assert.strictEqual(membroAttivo({}, '2026-11-30'), true); // senza data di ingresso: come prima
+      const esce = { dataUscita: '2026-12-01' }; // senza "disabled", come lo scrive la pagina
+      assert.strictEqual(membroAttivo(esce, '2026-11-30'), true);
+      assert.strictEqual(membroAttivo(esce, '2026-12-01'), false);
+    });
+    it('SUB-02 motivoEsclusione: chi non è ancora entrato non riceve email; chi esce le riceve fino alla data', () => {
+      const { motivoEsclusione } = fnReq('./notifiche')._test;
+      const base = { email: 'a@qa.test' };
+      assert.strictEqual(motivoEsclusione({ ...base, dataIngresso: '2026-12-01' }, '2026-11-30'), 'non ancora entrato');
+      assert.strictEqual(motivoEsclusione({ ...base, dataIngresso: '2026-12-01' }, '2026-12-01'), null);
+      assert.strictEqual(motivoEsclusione({ ...base, dataUscita: '2026-12-01' }, '2026-11-30'), null);
+      assert.strictEqual(motivoEsclusione({ ...base, dataUscita: '2026-12-01' }, '2026-12-01'), 'archiviato');
+    });
+    it('SUB-03 controllo notturno: chi non è ancora entrato non ha permessi; chi esce li tiene fino alla data (la perdita quel giorno è già in PERM-05)', async () => {
+      const { revocaUsciti } = permessi()._test;
+      await admin.doc('buildings/1/members/103').update({ dataUscita: '2026-12-01' });
+      await revocaUsciti('2026-11-30');
+      assert.strictEqual((await claimsOf('u-member1')).role, 'member', 'chi esce deve restare attivo fino alla data');
+      await admin.doc('buildings/1/members/103').update({ dataUscita: '' , dataIngresso: '2026-12-01' });
+      await revocaUsciti('2026-11-30');
+      assert.ok(!(await claimsOf('u-member1')).role, 'chi non è ancora entrato non deve avere permessi');
+    });
+  });
+
   // Privacy (decisione del 2026-10-15): un condomino semplice vede degli altri solo nomi e quote.
   describe('privacy: contatti dei condomini', () => {
     const { separaContatti, verificaContatti } = require('../scripts/lib/contatti-migration');
@@ -574,6 +696,149 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
     it('FT-GLOB-03 le vecchie funzioni ponte non esistono più', async () => {
       const r = await (await as('admin1@qa.test')).call('saveBuildingData', { key: 'cm_spese', records: [] });
       assert.ok(!r.ok);
+    });
+  });
+
+  // Lotto B (2026-10-25)
+  describe('lotto B: data di ingresso, setUserRole e region dei trigger', () => {
+    const permessi = () => { process.env.FUNCTIONS_EMULATOR = 'true'; return fnReq('./permessi'); };
+
+    // DAT-001
+    it('DAT-001 membroAttivo e motivoEsclusione: una data di ingresso non ISO o impossibile vale "nessuna data"', () => {
+      const { membroAttivo } = permessi();
+      const { motivoEsclusione } = fnReq('./notifiche')._test;
+      const oggi = '2026-11-30';
+      const male = ['25/12/2099', '2099', '2099-12', '2099-1-5', '31-12-2099', '2099-13-45', '2099-02-30', '2099-12-01T10:00', ' 2099-12-01', 'domani', '', 20991201, true, { a: 1 }, ['2099-12-01']];
+      for (const dataIngresso of male) {
+        assert.strictEqual(membroAttivo({ dataIngresso }, oggi), true, 'bloccato da ' + JSON.stringify(dataIngresso));
+        assert.strictEqual(motivoEsclusione({ email: 'a@qa.test', dataIngresso }, oggi), null, 'escluso da ' + JSON.stringify(dataIngresso));
+      }
+      // una data ISO futura continua a escludere, una passata o di oggi no
+      assert.strictEqual(membroAttivo({ dataIngresso: '2099-12-01' }, oggi), false);
+      assert.strictEqual(motivoEsclusione({ email: 'a@qa.test', dataIngresso: '2099-12-01' }, oggi), 'non ancora entrato');
+      assert.strictEqual(membroAttivo({ dataIngresso: '2026-11-30' }, oggi), true);
+      assert.strictEqual(membroAttivo({ dataIngresso: '2024-02-29' }, oggi), true);
+      assert.strictEqual(membroAttivo({ dataIngresso: '2099-02-29' }, oggi), true, '29 febbraio inesistente: data malformata');
+    });
+    it('DAT-001 controllo notturno: una data di ingresso non ISO non toglie permessi; una ISO futura sì', async () => {
+      const { revocaUsciti } = permessi()._test;
+      await admin.doc('buildings/1/members/103').update({ dataIngresso: '01/12/2099' });
+      await revocaUsciti('2026-11-30');
+      assert.strictEqual((await claimsOf('u-member1')).role, 'member', 'revocato per una data non ISO');
+      await admin.doc('buildings/1/members/103').update({ dataIngresso: '2099-12-01' });
+      await revocaUsciti('2026-11-30');
+      assert.ok(!(await claimsOf('u-member1')).role, 'una data ISO futura deve togliere i permessi');
+    });
+    it('DAT-001 whoami: chi ha una data di ingresso non ISO accede come prima', async () => {
+      await admin.doc('buildings/1/members/103').update({ dataIngresso: '25/12/2099' });
+      const r = await (await as('member1@qa.test')).call('whoami');
+      assert.ok(r.ok, r.message);
+      assert.strictEqual(r.data.profile.id, 103);
+    });
+
+    // ADV-TECH-025
+    it('ADV-TECH-025 membroAttivo e motivoEsclusione: una data di uscita non ISO vale "nessuna data"', () => {
+      const { membroAttivo } = permessi();
+      const { motivoEsclusione, uscitaArrivata } = fnReq('./notifiche')._test;
+      const oggi = '2026-11-30';
+      const male = ['01/12/2099', '25/12/2099', '2099', '2099-12', '2099-1-5', '2099-13-45', '2099-02-30', '2099-12-01T10:00', ' 2099-12-01', 'domani', '', 20991201, true, { a: 1 }, ['2099-12-01']];
+      for (const dataUscita of male) {
+        assert.strictEqual(uscitaArrivata({ dataUscita }, oggi), false, JSON.stringify(dataUscita));
+        assert.strictEqual(membroAttivo({ dataUscita }, oggi), true, 'bloccato da ' + JSON.stringify(dataUscita));
+        assert.strictEqual(motivoEsclusione({ email: 'a@qa.test', dataUscita }, oggi), null, 'escluso da ' + JSON.stringify(dataUscita));
+      }
+      // una data ISO arrivata (oggi compreso) esclude ancora, una futura no
+      assert.strictEqual(membroAttivo({ dataUscita: '2026-11-30' }, oggi), false);
+      assert.strictEqual(motivoEsclusione({ email: 'a@qa.test', dataUscita: '2026-11-29' }, oggi), 'archiviato');
+      assert.strictEqual(membroAttivo({ dataUscita: '2099-12-01' }, oggi), true);
+    });
+    it('ADV-TECH-025 controllo notturno e trigger: una data di uscita non ISO non toglie i permessi; una ISO passata sì', async () => {
+      const { revocaUsciti } = permessi()._test;
+      await admin.doc('buildings/1/members/103').update({ dataUscita: '01/12/2099' });
+      await new Promise((r) => setTimeout(r, 1500)); // il trigger della scrittura ha il tempo di girare
+      assert.strictEqual((await claimsOf('u-member1')).role, 'member', 'revocato dal trigger per una data non ISO');
+      await revocaUsciti('2026-11-30');
+      assert.strictEqual((await claimsOf('u-member1')).role, 'member', 'revocato dal controllo notturno per una data non ISO');
+      await admin.doc('buildings/1/members/103').update({ dataUscita: '2026-11-29' });
+      await revocaUsciti('2026-11-30');
+      assert.ok(!(await claimsOf('u-member1')).role, 'una data ISO passata deve togliere i permessi');
+    });
+
+    // DAT-007
+    it('DAT-007 setUserRole senza accesso risponde unauthenticated, come le altre callable', async () => {
+      const r = await anonCall('setUserRole');
+      assert.strictEqual(r.ok, false);
+      assert.strictEqual(r.code, 'functions/unauthenticated');
+      assert.strictEqual((await anonCall('whoami')).code, 'functions/unauthenticated');
+      // un utente senza ruolo di amministratore resta permission-denied
+      const m = await (await as('member1@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' });
+      assert.strictEqual(m.code, 'functions/permission-denied');
+    });
+
+    // ADV-TECH-021
+    describe('ADV-TECH-021: setUserRole aggiorna anche la scheda del condomino', () => {
+      const scheda = async (id = 103) => (await admin.doc(`buildings/1/members/${id}`).get()).data();
+      it('promozione a editor e ad amministratore, poi declassamento: la scheda segue subito, senza nessun salvataggio dal client', async () => {
+        await new Promise((r) => setTimeout(r, 4000)); // i trigger delle scritture del seed
+        const a = await as('admin1@qa.test');
+        assert.ok((await a.call('setUserRole', { targetUid: 'u-member1', role: 'editor', buildingId: '1' })).ok);
+        let s = await scheda();
+        assert.deepStrictEqual([!!s.isAdmin, !!s.canEdit, s._updatedBy], [false, true, 'u-admin1']);
+        assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'editor', buildingId: '1' });
+        assert.ok((await a.call('setUserRole', { targetUid: 'u-member1', role: 'adminEdificio', buildingId: '1' })).ok);
+        s = await scheda();
+        assert.deepStrictEqual([!!s.isAdmin, !!s.canEdit], [true, true]);
+        assert.ok((await a.call('setUserRole', { targetUid: 'u-member1', role: 'member', buildingId: '1' })).ok);
+        s = await scheda();
+        assert.deepStrictEqual([!!s.isAdmin, !!s.canEdit], [false, false]);
+        // il trigger che parte dopo le scritture non annulla né abbassa nulla (ADV-TECH-005 resta valido)
+        await new Promise((r) => setTimeout(r, 4000));
+        assert.deepStrictEqual(await claimsOf('u-member1'), { role: 'member', buildingId: '1' });
+      });
+      it('promozione dopo che un altro amministratore ha tolto "Modifica" (pagina vecchia): claim, scheda e roles/ restano coerenti', async () => {
+        await new Promise((r) => setTimeout(r, 4000));
+        await admin.doc('buildings/1/members/102').update({ canEdit: false, _updatedBy: 'u-admin1', _updatedAt: new Date() }); // A toglie "Modifica"
+        await new Promise((r) => setTimeout(r, 4000));
+        assert.strictEqual((await claimsOf('u-editor1')).role, 'member');
+        const b = await as('admin1@qa.test'); // B, con la pagina vecchia, lo rimette editor
+        assert.ok((await b.call('setUserRole', { targetUid: 'u-editor1', role: 'editor', buildingId: '1' })).ok);
+        const s = await scheda(102);
+        assert.strictEqual(!!s.canEdit, true, 'la scheda deve mostrare quello che hanno i claim');
+        await new Promise((r) => setTimeout(r, 4000));
+        assert.deepStrictEqual(await claimsOf('u-editor1'), { role: 'editor', buildingId: '1' });
+        assert.strictEqual((await admin.doc('roles/u-editor1').get()).data().role, 'editor');
+      });
+      it('se la scheda è già al ruolo chiesto non si scrive nulla (nessuna versione nuova, nessuna voce di registro)', async () => {
+        const prima = await scheda();
+        const r = await (await as('admin1@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'member', buildingId: '1' });
+        assert.ok(r.ok, r.message);
+        const dopo = await scheda();
+        assert.strictEqual(dopo._updatedAt.toMillis(), prima._updatedAt.toMillis());
+      });
+      it('non tocca le schede cancellate o uscite di quella persona né quelle di altri condomini', async () => {
+        await admin.doc('buildings/1/members/103').update({ _deleted: true });
+        const altri = await scheda(102);
+        const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'adminEdificio', buildingId: '1' });
+        assert.ok(r.ok, r.message);
+        assert.strictEqual(!!(await scheda()).isAdmin, false, 'scheda cancellata toccata');
+        assert.deepStrictEqual(await scheda(102), altri);
+      });
+      it('il superAdmin che promuove un altro superAdmin non scrive nessuna scheda', async () => {
+        const prima = await scheda();
+        const r = await (await as('superadmin@qa.test')).call('setUserRole', { targetUid: 'u-member1', role: 'superAdmin' });
+        assert.ok(r.ok, r.message);
+        assert.deepStrictEqual(await scheda(), prima);
+      });
+    });
+
+    // SEC-012
+    it('SEC-012 tutte le funzioni esportate, trigger compresi, dichiarano la region europe-west1', () => {
+      const { execFileSync } = require('child_process');
+      const script = "const f=require('./index.js');process.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(f).map(([n,v])=>[n,v.__endpoint&&v.__endpoint.region]))))";
+      const out = JSON.parse(execFileSync(process.execPath, ['-e', script], { cwd: require('path').join(__dirname, '..', 'functions'),
+        env: { ...process.env, FUNCTIONS_EMULATOR: 'true', GCLOUD_PROJECT: PROJECT } }).toString());
+      for (const nome of ['auditTrail', 'notificaVita']) assert.ok(nome in out, nome + ' non esportata');
+      for (const [nome, region] of Object.entries(out)) assert.deepStrictEqual(region, ['europe-west1'], nome + ': ' + JSON.stringify(region));
     });
   });
 });

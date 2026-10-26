@@ -11,7 +11,7 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-const { posta: { dataTraGiorni } } = require('./notifiche');
+const { posta: { dataTraGiorni, ingressoFuturo, uscitaArrivata } } = require('./notifiche');
 
 const auth = () => getAuth();
 const db = () => getFirestore();
@@ -19,9 +19,14 @@ const db = () => getFirestore();
 const LIVELLO = { member: 1, editor: 2, adminEdificio: 3 };
 
 // Un condomino può accedere se non è cancellato, disattivato o uscito
-// (data di uscita arrivata: stesso criterio di "archiviato" per le email).
+// (data di uscita arrivata: stesso criterio di "archiviato" per le email) e se
+// la data di ingresso è già arrivata (un subentro a data futura: chi entra non
+// ha accesso prima di quel giorno; audit 2026-10-24, ADV-FUNC-010). Conta solo una
+// data di ingresso o di uscita AAAA-MM-GG valida: un testo in un altro formato vale
+// "nessuna data" e non toglie accesso né permessi (DAT-001, ADV-TECH-025).
 function membroAttivo(m, oggi = dataTraGiorni(0)) {
-  return !!m && !m._deleted && !m.disabled && !(m.dataUscita && String(m.dataUscita) <= oggi);
+  return !!m && !m._deleted && !m.disabled && !uscitaArrivata(m, oggi)
+    && !ingressoFuturo(m, oggi);
 }
 
 function ruoloDa(m) {
@@ -69,12 +74,21 @@ async function allineaPermessi(ref, before) {
   if (!snap.exists) return;
   const now = snap.data();
   const buildingId = ref.parent.parent.id;
-  const actor = (now._deleted && now._deletedBy) || now._updatedBy || 'sistema';
+  const actor = now._updatedBy || 'sistema'; // l'autore è chi ha firmato la scrittura (audit 2026-10-24)
   // Account scollegato dal record (solo il superAdmin può farlo): perde i permessi.
   if (before?.uid && before.uid !== now.uid) await togliPermessi(before.uid, buildingId, actor);
   if (!now.uid) return;
   if (!membroAttivo(now)) await togliPermessi(now.uid, buildingId, actor);
-  else await riduciPermessi(now.uid, buildingId, ruoloDa(now), actor);
+  else {
+    // Un ruolo assegnato con setUserRole DOPO l'ultima scrittura del record
+    // non si riduce: un trigger in ritardo leggerebbe il record ancora vecchio
+    // e annullerebbe la promozione (audit 2026-10-24, ADV-TECH-005).
+    const ruolo = await db().collection('roles').doc(now.uid).get().catch(() => null);
+    const assegnato = ruolo?.exists ? ruolo.data().updatedAt : null;
+    const scritto = now._updatedAt;
+    if (assegnato?.toMillis && scritto?.toMillis && assegnato.toMillis() > scritto.toMillis()) return;
+    await riduciPermessi(now.uid, buildingId, ruoloDa(now), actor);
+  }
 }
 
 // Chi ha una data di uscita futura perde l'accesso quando arriva il giorno:

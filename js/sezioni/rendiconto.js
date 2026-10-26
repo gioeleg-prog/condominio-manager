@@ -57,7 +57,9 @@ function datiRendiconto(anno) {
   const nAttivi = condEd.filter(c => !c.disabled).length || 1;
   d.riparto = condEd
     // Chi ha fatto parte del condominio nell'anno (anche se poi è uscito per un subentro), o vi ha movimenti.
-    .filter(c => attivoNellAnno(c, anno) || entrate.some(e => e.condominoId === c.id) || spese.some(s => s.split?.some(x => x.id === c.id && (x.perc || 0) > 0)))
+    .filter(c => attivoNellAnno(c, anno) || entrate.some(e => e.condominoId === c.id) || haQuotaNelleSpese(c.id, spese)
+      // Chi è uscito prima ma ha ancora un debito o un credito degli anni precedenti.
+      || Math.abs(riportoCondomino(c.id, (dt) => annoDi(dt) < anno, nAttivi)) > 0.005)
     .map(c => {
       const ord = spese.filter(s => !str(s)).reduce((a, s) => a + quotaSuSpesa(s, c.id, importo(s), nAttivi), 0);
       const stra = spese.filter(str).reduce((a, s) => a + quotaSuSpesa(s, c.id, importo(s), nAttivi), 0);

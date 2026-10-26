@@ -293,7 +293,7 @@ function renderImpostazioni() {
     </div>` : ''}
     <div class="utenti-grid" style="padding:0;margin-bottom:1.5rem">
       ${(state.condomini.filter(c => !c.edificioId || c.edificioId === state.edificioAttivo)).filter(c=>!c.disabled).map(c => {
-        const _entImp = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo); const versato = _entImp.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+        const _entImp = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo); const versato = _entImp.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+importoNum(e.importo),0);
         return `<div class="utente-card">
           <div class="uc-head">
             <div class="avatar-lg" style="${avatarStyle(c.color)}">${initials(c.nome)}</div>
@@ -343,7 +343,7 @@ function renderImpostazioni() {
     </div>
     <div class="utenti-grid" style="padding:0;margin-bottom:1.5rem">
       ${_vis.filter(c=>c.disabled).map(c => {
-        const _entImpD = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo); const versato = _entImpD.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+        const _entImpD = state.entrate.filter(e => !e.edificioId || e.edificioId === state.edificioAttivo); const versato = _entImpD.filter(e=>e.condominoId===c.id).reduce((a,e)=>a+importoNum(e.importo),0);
         const _speseImpD = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo); const nSpese = _speseImpD.filter(s=>s.split?.some(x=>x.id===c.id)).length;
         const disabledOn = c.disabledOn ? new Date(c.disabledOn).toLocaleDateString('it-IT') : '—';
         return `<div class="utente-card disabled">
@@ -807,10 +807,14 @@ Sposta o elimina prima tutti i dati associati.`);
       }
       if (!await chiedi(`Eliminare "${ed.nome}"? Non ha dati associati, è sicuro.`)) return;
       const edifici = state.edifici.filter(e=>e.id!==id);
-      save('cm_edifici', edifici);
+      // L'edificio attivo cambia solo se l'eliminazione è stata confermata dal
+      // server (audit 2026-10-24, ADV-TECH-002).
+      const salvaEdifici = save('cm_edifici', edifici);
+      setState({edifici});
+      if (await salvaEdifici === false) return;
       const nuovoAttivo = edifici[0]?.id || 1;
       save('cm_edificio_attivo', nuovoAttivo);
-      setState({edifici, edificioAttivo:nuovoAttivo});
+      setState({edificioAttivo:nuovoAttivo});
     };
   });
   // Btn gestisci edifici dal modal switcher
@@ -921,13 +925,22 @@ Sposta o elimina prima tutti i dati associati.`);
     }
 
     const patch = {};
-    [['cm_spese','spese'], ['cm_entrate','entrate'], ['cm_fornitori','fornitori'], ['cm_bacheca','bacheca'],
-     ['cm_verbali','verbali'], ['cm_lavori','lavori'], ['cm_delibere','delibere']].forEach(([key, prop]) => {
+    const sezioni = [['cm_spese','spese'], ['cm_entrate','entrate'], ['cm_fornitori','fornitori'], ['cm_bacheca','bacheca'],
+     ['cm_verbali','verbali'], ['cm_lavori','lavori'], ['cm_delibere','delibere']];
+    const esiti = sezioni.map(([key, prop]) => {
       patch[prop] = state[prop].filter(r => r.edificioId !== edId);
-      save(key, patch[prop]);
+      return save(key, patch[prop]);
     });
     setState(patch);
-    avvisa('✅ Dati di "' + edNome + '" svuotati.');
+    // Il successo si annuncia solo se ogni sezione è stata confermata dal server
+    // (audit 2026-10-24, ADV-TECH-002); una sezione rifiutata torna com'era.
+    const riusciti = await Promise.all(esiti);
+    const nonRiusciti = sezioni.filter((_, i) => riusciti[i] === false).map(([, prop]) => prop);
+    if (nonRiusciti.length) {
+      avvisa('⚠️ Svuotamento di "' + edNome + '" NON completo: ' + nonRiusciti.join(', ') + ' non sono state svuotate (restano com\'erano). Ripeti l\'operazione.');
+    } else {
+      avvisa('✅ Dati di "' + edNome + '" svuotati.');
+    }
   };
 }
 

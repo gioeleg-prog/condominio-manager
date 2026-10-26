@@ -31,10 +31,17 @@ function renderAllegatiChip(spesa) {
 // ogni chiamata passa dalle storage.rules — e li espone come blob URL locale,
 // mai persistito né condiviso. v.data64 (allegati legacy pre-SEC-04) è già
 // utilizzabile direttamente.
+// Elenco chiuso dei tipi di allegato (lo stesso di firestore.rules e
+// storage.rules; audit 2026-10-24): un tipo fuori elenco, SVG e HTML compresi,
+// si tratta come file generico, da scaricare.
+const MIME_ALLEGATI = /^(image\/(png|jpe?g|gif|webp|heic|heif|bmp|tiff)|application\/(pdf|octet-stream|msword|rtf|zip)|application\/vnd\.(ms-excel|ms-powerpoint|openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet|presentationml\.presentation)|oasis\.opendocument\.(text|spreadsheet|presentation|graphics))|text\/(plain|csv))$/;
+// Immagini che il visualizzatore mostra in <img>: solo formati raster.
+const MIME_ANTEPRIMA_IMG = /^image\/(png|jpe?g|gif|webp|bmp)$/;
+
 async function fetchAllegatoBlobUrl(v) {
   const { storage, ref, getBytes } = window._fb;
   const bytes = await getBytes(ref(storage, v.storagePath));
-  const blob = new Blob([bytes], { type: v.mime || 'application/octet-stream' });
+  const blob = new Blob([bytes], { type: MIME_ALLEGATI.test(v.mime || '') ? v.mime : 'application/octet-stream' });
   return URL.createObjectURL(blob);
 }
 
@@ -57,7 +64,7 @@ function renderViewer() {
   // un'immagine nell'img); altrimenti resta il pulsante per scaricarlo.
   const d64 = data64Sicuro(v);
   const src = v.blobUrl || d64;
-  const isImg = v.mime.startsWith('image/') && (!!v.blobUrl || d64.startsWith('data:image/'));
+  const isImg = MIME_ANTEPRIMA_IMG.test(v.mime) && (!!v.blobUrl || /^data:image\/(png|jpe?g|gif|webp|bmp)[;,]/.test(d64));
   const isPdf = v.mime === 'application/pdf' && (!!v.blobUrl || d64.startsWith('data:application/pdf;'));
   return `
   <div class="viewer-overlay" id="viewer-overlay">
@@ -227,17 +234,40 @@ function renderAllegatoItem(f, isPending=false, puoEliminare=true) {
 // per entità: una seconda chiamata con onclick= (non addEventListener)
 // sovrascriverebbe silenziosamente i binding della prima anche sui bottoni
 // di un'altra entità già presenti nella stessa pagina/modal.
+// Un file di Storage è ancora collegato a qualche record? (QA-CONS-027) Si cerca in
+// tutte le raccolte per edificio in memoria: il file si cancella solo se la
+// risposta è no. `sostituzioni` = { chiaveDiState: elenco aggiornato } per le
+// raccolte già modificate ma non ancora scritte in state.
+function allegatoRiferito(storagePath, sostituzioni = {}) {
+  if (!storagePath) return false;
+  return RECORD_KEYS.some(k => {
+    const prop = APPDATA_CONFIG[k].stateProp;
+    const elenco = prop in sostituzioni ? sostituzioni[prop] : state[prop];
+    return Array.isArray(elenco) && elenco.some(r => (r?.allegati || []).some(a => a && a.storagePath === storagePath));
+  });
+}
+
+// Cancella da Storage un file caricato ma non più collegato a nessun record
+// (scheda chiusa senza salvare). Se qualcuno lo riferisce, non lo tocca.
+function scartaFilePendenti() {
+  const daScartare = (state.pendingFiles || []).filter(f => f.storagePath && !allegatoRiferito(f.storagePath));
+  state.pendingFiles = [];
+  if (!daScartare.length || !window._fb?.deleteObject) return;
+  const { storage, ref, deleteObject } = window._fb;
+  daScartare.forEach(f => { deleteObject(ref(storage, f.storagePath)).catch(err => console.warn('deleteObject (scheda chiusa):', err.code || err.message)); });
+}
+
 function bindAllegatiInTable(sources) {
   const findIn = (id) => {
     for (const src of sources) {
       for (const r of src.records) {
         if (r.allegati) {
           const found = r.allegati.find(a=>a.id===id);
-          if (found) return { found, src };
+          if (found) return { found, src, rec: r };
         }
       }
     }
-    return { found: null, src: null };
+    return { found: null, src: null, rec: null };
   };
 
   document.querySelectorAll('[data-view-allegato]').forEach(btn => {
@@ -270,11 +300,16 @@ function bindAllegatiInTable(sources) {
     btn.onclick = async () => {
       if (!await chiedi('Eliminare questo allegato?')) return;
       const {id} = JSON.parse(btn.dataset.delAllegato);
-      const { found: toDelete, src } = findIn(id);
+      const { found: toDelete, src, rec } = findIn(id);
       if (!toDelete || !src) return;
-      // Cambia solo il record che ha l'allegato: prima ogni record senza il campo
-      // allegati ne riceveva uno vuoto, e il salvataggio li riscriveva tutti.
-      const nuoviRecords = state[src.stateKey].map(r => (r.allegati||[]).some(a=>a.id===id) ? ({
+      // Il record da cui si toglie l'allegato: quello della scheda aperta, altrimenti
+      // il primo che lo ha. Prima si toglieva da ogni record con lo stesso id, anche
+      // dalle altre occorrenze di una spesa ricorrente (QA-CONS-027).
+      const mdAperto = state.modal?.data;
+      const idRecord = (mdAperto && Array.isArray(mdAperto.allegati) && mdAperto.allegati.some(a => a.id === id)) ? mdAperto.id : rec.id;
+      // Cambia solo quel record: prima ogni record senza il campo allegati ne
+      // riceveva uno vuoto, e il salvataggio li riscriveva tutti.
+      const nuoviRecords = state[src.stateKey].map(r => (r.id === idRecord && (r.allegati||[]).some(a=>a.id===id)) ? ({
         ...r,
         allegati: r.allegati.filter(a=>a.id!==id)
       }) : r);
@@ -287,6 +322,9 @@ function bindAllegatiInTable(sources) {
         // (il record e il file ci sono ancora).
         if (!ok && mdPrima && state.modal && state.modal.data?.id === mdPrima.id) { state.modal = { ...state.modal, data: mdPrima }; render(); }
         if (!ok || !toDelete.storagePath) return;
+        // Il file si cancella solo se nessun altro record lo riferisce (QA-CONS-027):
+        // occorrenze ricorrenti già salvate con lo stesso allegato lo condividono.
+        if (allegatoRiferito(toDelete.storagePath, { [src.stateKey]: nuoviRecords })) return;
         try {
           const { storage, ref, deleteObject } = window._fb;
           await deleteObject(ref(storage, toDelete.storagePath));

@@ -17,6 +17,10 @@ const db = getFirestore();
 const auth = getAuth();
 // Permessi di condomini disattivati, usciti o declassati: vedi permessi.js.
 const permessi = require('./permessi');
+// Ruolo del chiamante riletto dal database per le operazioni sensibili: vedi ruolo.js.
+const ruoloDb = require('./ruolo');
+// Voci del registro modifiche con id stabile (una riconsegna non le duplica).
+const { scriviEvento } = require('./eventi');
 // Il condomino corregge da solo i propri dati personali: vedi profilo.js.
 const profilo = require('./profilo');
 
@@ -32,8 +36,8 @@ const profilo = require('./profilo');
 // Region: tutte le funzioni stanno in europe-west1, vicino a Firestore
 // (eur3). Le callable (onCall) e quelle a orario la dichiarano; il client
 // cerca le callable lì (js/firebase.js; region in functions/regioni.js).
-// I trigger auditTrail e notificaVita non la dichiarano: il CLI li tiene
-// nella region in cui esistono già, europe-west1 in produzione.
+// Anche i trigger auditTrail e notificaVita la dichiarano (SEC-012): senza,
+// il valore predefinito dell'SDK e quello dell'emulatore sono us-central1.
 // ═══════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════
@@ -50,7 +54,11 @@ const profilo = require('./profilo');
 //    applicava a chi aveva già fatto il primo accesso.
 // ═══════════════════════════════════════════════════════════════
 exports.setUserRole = onCall({ region: REGIONI_CALLABLE }, async (request) => {
-  const callerRole = request.auth?.token?.role;
+  // Senza accesso: stesso codice delle altre callable, così il client distingue "sessione scaduta" da "non autorizzato".
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
+  // Ruolo riletto dal database, non dal token (QA-CONS-011): un amministratore
+  // declassato o uscito, con il token ancora valido, non assegna più ruoli.
+  const callerRole = (await ruoloDb.ruoloAttuale(request)).role;
   if (callerRole !== 'superAdmin' && callerRole !== 'adminEdificio') {
     throw new HttpsError('permission-denied', 'Solo un amministratore può assegnare ruoli.');
   }
@@ -73,6 +81,10 @@ exports.setUserRole = onCall({ region: REGIONI_CALLABLE }, async (request) => {
   }
   if (callerRole === 'adminEdificio') await controllaNomina(request, targetUid, role, String(buildingId));
 
+  // La scheda prima dei claim (ADV-TECH-021): se la scrittura fallisce la chiamata si ferma e i claim restano
+  // come erano; non può mai restare un ruolo nei claim più alto di quello che mostra la scheda.
+  if (role !== 'superAdmin') await allineaSchedaAlRuolo(String(targetUid), String(buildingId), role, request.auth.uid);
+
   const claims = role === 'superAdmin' ? { role } : { role, buildingId: String(buildingId) };
   await auth.setCustomUserClaims(targetUid, claims);
 
@@ -94,6 +106,25 @@ exports.setUserRole = onCall({ region: REGIONI_CALLABLE }, async (request) => {
 
   return { ok: true };
 });
+
+// Porta i flag di ruolo (isAdmin, canEdit) delle schede attive dell'utente nel condominio al ruolo assegnato,
+// firmando chi ha chiesto la modifica. Scrive solo se qualcosa cambia (niente voci di registro né versioni
+// nuove per nulla). Lo fa il server perché il salvataggio della scheda dal client può fallire dopo la chiamata.
+async function allineaSchedaAlRuolo(targetUid, buildingId, role, attore) {
+  const isAdmin = role === 'adminEdificio';
+  const canEdit = isAdmin || role === 'editor';
+  const snap = await db.collection(`buildings/${buildingId}/members`).where('uid', '==', targetUid).get();
+  const batch = db.batch();
+  let n = 0;
+  for (const d of snap.docs) {
+    const m = d.data();
+    if (m._deleted || !permessi.membroAttivo(m)) continue;
+    if (!!m.isAdmin === isAdmin && !!m.canEdit === canEdit) continue;
+    batch.update(d.ref, { isAdmin, canEdit, _updatedBy: attore, _updatedAt: FieldValue.serverTimestamp() });
+    n++;
+  }
+  if (n) await batch.commit();
+}
 
 // Limiti di un amministratore di condominio che assegna un ruolo (vedi setUserRole).
 async function controllaNomina(request, targetUid, role, buildingId) {
@@ -268,9 +299,9 @@ async function sceltaProfilo(uid, email) {
 // ═══════════════════════════════════════════════════════════════
 exports.verificaEmail = onCall({ region: REGIONI_CALLABLE }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Login richiesto.');
-  const t = request.auth.token || {};
   const b = String(request.data?.buildingId || '');
-  if (!(t.role === 'superAdmin' || (t.role === 'adminEdificio' && String(t.buildingId) === b))) {
+  const adesso = await ruoloDb.ruoloAttuale(request);
+  if (!(adesso.role === 'superAdmin' || (adesso.role === 'adminEdificio' && String(adesso.buildingId) === b))) {
     throw new HttpsError('permission-denied', 'Solo l\'amministratore del condominio.');
   }
   const e = String(request.data?.email || '').trim().toLowerCase();
@@ -323,7 +354,7 @@ async function recordLogin(profile) {
 // ═══════════════════════════════════════════════════════════════
 const MAX_VALUE_LEN = 500;
 
-exports.auditTrail = onDocumentWritten('buildings/{buildingId}/{coll}/{docId}', async (event) => {
+exports.auditTrail = onDocumentWritten({ document: 'buildings/{buildingId}/{coll}/{docId}', region: 'europe-west1' }, async (event) => {
   // Storici degli invii (email: lo scrive il server; WhatsApp: solo a chi è
   // stato aperto il messaggio): non sono modifiche ai dati del condominio.
   if (event.params.coll === 'invii' || event.params.coll === 'inviiWhatsapp') return;
@@ -339,7 +370,9 @@ exports.auditTrail = onDocumentWritten('buildings/{buildingId}/{coll}/{docId}', 
 async function registraModifica(event) {
   const before = event.data?.before?.exists ? event.data.before.data() : null;
   const after = event.data?.after?.exists ? event.data.after.data() : null;
-  const actor = after?._deletedBy && after?._deleted ? after._deletedBy : (after?._updatedBy ?? null);
+  // L'autore è sempre _updatedBy: le rules lo obbligano a coincidere con chi
+  // scrive (_deletedBy è un metadato di cancellazione, non l'autore: audit 2026-10-24).
+  const actor = after?._updatedBy ?? null;
   if (actor === 'backfill' || actor === 'whoami-auto' || actor === 'migrazione-contatti') return;
   // Scrittura di un ripristino da backup (vedi backup.js): non è un'azione
   // dell'ultimo autore del record.
@@ -362,7 +395,7 @@ async function registraModifica(event) {
   }
   if (type === 'updated' && !Object.keys(changes).length) return;
 
-  await db.collection('auditEvents').add({
+  await scriviEvento(db, event.id, '', {
     type: `record.${type}`,
     buildingId: event.params.buildingId,
     collection: event.params.coll,
@@ -383,7 +416,7 @@ async function registraModifica(event) {
     const LIVELLO = { member: 1, editor: 2, adminEdificio: 3 };
     const nuovo = ruolo(after), prima = ruolo(before);
     if (LIVELLO[nuovo] > LIVELLO[prima]) {
-      await db.collection('auditEvents').add({
+      await scriviEvento(db, event.id, 'nomina', {
         type: 'role.nominated',
         buildingId: event.params.buildingId,
         collection: 'members',

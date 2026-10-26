@@ -23,29 +23,29 @@ function renderDashboard() {
   const spese   = _allSpese.filter(s => annoDi(s.data) === annoEff);
   const entrate = _allEntrate.filter(e => annoDi(e.data) === annoEff);
 
-  const totSpeseCons = spese.reduce((a,s) => a + parseFloat(s.consuntivo||0), 0);
-  const totSpesePrev = spese.reduce((a,s) => a + parseFloat(s.preventivo||0), 0);
-  const totEntrate   = entrate.filter(e=>!e.previsionale).reduce((a,e) => a + parseFloat(e.importo||0), 0);
+  const totSpeseCons = spese.reduce((a,s) => a + importoNum(s.consuntivo), 0);
+  const totSpesePrev = spese.reduce((a,s) => a + importoNum(s.preventivo), 0);
+  const totEntrate   = entrate.filter(e=>!e.previsionale).reduce((a,e) => a + importoNum(e.importo), 0);
   const saldoRiporto = getSaldoRiporto(anno);  // saldo dagli anni precedenti
   const saldoAnno    = totEntrate - totSpeseCons;  // saldo solo dell'anno
   const saldo        = saldoRiporto + saldoAnno;   // saldo totale cassa
   // Actual (solo consuntivo) — coerente con totSpeseCons
-  const speseOrd     = spese.filter(s=>s.tipoSpesa==='ordinaria').reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-  const speseStr     = spese.filter(s=>s.tipoSpesa==='straordinaria').reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  const speseOrd     = spese.filter(s=>s.tipoSpesa==='ordinaria').reduce((a,s)=>a+importoNum(s.consuntivo),0);
+  const speseStr     = spese.filter(s=>s.tipoSpesa==='straordinaria').reduce((a,s)=>a+importoNum(s.consuntivo),0);
   // Full (cons||prev) — include anche preventivi senza consuntivo
-  const speseOrdFull = spese.filter(s=>s.tipoSpesa==='ordinaria').reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0),0);
-  const speseStrFull = spese.filter(s=>s.tipoSpesa==='straordinaria').reduce((a,s)=>a+parseFloat(s.consuntivo||s.preventivo||0),0);
+  const speseOrdFull = spese.filter(s=>s.tipoSpesa==='ordinaria').reduce((a,s)=>a+importoNum(s.consuntivo||s.preventivo),0);
+  const speseStrFull = spese.filter(s=>s.tipoSpesa==='straordinaria').reduce((a,s)=>a+importoNum(s.consuntivo||s.preventivo),0);
   // Quota personale: usa gli split reali come nel bilancio per condomino
   // Per l'admin (superAdmin) usa la media semplice; per gli altri usa lo split
   const quotaPersonale = (() => {
     if (isSuperAdmin(state.user)) return totSpeseCons / nAttivi;
     const uid = state.user.id;
-    return spese.reduce((acc, s) => acc + quotaSuSpesa(s, uid, parseFloat(s.consuntivo||0), nAttivi), 0);
+    return spese.reduce((acc, s) => acc + quotaSuSpesa(s, uid, importoNum(s.consuntivo), nAttivi), 0);
   })();
   // Debito o credito degli anni precedenti del condomino collegato.
   const riportoUtente = isSuperAdmin(state.user) ? 0 : riportoCondomino(state.user.id, d => annoDi(d) < anno, nAttivi);
   // Solo versamenti reali: le rate previsionali (es. piano rate dell'anno prossimo) non sono "versate".
-  const pagatoUtente   = entrate.filter(e=>e.condominoId===state.user.id && !e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+  const pagatoUtente   = entrate.filter(e=>e.condominoId===state.user.id && !e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
 
   // ── Calcolo cashflow mensile (storico + previsionale) ──────────────────
   // Stesse componenti usate nel grafico "Andamento mensile" di Bilancio, per coerenza:
@@ -55,10 +55,10 @@ function renderDashboard() {
   const cashflow = Array.from({length:12}, (_,m) => {
     const speseM   = spese.filter(s=>meseDi(s.data)===m);
     const entrateM = entrate.filter(e=>meseDi(e.data)===m);
-    const cons         = speseM.filter(s=>parseFloat(s.consuntivo||0)>0).reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
-    const prevForecast = speseM.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo||0),0);
-    const incassi       = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-    const incPrevis      = entrateM.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const cons         = speseM.filter(s=>importoNum(s.consuntivo)>0).reduce((a,s)=>a+importoNum(s.consuntivo),0);
+    const prevForecast = speseM.filter(s=>importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0).reduce((a,s)=>a+importoNum(s.preventivo),0);
+    const incassi       = entrateM.filter(e=>!e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
+    const incPrevis      = entrateM.filter(e=>e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
     const isAnnoPassato = anno < oggi.getFullYear();
     const isPast   = isAnnoPassato || (anno === oggi.getFullYear() && m <= meseCurr);
     const isCurrentMonth = anno === oggi.getFullYear() && m === meseCurr;
@@ -107,7 +107,7 @@ function renderDashboard() {
   // sotto e venivano contati due volte (falso allarme "già questo mese").
   const speseArretrateAperte = !isAnnoCorrenteDash ? 0 : spese
     .filter(s => meseDi(s.data) <= meseCurr)
-    .filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0)
+    .filter(s => importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0)
     .reduce((a, s) => a + parseFloat(s.preventivo), 0);
 
   let meseZero = speseArretrateAperte > 0 && (saldo - speseArretrateAperte) <= 0 ? meseCurr : null;
@@ -117,8 +117,8 @@ function renderDashboard() {
   for (let m = meseInizioSim; m <= meseFineSim; m++) {
     const speseM = spese.filter(s => meseDi(s.data) === m);
     const entrateM = entrate.filter(e => meseDi(e.data) === m);
-    const forecastMese = speseM.filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0).reduce((a,s)=>a+parseFloat(s.preventivo),0);
-    const incPrevistiMese = entrateM.filter(e => e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+    const forecastMese = speseM.filter(s => importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0).reduce((a,s)=>a+parseFloat(s.preventivo),0);
+    const incPrevistiMese = entrateM.filter(e => e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
     usciteFinestra += forecastMese;
     saldoSim += incPrevistiMese - forecastMese;
     if (saldoSim < minBalFinestra) minBalFinestra = saldoSim;
@@ -127,11 +127,11 @@ function renderDashboard() {
   const mesiFinestraEffettivi = Math.max(0, meseFineSim - meseInizioSim + 1);
 
   // Copertura mesi futuri (runway) — usata solo per lo storico/i pallini del runway-card qui sotto
-  const totSpeseFull      = spese.reduce((a,s) => a + parseFloat(s.consuntivo||s.preventivo||0), 0);
-  const totEntratePrevis  = entrate.filter(e=>e.previsionale).reduce((a,e) => a + parseFloat(e.importo||0), 0);
+  const totSpeseFull      = spese.reduce((a,s) => a + importoNum(s.consuntivo||s.preventivo), 0);
+  const totEntratePrevis  = entrate.filter(e=>e.previsionale).reduce((a,e) => a + importoNum(e.importo), 0);
   const cassaProiettata   = saldo + totEntratePrevis; // saldo reale + previsionali in entrata
   // Media mensile basata sui mesi con spese inserite (usata per lo storico/i pallini del runway-card, non per il messaggio principale)
-  const mesiConSpese      = new Set(spese.filter(s=>parseFloat(s.consuntivo||s.preventivo||0)>0).map(s=>meseDi(s.data)));
+  const mesiConSpese      = new Set(spese.filter(s=>importoNum(s.consuntivo||s.preventivo)>0).map(s=>meseDi(s.data)));
   const nMesiPianificati  = Math.max(mesiConSpese.size, 1);
   const spesaMensileMedia = totSpeseFull / nMesiPianificati;
 
@@ -154,8 +154,8 @@ function renderDashboard() {
     ? `✅ Coperto per i prossimi ${mesiFinestraEffettivi} mesi — il saldo attuale (${fmt(saldo)}) copre le spese previsionali ancora aperte, comprese quelle di questo mese, fino a ${nomiMesi[meseFineSim]} (${fmt(usciteFinestra)}), restando sempre sopra zero (minimo previsto ${fmt(minBalFinestra)})`
     : `✅ Nessuna spesa previsionale nei mesi rimanenti dell'anno`;
 
-  const speseConfermate = spese.filter(s=>parseFloat(s.consuntivo||0)>0);
-  const spesePrevisional= spese.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
+  const speseConfermate = spese.filter(s=>importoNum(s.consuntivo)>0);
+  const spesePrevisional= spese.filter(s=>importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0);
   const ultimeSpese      = [...speseConfermate].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,6);
   const ultimeForecast   = [...spesePrevisional].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,6);
   const ultimeEntrate = [...entrate].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,6);

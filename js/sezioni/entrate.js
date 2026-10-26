@@ -36,6 +36,8 @@ function renderEntrate() {
   // Anni scelti con i pulsanti (uno o più; nessuno = tutti).
   const anniSel = anniSelezionati();
   items = items.filter(e=>inAnniSelezionati(e.data, anniSel));
+  // I saldi per condomino non dipendono dalla ricerca (che vale per tutte le pagine): si calcolano sui versamenti degli anni scelti.
+  const itemsAnni = items;
   if (state.searchQ) items = items.filter(e=>{
     const cond = trovaPerId(state.condomini, e.condominoId)||{nome:''};
     return cond.nome.toLowerCase().includes(state.searchQ.toLowerCase())||e.descrizione?.toLowerCase().includes(state.searchQ.toLowerCase());
@@ -45,37 +47,44 @@ function renderEntrate() {
   // ordine dei vecchi filter+reduce (stessa somma al centesimo): prima tre
   // passaggi su tutti i versamenti per ogni condomino.
   const totCond = new Map();
-  items.forEach(e => {
+  itemsAnni.forEach(e => {
     let t = totCond.get(e.condominoId);
     if (!t) { t = { tot: 0, versato: 0, previsto: 0 }; totCond.set(e.condominoId, t); }
-    const v = parseFloat(e.importo||0);
+    const v = importoNum(e.importo);
     t.tot = t.tot + v;
     if (e.previsionale) t.previsto = t.previsto + v; else t.versato = t.versato + v;
   });
   // Totale in verde = solo versamenti reali; le rate previste sono indicate a parte.
-  const totale = items.filter(e=>!e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
-  const totalePrevisto = items.filter(e=>e.previsionale).reduce((a,e)=>a+parseFloat(e.importo||0),0);
+  const totale = items.filter(e=>!e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
+  const totalePrevisto = items.filter(e=>e.previsionale).reduce((a,e)=>a+importoNum(e.importo),0);
 
   const anni = getAnni();
   // Chi ha fatto parte del condominio negli anni scelti (anche se poi è uscito per un subentro), o vi ha versamenti.
-  const perCondomino = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.superAdmin
-    && ((anniSel.length ? anniSel.some(a=>attivoNellAnno(c,a)) : !c.disabled) || totCond.has(c.id))).map(c=>{
-    const tot = totCond.get(c.id)?.tot || 0;
-    return {...c, totale:tot};
-  });
   // ── Calcoli quota per condomino con split reali ──────────────────────────
   const _allSpeseEnt = state.spese.filter(s => !s.edificioId || s.edificioId === state.edificioAttivo);
   const speseAnno = _allSpeseEnt.filter(s=>inAnniSelezionati(s.data, anniSel));
   const nAttiviEnt = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.disabled&&!c.superAdmin).length || 1;
+  // Riporto dagli anni scelti: tutti gli anni NON scelti prima dell'ultimo anno scelto (con "Tutti" è zero).
+  const annoMaxEnt    = anniSel.length ? anniSel[anniSel.length - 1] : 0;
+  const nelRiportoEnt = (d) => { const a = annoDi(d); return a < annoMaxEnt && !anniSel.includes(a); };
+  // Anche chi è uscito prima, se ha ancora un debito o un credito (stesso criterio del Bilancio "Per condomino").
+  const haSaldoAperto = (c) => anniSel.length
+    ? Math.abs(riportoCondomino(c.id, nelRiportoEnt, nAttiviEnt)) > 0.005 || haQuotaNelleSpese(c.id, speseAnno)
+    : speseAnno.some(s => Math.abs(quotaSuSpesa(s, c.id, importoNum(s.consuntivo||s.preventivo), nAttiviEnt)) > 0.005);
+  const perCondomino = state.condomini.filter(c=>c.edificioId===state.edificioAttivo&&!c.superAdmin
+    && ((anniSel.length ? anniSel.some(a=>attivoNellAnno(c,a)) : !c.disabled) || totCond.has(c.id) || haSaldoAperto(c))).map(c=>{
+    const tot = totCond.get(c.id)?.tot || 0;
+    return {...c, totale:tot};
+  });
 
   // Quota per ogni condomino usando split reali — divisa tra ord/straord
   function getQuotaCondomino(condId) {
     let ord = 0, straord = 0, ordPrev = 0, straordPrev = 0;
     speseAnno.forEach(s => {
-      const hasCons = parseFloat(s.consuntivo||0) > 0;
-      const hasPrev = parseFloat(s.preventivo||0) > 0;
-      const refActual = parseFloat(s.consuntivo||0);
-      const refFull   = parseFloat(s.consuntivo||s.preventivo||0);
+      const hasCons = importoNum(s.consuntivo) > 0;
+      const hasPrev = importoNum(s.preventivo) > 0;
+      const refActual = importoNum(s.consuntivo);
+      const refFull   = importoNum(s.consuntivo||s.preventivo);
       const getPerc = (ref) => quotaSuSpesa(s, condId, ref, nAttiviEnt); // regola comune (js/core/utils.js)
       if (hasCons) {
         if (s.tipoSpesa==='straordinaria') straord += getPerc(refActual);
@@ -105,6 +114,7 @@ function renderEntrate() {
     <div class="spese-filters">
       <input type="text" class="spese-filter-search" placeholder="🔍 Cerca condomino…" id="search-entrate" value="${esc(state.searchQ)}">
     </div>
+    ${renderSegnalazioniEditor('entrata')}
     ${renderFiltroAnni('filterAnni', anni, { nota: anniSel.length > 1 ? 'importi sommati' : '' })}
 
     <div class="card" style="margin-bottom:1.5rem">
@@ -129,9 +139,8 @@ function renderEntrate() {
             // prima dell'ultimo anno scelto. Con un anno solo sono gli anni precedenti;
             // con anni non consecutivi entrano anche quelli in mezzo, così il saldo
             // resta la cassa vera a fine periodo; con "Tutti" è zero (già cumulativo).
-            const annoMax       = anniSel.length ? anniSel[anniSel.length - 1] : 0;
-            const nelRiporto    = (d) => { const a = annoDi(d); return a < annoMax && !anniSel.includes(a); };
-            const annoSel       = anniSel.length === 1 ? anniSel[0] : 0; // per l'etichetta "Versato <anno>"
+            const nelRiporto    = nelRiportoEnt;
+            const annoSel      = anniSel.length === 1 ? anniSel[0] : 0; // per l'etichetta "Versato <anno>"
             const riporto       = riportoCondomino(c.id, nelRiporto, nAttiviEnt);
             const diffActual    = versato - q.totActual;
             const saldoCassa    = riporto + diffActual;  // saldo reale con riporto
@@ -217,7 +226,7 @@ function renderEntrate() {
 
     <!-- DETTAGLIO SPESE FORECAST PRO-CAPITE -->
     ${(()=>{
-      const speseAperte = speseAnno.filter(s=>parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
+      const speseAperte = speseAnno.filter(s=>importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0);
       if (speseAperte.length === 0) return '';
       return '<div class="card" style="margin-bottom:1rem">' +
         '<div class="card-header"><h3>🔮 Dettaglio spese forecast — quota per condomino</h3>' +
@@ -228,7 +237,7 @@ function renderEntrate() {
         perCondomino.map(c=>'<th style="text-align:right;font-size:11px">' + initials(c.nome) + '<br><span style="font-weight:400;color:var(--text2)">' + esc(c.appartamento) + '</span></th>').join('') +
         '</tr></thead><tbody>' +
         speseAperte.map(s=>{
-          const ref = parseFloat(s.preventivo||0);
+          const ref = importoNum(s.preventivo);
           const quoteCond = perCondomino.map(c=>{
             const q = quotaSuSpesa(s, c.id, ref, nAttiviEnt);
             return '<td style="text-align:right;font-size:12px;color:var(--purple)">' + fmt(q) + '</td>';
@@ -242,10 +251,10 @@ function renderEntrate() {
         }).join('') +
         '<tr style="border-top:2px solid var(--border);font-weight:700">' +
         '<td>Totale forecast</td><td></td>' +
-        '<td style="text-align:right;color:var(--amber)">' + fmt(speseAperte.reduce((a,s)=>a+parseFloat(s.preventivo||0),0)) + '</td>' +
+        '<td style="text-align:right;color:var(--amber)">' + fmt(speseAperte.reduce((a,s)=>a+importoNum(s.preventivo),0)) + '</td>' +
         perCondomino.map(c=>{
           const tot = speseAperte.reduce((a,s)=>{
-            const ref=parseFloat(s.preventivo||0);
+            const ref=importoNum(s.preventivo);
             return a + quotaSuSpesa(s, c.id, ref, nAttiviEnt);
           },0);
           return '<td style="text-align:right;color:var(--purple)">' + fmt(tot) + '</td>';
@@ -431,10 +440,10 @@ function calcolaPianoRate(anno, nRate = 3) {
   // le spese ancora da consuntivare e più i versamenti previsti prima di quell'anno
   // (prima si usava la sola cassa di oggi e le rate risultavano troppo basse).
   let saldoPartenza = getSaldoStimatoInizioAnno(anno).stimato;
-  const speseRealizzateAnno   = allSpese.filter(s => annoDi(s.data)===anno && parseFloat(s.consuntivo||0)>0);
+  const speseRealizzateAnno   = allSpese.filter(s => annoDi(s.data)===anno && importoNum(s.consuntivo)>0);
   const entrateRealizzateAnno = allEntrate.filter(e => !e.previsionale && annoDi(e.data)===anno);
-  saldoPartenza += entrateRealizzateAnno.reduce((a,e)=>a+parseFloat(e.importo||0),0)
-                 - speseRealizzateAnno.reduce((a,s)=>a+parseFloat(s.consuntivo||0),0);
+  saldoPartenza += entrateRealizzateAnno.reduce((a,e)=>a+importoNum(e.importo),0)
+                 - speseRealizzateAnno.reduce((a,s)=>a+importoNum(s.consuntivo),0);
   saldoPartenza = Math.round(saldoPartenza*100)/100;
 
   // ── 2. Data della prima rata: 1° gennaio, o oggi se l'anno è già iniziato ──
@@ -448,7 +457,7 @@ function calcolaPianoRate(anno, nRate = 3) {
 
   const speseAperte = allSpese
     .filter(s => annoDi(s.data)===anno)
-    .filter(s => parseFloat(s.consuntivo||0)===0 && parseFloat(s.preventivo||0)>0);
+    .filter(s => importoNum(s.consuntivo)===0 && importoNum(s.preventivo)>0);
 
   const uscite = speseAperte.map(s => {
     // Data locale (new Date('AAAA-MM-GG') è mezzanotte UTC, cioè l'1 o le 2 di notte
@@ -498,10 +507,24 @@ function calcolaPianoRate(anno, nRate = 3) {
   const quotaCondomino = {};
   condominiAttivi.forEach(c => quotaCondomino[c.id] = 0);
   speseAperte.forEach(s => {
-    const ref = parseFloat(s.preventivo||0);
+    const ref = importoNum(s.preventivo);
     if (!ref) return;
     condominiAttivi.forEach(c => { quotaCondomino[c.id] += quotaSuSpesa(s, c.id, ref, nAttivi); });
   });
+
+  // Quote che restano a chi non è attivo (uscito, archiviato): decisione D1, restano sue e il
+  // piano le segnala senza addebitarle a nessun altro. Quel che non ha un intestatario
+  // (ripartizione incompleta, condomino eliminato) non compare per nome.
+  const idAttivi = new Set(condominiAttivi.map(c => c.id));
+  const quotaNonAttivi = state.condomini
+    .filter(c => c.edificioId===edId && !c.superAdmin && !idAttivi.has(c.id))
+    .map(c => {
+      let q = 0;
+      speseAperte.forEach(s => { const ref = importoNum(s.preventivo); if (ref) q += quotaSuSpesa(s, c.id, ref, nAttivi); });
+      return { id:c.id, nome:c.nome, quota:q };
+    }).filter(x => x.quota >= 0.005);
+  // Rate previste già a carico di chi non è attivo: restano sue, il ricalcolo non le toglie.
+  const rateUscitiEsistenti = allEntrate.filter(e => e.previsionale && e.pianoRataAuto && e.pianoAnno===anno && !idAttivi.has(e.condominoId));
 
   // ── 7. Posizionamento greedy delle rate: la 1a è fissa, le successive si piazzano
   //       MARGINE_GIORNI prima del primo rischio di rottura previsto ──
@@ -557,8 +580,13 @@ function calcolaPianoRate(anno, nRate = 3) {
     }));
     const sommaCondo = perCondo.reduce((a,c)=>a+c.importo,0);
     const scarto = Math.round((r.importo - sommaCondo) * 100) / 100;
-    if (perCondo.length && Math.abs(scarto) >= 0.01) {
-      perCondo[perCondo.length-1].importo = Math.round((perCondo[perCondo.length-1].importo + scarto) * 100) / 100;
+    // Si corregge solo l'arrotondamento (al massimo 1 centesimo per condomino). Una differenza
+    // maggiore è una quota non attribuita ai condomini attivi: non si carica su nessuno (D1).
+    let nonAttribuito = 0;
+    if (perCondo.length && Math.abs(scarto) <= perCondo.length * 0.01 + 0.0001) {
+      if (Math.abs(scarto) >= 0.01) perCondo[perCondo.length-1].importo = Math.round((perCondo[perCondo.length-1].importo + scarto) * 100) / 100;
+    } else {
+      nonAttribuito = scarto;
     }
     return {
       n: r.n,
@@ -568,8 +596,14 @@ function calcolaPianoRate(anno, nRate = 3) {
       importoTotale: r.importo,
       importoPerCondo: Math.round(r.importo / nAttivi * 100) / 100,
       perCondomino: perCondo,
+      nonAttribuito,
     };
   });
+  const totNonAttribuito = Math.round(rateFinali.reduce((a,r)=>a+r.nonAttribuito,0)*100)/100;
+  const fattoreRate = totDaRaccogliere > 0 ? rate.reduce((a,r)=>a+r.importo,0) / totDaRaccogliere : 0;
+  const nonAttribuitoDettaglio = totNonAttribuito > 0.01
+    ? quotaNonAttivi.map(x => ({ id:x.id, nome:x.nome, importo: Math.round(x.quota * fattoreRate * 100) / 100 }))
+    : [];
 
   // ── 10. Serie mensile del saldo cumulato (per il grafico) ──
   const meseNomiFull = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
@@ -596,6 +630,9 @@ function calcolaPianoRate(anno, nRate = 3) {
     saldoMinimoPrevisto: Math.round(esito.minBal*100)/100,
     ancoraInRottura: esito.minBal < -0.005,
     serieMensile,
+    totNonAttribuito,
+    nonAttribuitoDettaglio,
+    rateUscitiEsistenti: { n: rateUscitiEsistenti.length, importo: Math.round(rateUscitiEsistenti.reduce((a,e)=>a+importoNum(e.importo),0)*100)/100 },
   };
 }
 
@@ -651,7 +688,9 @@ function renderPianoRateBox(annoSel, canEdit) {
       '<div style="font-size:1.3rem;font-weight:800;color:var(--purple-strong);text-align:center">' + fmt(r.importoTotale) + '</div>' +
       '<div style="font-size:11px;color:var(--text2);text-align:center">totale &middot; media ' + fmt(r.importoPerCondo) + '/cond.</div>' +
       '<details style="margin-top:.5rem"><summary style="cursor:pointer;font-size:11px;color:var(--accent)">Dettaglio per condomino</summary>' +
-      '<table style="width:100%;font-size:11px;margin-top:4px">' + dettaglioRighe + '</table></details>' +
+      '<table style="width:100%;font-size:11px;margin-top:4px">' + dettaglioRighe +
+        (r.nonAttribuito > 0.005 ? '<tr><td style="padding:2px 8px 2px 0;color:var(--red)">Non attribuito</td><td style="padding:2px 0;text-align:right;font-weight:600;color:var(--red)">' + fmt(r.nonAttribuito) + '</td></tr>' : '') +
+      '</table></details>' +
     '</div>';
   }).join('');
 
@@ -659,9 +698,18 @@ function renderPianoRateBox(annoSel, canEdit) {
     ? '<div style="font-size:11px;color:var(--text2);margin-top:5px">ℹ️ Il 1° gennaio ' + annoSel + ' è già passato: la prima rata è fissata su oggi (' + ymdLocale(piano.dataRata1) + ') invece che al 1° gennaio.</div>'
     : '';
 
-  const avviso = piano.ancoraInRottura
-    ? '<div class="alert alert-warning" style="margin-top:.75rem;font-size:12px">⚠️ Anche con queste rate il modello prevede un saldo minimo di ' + fmt(piano.saldoMinimoPrevisto) + ' durante l\'anno: valuta di anticipare/rateizzare diversamente una spesa importante o di aumentare la prima rata.</div>'
+  // Quota di chi non è più nel condominio (D1): resta sua, il piano non la addebita a nessun altro.
+  const avvisoNonAttribuito = piano.totNonAttribuito > 0.01
+    ? '<div class="alert alert-warning" style="margin-top:.75rem;font-size:12px">⚠️ <strong>Quota non attribuita: ' + fmt(piano.totNonAttribuito) + '</strong>' +
+      (piano.nonAttribuitoDettaglio.length ? ' (' + piano.nonAttribuitoDettaglio.map(x => esc(x.nome) + ', uscito/a: ' + fmt(x.importo)).join('; ') + ')' : ' (senza intestatario: controlla la ripartizione delle spese)') +
+      '. Resta a carico di chi era nel condominio alla data della spesa: le rate sono create solo per i condomini attuali e questa parte non viene addebitata a nessuno. Decidi tu come richiederla, fuori dal piano.</div>'
     : '';
+  const avvisoRateUscito = piano.rateUscitiEsistenti.n > 0
+    ? '<div class="alert alert-info" style="margin-top:.75rem;font-size:12px">ℹ️ Ci sono ' + piano.rateUscitiEsistenti.n + ' rate previste (' + fmt(piano.rateUscitiEsistenti.importo) + ') già a carico di condomini usciti: restano a loro e il ricalcolo non le toglie. Controllale nell\'elenco dei versamenti.</div>'
+    : '';
+  const avviso = avvisoNonAttribuito + avvisoRateUscito + (piano.ancoraInRottura
+    ? '<div class="alert alert-warning" style="margin-top:.75rem;font-size:12px">⚠️ Anche con queste rate il modello prevede un saldo minimo di ' + fmt(piano.saldoMinimoPrevisto) + ' durante l\'anno: valuta di anticipare/rateizzare diversamente una spesa importante o di aumentare la prima rata.</div>'
+    : '');
 
   // Pannello di conferma: sostituisce il vecchio window.confirm(). Resta visibile finché non si
   // clicca esplicitamente Conferma o Annulla, così c'è tutto il tempo di rivedere le rate sopra.
@@ -760,10 +808,15 @@ function bindAzioniEntrate() {
     setState({ pianoRateConferma: null });
   };
   const bConfermaPiano = document.getElementById('btn-conferma-rate-piano');
-  if (bConfermaPiano) bConfermaPiano.onclick = () => {
+  if (bConfermaPiano) bConfermaPiano.onclick = async () => {
     const annoSel = (anniSelezionati().length === 1 ? anniSelezionati()[0] : state.filterAnno) || new Date().getFullYear(); // anno del piano mostrato
-    const piano   = calcolaPianoRate(annoSel);
     const edId = getUserEdificio(state.user);
+
+    // Il calcolo parte dallo stato del momento: per un anno passato si rifà DOPO la conferma
+    // (CR-006), così un aggiornamento arrivato mentre la domanda era aperta non viene riscritto
+    // con la copia vecchia.
+    const costruisciPiano = () => {
+    const piano   = calcolaPianoRate(annoSel);
 
     // Proposte pendenti (non validate) di QUESTO piano per l'anno selezionato: quando la
     // combinazione rata+condomino esiste ancora nel nuovo piano, il record viene AGGIORNATO
@@ -791,6 +844,7 @@ function bindAzioniEntrate() {
     for (const r of piano.rate) {
       for (const c of r.perCondomino) {
         const key = r.n + ':' + c.id;
+        if (!(c.importo > 0)) continue; // quota 0 (es. chi è entrato dopo la spesa): nessuna rata, e una proposta già creata si toglie
         usedKeys.add(key);
         if (validatiByKey.has(key)) { saltati++; continue; } // già pagata: non toccare, non duplicare
         const esistente = vecchieByKey.get(key);
@@ -825,12 +879,23 @@ function bindAzioniEntrate() {
 
     // Proposte pendenti che non fanno più parte del piano ricalcolato (rate/condomini cambiati):
     // queste sì vanno rimosse, non ha senso lasciarle in sospeso.
-    const daRimuovere = vecchieProposte.filter(e => !usedKeys.has(e.pianoRataN + ':' + e.condominoId));
+    // Quelle di condomini usciti (archiviati) restano a loro (D1) e non si rimuovono.
+    const usciti = new Set(state.condomini.filter(c => c.edificioId === edId && c.disabled).map(c => c.id));
+    const daRimuovere = vecchieProposte.filter(e => !usedKeys.has(e.pianoRataN + ':' + e.condominoId) && !usciti.has(e.condominoId));
     if (daRimuovere.length) {
       const idsRimuovi = new Set(daRimuovere.map(e=>e.id));
       entrate = entrate.filter(e => !idsRimuovi.has(e.id));
     }
+    return { entrate, creati, aggiornati, saltati, daRimuovere };
+    };
 
+    // Piano di un anno già passato (QA-CONS-029): nessun blocco, ma si conferma se qualcosa cambia.
+    let esito = costruisciPiano();
+    if (dataInAnnoPassato(annoSel + '-01-01') && (esito.creati || esito.aggiornati || esito.daRimuovere.length)) {
+      if (!await confermaAnnoPassato()) return;
+      esito = costruisciPiano();
+    }
+    const { entrate, creati, aggiornati, saltati, daRimuovere } = esito;
     save('cm_entrate', entrate);
     setState({ entrate, pianoRateConferma: null });
 
@@ -852,7 +917,9 @@ function bindAzioniEntrate() {
       // Una rata pianificata nel futuro e confermata oggi è un pagamento di oggi:
       // con la data pianificata finirebbe nella cassa del mese (o dell'anno) sbagliato.
       const futura = e0 && e0.data > oggiStr;
+      const annoPassato = e0 && modificaAnnoPassato(e0, { ...e0, previsionale: false, ...(futura ? { data: oggiStr } : {}) }, CAMPI_ANNO_ENTRATA);
       if (!await chiedi('Confermi il versamento come effettivo? Verrà spostato dagli importi previsionali a quelli reali.'
+        + (annoPassato ? '\n\n' + MSG_ANNO_PASSATO : '')
         + (futura ? '\nEra previsto per il ' + e0.data.split('-').reverse().join('/') + ': verrà registrato con la data di oggi. Per un\'altra data usa ✏️ Modifica.' : ''))) return;
       const entrate = state.entrate.map(e => e.id===id ? {...e, previsionale:false, ...(futura ? { data: oggiStr } : {})} : e);
       save('cm_entrate', entrate);
@@ -870,7 +937,8 @@ function bindAzioniEntrate() {
   });
   document.querySelectorAll('[data-del-entrata]').forEach(btn => {
     btn.onclick = async () => {
-      if (!await chiedi('Eliminare questo versamento?')) return;
+      const daEliminare = state.entrate.find(e=>e.id===parseInt(btn.dataset.delEntrata));
+      if (!await chiedi('Eliminare questo versamento?' + (modificaAnnoPassato(daEliminare, null, CAMPI_ANNO_ENTRATA) ? '\n\n' + MSG_ANNO_PASSATO : ''))) return;
       const entrate = state.entrate.filter(e=>e.id!==parseInt(btn.dataset.delEntrata));
       save('cm_entrate', entrate);
       setState({entrate});
@@ -934,7 +1002,7 @@ function bindSchedaEntrate() {
 }
 
 // Salvataggio della scheda versamento: modifica, rate previsionali o versamento effettivo. Chiamata da saveModal() (schede.js).
-function salvaSchedaEntrata(m) {
+async function salvaSchedaEntrata(m) {
     const previsionale = document.getElementById('m-previsionale')?.value === '1';
     const errEl = document.getElementById('entrata-err');
     const showErr = (msg) => { if(errEl){errEl.textContent=msg;errEl.style.display='block';} else avvisa(msg); };
@@ -947,7 +1015,12 @@ function salvaSchedaEntrata(m) {
       const desc     = document.getElementById('m-desc-s')?.value?.trim();
       const cat      = document.getElementById('m-cat-s')?.value||'quote';
       if (!condoId || !importo || !data) { showErr('Compila tutti i campi obbligatori'); return; }
+      // Un importo già salvato e lasciato com'è non blocca la modifica degli altri campi.
+      if (!importoValido(importo) && String(m.data.importo ?? '') !== importo) { showErr(MSG_IMPORTO); return; }
       // Validazione: rimane previsionale SOLO se il toggle è ancora su prev
+      // Anno già passato (QA-CONS-029): nessun blocco, ma si conferma prima di salvare.
+      const aggiornato = { ...m.data, condominoId:condoId, importo, data, previsionale: m.data.previsionale ? previsionale : false };
+      if (modificaAnnoPassato(m.data, aggiornato, CAMPI_ANNO_ENTRATA) && !await confermaAnnoPassato()) return;
       const entrate = state.entrate.map(e => e.id===m.data.id
         ? {...e, condominoId:condoId, importo, data, descrizione:desc, categoria:cat, previsionale: m.data.previsionale ? previsionale : false}
         : e);
@@ -962,18 +1035,22 @@ function salvaSchedaEntrata(m) {
       if (!condoId) { showErr('Seleziona il condomino'); return; }
 
       const rate = [];
+      let rateNonValide = false;
       [1,2,3,4].forEach(i => {
         const row     = document.getElementById(`rata-row-${i}`);
         if (!row || row.style.display === 'none') return;
         const dataR   = document.getElementById(`rata-data-${i}`)?.value;
         const importoR= document.getElementById(`rata-importo-${i}`)?.value;
-        if (dataR && importoR && parseFloat(importoR)>0) {
+        if (dataR && importoR && !importoValido(importoR)) { rateNonValide = true; return; }
+        if (dataR && importoR) {
           rate.push({ id:newId(), condominoId:condoId, importo:importoR, data:dataR,
             descrizione: desc ? `${desc} — Rata ${i}` : `Rata ${i}`,
             categoria:cat, edificioId:state.edificioAttivo, previsionale:true });
         }
       });
+      if (rateNonValide) { showErr(MSG_IMPORTO); return; }
       if (rate.length === 0) { showErr('Inserisci almeno una rata con data e importo'); return; }
+      if (rate.some(r => modificaAnnoPassato(null, r, CAMPI_ANNO_ENTRATA)) && !await confermaAnnoPassato()) return;
       const entrate = [...state.entrate, ...rate];
       save('cm_entrate', entrate);
       setState({entrate, modal:null});
@@ -986,7 +1063,9 @@ function salvaSchedaEntrata(m) {
       const desc    = document.getElementById('m-desc-s')?.value?.trim();
       const cat     = document.getElementById('m-cat-s')?.value||'quote';
       if (!condoId || !importo || !data) { showErr('Compila tutti i campi obbligatori'); return; }
+      if (!importoValido(importo)) { showErr(MSG_IMPORTO); return; }
       const item = { id:newId(), condominoId:condoId, importo, data, descrizione:desc, categoria:cat, edificioId:state.edificioAttivo, previsionale:false };
+      if (modificaAnnoPassato(null, item, CAMPI_ANNO_ENTRATA) && !await confermaAnnoPassato()) return;
       const entrate = [...state.entrate, item];
       save('cm_entrate', entrate);
       setState({entrate, modal:null});

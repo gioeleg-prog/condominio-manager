@@ -12,14 +12,16 @@
 const _affitti = {};          // edificioId → { appartamenti } (null = nessuno)
 const _affittiInCarico = {};
 
+const _affittiVer = {};   // edificioId → versione letta dal server (QA-CONS-010)
+
 async function caricaAffitti(edId = state.edificioAttivo) {
   if (!window._fb?.getDoc || !edId) return;
-  const { db, doc, getDoc } = window._fb;
   try {
-    const s = await getDoc(doc(db, 'buildings', String(edId), 'impostazioni', 'affitti'));
-    _affitti[edId] = s.exists() ? s.data() : null;
+    const r = await leggiImpostazione(edId, 'affitti');
+    _affitti[edId] = r.dati;
+    _affittiVer[edId] = r.firma;
   } catch (e) {
-    _affitti[edId] = null;
+    if (!(edId in _affitti)) { _affitti[edId] = null; delete _affittiVer[edId]; }
     console.warn('Affitti non caricati', e.code || e.message);
   }
 }
@@ -57,6 +59,9 @@ function disegnaAffitti() {
     box.querySelectorAll('.affitto-chk:checked').forEach(i => { appartamenti[i.dataset.apt] = true; });
     const { db, doc, setDoc, serverTimestamp, auth } = window._fb;
     try {
+      // QA-CONS-010: se un altro ha salvato dopo che hai aperto la scheda, non si sovrascrive in silenzio.
+      if (await impostazioneCambiataAltrove(state.edificioAttivo, 'affitti', _affittiVer[state.edificioAttivo], 'Appartamenti in affitto',
+        (dati, firma) => { _affitti[state.edificioAttivo] = dati; _affittiVer[state.edificioAttivo] = firma; render(); })) return;
       await setDoc(doc(db, 'buildings', String(state.edificioAttivo), 'impostazioni', 'affitti'),
         { appartamenti, aggiornatoDa: auth.currentUser?.uid, aggiornatoIl: serverTimestamp() });
       _affitti[state.edificioAttivo] = { appartamenti };
@@ -72,6 +77,6 @@ function disegnaAffitti() {
 
 async function bindSezioneAffitti() {
   if (!document.getElementById('affitti-box')) return;
-  if (!(state.edificioAttivo in _affitti)) await caricaAffitti();
+  await caricaAffitti(); // sempre dal server all'apertura (QA-CONS-010)
   disegnaAffitti();
 }
