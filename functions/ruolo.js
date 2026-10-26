@@ -15,6 +15,14 @@ const db = () => getFirestore();
 const LIVELLO = { member: 1, editor: 2, adminEdificio: 3 };
 const ruoloDa = (m) => (m.isAdmin ? 'adminEdificio' : (m.canEdit ? 'editor' : 'member'));
 
+// Con cm_config.superAdminSoloGoogle attivo il Super Admin vale solo se in questa
+// sessione è entrato con Google (QA-CONS-002): una password dimenticata, rubata o
+// reimpostata non basta per assegnare ruoli o inviare email a suo nome.
+function providerAmmesso(token, conf) {
+  if (!conf || conf.superAdminSoloGoogle !== true) return true;
+  return token?.firebase?.sign_in_provider === 'google.com';
+}
+
 // Restituisce { role, buildingId } con il ruolo effettivo ora, oppure
 // { role: null } se oggi non ne ha più (o se il token non ne porta nessuno).
 async function ruoloAttuale(request) {
@@ -27,8 +35,9 @@ async function ruoloAttuale(request) {
       db().collection('appdata').doc('cm_config').get(),
       db().collection('roles').doc(uid).get(),
     ]);
-    const ancora = (cfg.data() || {}).superAdminUid === uid || (r.data() || {}).role === 'superAdmin';
-    return { role: ancora ? 'superAdmin' : null };
+    const conf = cfg.data() || {};
+    const ancora = conf.superAdminUid === uid || (r.data() || {}).role === 'superAdmin';
+    return { role: ancora && providerAmmesso(t, conf) ? 'superAdmin' : null };
   }
 
   const buildingId = String(t.buildingId || '');
@@ -52,4 +61,4 @@ async function ruoloAttuale(request) {
   return { role: basso, buildingId };
 }
 
-module.exports = { ruoloAttuale };
+module.exports = { ruoloAttuale, providerAmmesso };
