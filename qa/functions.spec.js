@@ -498,6 +498,28 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       await admin.doc('roles/u-super').set({ role: 'member', buildingId: '1' });
       assert.strictEqual((await s.call('setUserRole', { targetUid: 'u-member1', role: 'member', buildingId: '1' })).code, 'functions/permission-denied');
     });
+    // QA-CONS-002: con superAdminSoloGoogle attivo la password non basta più al Super Admin.
+    it('SEC-ROLE-05 superAdminSoloGoogle: con la password il Super Admin è bloccato, senza l\'opzione no', async () => {
+      const s = await as('superadmin@qa.test');
+      const dati = { targetUid: 'u-member1', role: 'member', buildingId: '1' };
+      assert.ok((await s.call('setUserRole', dati)).ok, 'senza opzione funziona');
+      await admin.doc('appdata/cm_config').set({ superAdminUid: s.uid, superAdminSoloGoogle: true });
+      assert.strictEqual((await s.call('setUserRole', dati)).code, 'functions/permission-denied');
+      await admin.doc('appdata/cm_config').set({ superAdminUid: s.uid, superAdminSoloGoogle: false });
+      assert.ok((await s.call('setUserRole', dati)).ok, 'opzione spenta: di nuovo ammesso');
+    });
+    it('SEC-ROLE-06 providerAmmesso: solo google.com passa quando l\'opzione è attiva', () => {
+      // In un processo a parte: caricare ruolo.js qui metterebbe in cache notifiche.js prima degli altri test.
+      const script = [
+        "const { providerAmmesso: p } = require('./ruolo');",
+        "const on = { superAdminSoloGoogle: true };",
+        "const g = { firebase: { sign_in_provider: 'google.com' } }, pw = { firebase: { sign_in_provider: 'password' } };",
+        "console.log(JSON.stringify([p(g, on), p(pw, on), p({}, on), p(pw, {}), p(pw, undefined)]));",
+      ].join('\n');
+      const out = require('child_process').execFileSync(process.execPath, ['-e', script],
+        { cwd: require('path').join(__dirname, '..', 'functions'), env: { ...process.env, FUNCTIONS_EMULATOR: 'true' } }).toString();
+      assert.deepStrictEqual(JSON.parse(out.trim().split('\n').pop()), [true, false, false, true, true]);
+    });
   });
 
   // Audit 2026-10-15: cambiare il record di un condomino allinea i permessi del
