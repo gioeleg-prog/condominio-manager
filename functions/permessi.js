@@ -11,7 +11,7 @@
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { getAuth } = require('firebase-admin/auth');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-const { posta: { dataTraGiorni, ingressoFuturo } } = require('./notifiche');
+const { posta: { dataTraGiorni, ingressoFuturo, uscitaArrivata } } = require('./notifiche');
 
 const auth = () => getAuth();
 const db = () => getFirestore();
@@ -22,10 +22,10 @@ const LIVELLO = { member: 1, editor: 2, adminEdificio: 3 };
 // (data di uscita arrivata: stesso criterio di "archiviato" per le email) e se
 // la data di ingresso è già arrivata (un subentro a data futura: chi entra non
 // ha accesso prima di quel giorno; audit 2026-10-24, ADV-FUNC-010). Conta solo una
-// data di ingresso AAAA-MM-GG valida: un testo in un altro formato vale "nessuna
-// data" e non toglie accesso né permessi (DAT-001).
+// data di ingresso o di uscita AAAA-MM-GG valida: un testo in un altro formato vale
+// "nessuna data" e non toglie accesso né permessi (DAT-001, ADV-TECH-025).
 function membroAttivo(m, oggi = dataTraGiorni(0)) {
-  return !!m && !m._deleted && !m.disabled && !(m.dataUscita && String(m.dataUscita) <= oggi)
+  return !!m && !m._deleted && !m.disabled && !uscitaArrivata(m, oggi)
     && !ingressoFuturo(m, oggi);
 }
 

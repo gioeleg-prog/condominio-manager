@@ -16,7 +16,7 @@ function renderCondomini() {
     .filter(c => c.edificioId === state.edificioAttivo);
   // Archiviato = disattivato, oppure con data di uscita già arrivata (subentro a data futura, CONS-023).
   const oggiLista   = ymdLocale(new Date());
-  const archiviato  = c => !!c.disabled || !!(c.dataUscita && String(c.dataUscita) <= oggiLista);
+  const archiviato  = c => !!c.disabled || uscitaArrivata(c, oggiLista);
   const attivi      = tuttiCondomini.filter(c=>!archiviato(c));
   const disabilitati= tuttiCondomini.filter(c=>archiviato(c));
   // Anno del filtro (come il "📊 Bilancio" a cui porta la scheda); "Tutti" = anno corrente.
@@ -41,7 +41,7 @@ function renderCondomini() {
               <div class="uc-apt">🏠 ${esc(c.appartamento)}</div>
               ${c.username?`<div style="font-size:11px;color:var(--text2)">👤 ${esc(c.username)}</div>`:''}
               ${ingressoFuturo(c, oggiLista) ? `<div style="font-size:11px;color:var(--amber)">⏳ Entra il ${esc(dataPdf(c.dataIngresso))}: fino ad allora senza accesso né email</div>` : ''}
-              ${c.dataUscita && String(c.dataUscita) > oggiLista ? `<div style="font-size:11px;color:var(--amber)">⏳ Esce il ${esc(dataPdf(c.dataUscita))}: resta attivo fino ad allora</div>` : ''}
+              ${uscitaFutura(c, oggiLista) ? `<div style="font-size:11px;color:var(--amber)">⏳ Esce il ${esc(dataPdf(c.dataUscita))}: resta attivo fino ad allora</div>` : ''}
               ${typeof appartamentoInAffitto === 'function' && appartamentoInAffitto(c.appartamento) ? `<div style="font-size:11px;color:var(--text2)" title="Si imposta in Impostazioni → Appartamenti in affitto">🔑 In affitto: le quote ordinarie sono dell'inquilino</div>` : ''}
               ${typeof condividenti === 'function' && condividenti(c).length ? (c.rappresentante === true
                 ? `<div style="font-size:11px;color:var(--text2)" title="Nei millesimi l'appartamento conta una volta sola, per il rappresentante">👤 Rappresentante dell'appartamento</div>`
@@ -780,7 +780,7 @@ async function salvaSchedaCondomino(m) {
     if (date.rappresentante === true) {
       const salvato = condomini.find(c => c.id === idSalvato);
       const oggiRapp = ymdLocale(new Date());
-      const uscito = c => !!c.disabled || !!(c.dataUscita && String(c.dataUscita) <= oggiRapp);
+      const uscito = c => !!c.disabled || uscitaArrivata(c, oggiRapp);
       // Anche chi esce con un subentro a data futura, prima dell'ingresso del nuovo, tiene il flag per il suo periodo.
       const uscitoPrima = c => uscito(c) || !!(c.dataUscita && salvato.dataIngresso && String(c.dataUscita) <= String(salvato.dataIngresso));
       if (!uscito(salvato)) {
@@ -915,7 +915,11 @@ function bindSchedaSubentro() {
         return { ...s, split: giaNuovo ? split : [...split, { id: nuovo.id, perc: quota, locked: false }] };
       });
       const salvaSpese = save('cm_spese', spese);
-      setState({ spese });
+      // ADV-TECH-024: una scheda spesa aperta nell'attesa ha ancora la ripartizione di prima; salvandola annullerebbe
+      // il passaggio della quota. Se riguarda una spesa toccata, si chiude (le modifiche non salvate si perdono) e si avvisa.
+      const schedaVecchia = state.modal?.type === 'spesa' && state.modal.data && daPassare.has(state.modal.data.id);
+      setState(schedaVecchia ? { spese, modal: null, pendingFiles: [] } : { spese });
+      if (schedaVecchia) avvisa('La scheda della spesa che avevi aperto è stata chiusa: le quote sono passate a ' + nome + ' con il subentro. Riaprila per vedere la ripartizione aggiornata (le modifiche non salvate di quella scheda vanno rifatte).');
       quoteOk = await salvaSpese !== false;
     }
     if (!quoteOk) {

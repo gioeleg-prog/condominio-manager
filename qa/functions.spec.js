@@ -736,6 +736,34 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.strictEqual(r.data.profile.id, 103);
     });
 
+    // ADV-TECH-025
+    it('ADV-TECH-025 membroAttivo e motivoEsclusione: una data di uscita non ISO vale "nessuna data"', () => {
+      const { membroAttivo } = permessi();
+      const { motivoEsclusione, uscitaArrivata } = fnReq('./notifiche')._test;
+      const oggi = '2026-11-30';
+      const male = ['01/12/2099', '25/12/2099', '2099', '2099-12', '2099-1-5', '2099-13-45', '2099-02-30', '2099-12-01T10:00', ' 2099-12-01', 'domani', '', 20991201, true, { a: 1 }, ['2099-12-01']];
+      for (const dataUscita of male) {
+        assert.strictEqual(uscitaArrivata({ dataUscita }, oggi), false, JSON.stringify(dataUscita));
+        assert.strictEqual(membroAttivo({ dataUscita }, oggi), true, 'bloccato da ' + JSON.stringify(dataUscita));
+        assert.strictEqual(motivoEsclusione({ email: 'a@qa.test', dataUscita }, oggi), null, 'escluso da ' + JSON.stringify(dataUscita));
+      }
+      // una data ISO arrivata (oggi compreso) esclude ancora, una futura no
+      assert.strictEqual(membroAttivo({ dataUscita: '2026-11-30' }, oggi), false);
+      assert.strictEqual(motivoEsclusione({ email: 'a@qa.test', dataUscita: '2026-11-29' }, oggi), 'archiviato');
+      assert.strictEqual(membroAttivo({ dataUscita: '2099-12-01' }, oggi), true);
+    });
+    it('ADV-TECH-025 controllo notturno e trigger: una data di uscita non ISO non toglie i permessi; una ISO passata sì', async () => {
+      const { revocaUsciti } = permessi()._test;
+      await admin.doc('buildings/1/members/103').update({ dataUscita: '01/12/2099' });
+      await new Promise((r) => setTimeout(r, 1500)); // il trigger della scrittura ha il tempo di girare
+      assert.strictEqual((await claimsOf('u-member1')).role, 'member', 'revocato dal trigger per una data non ISO');
+      await revocaUsciti('2026-11-30');
+      assert.strictEqual((await claimsOf('u-member1')).role, 'member', 'revocato dal controllo notturno per una data non ISO');
+      await admin.doc('buildings/1/members/103').update({ dataUscita: '2026-11-29' });
+      await revocaUsciti('2026-11-30');
+      assert.ok(!(await claimsOf('u-member1')).role, 'una data ISO passata deve togliere i permessi');
+    });
+
     // DAT-007
     it('DAT-007 setUserRole senza accesso risponde unauthenticated, come le altre callable', async () => {
       const r = await anonCall('setUserRole');

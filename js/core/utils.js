@@ -164,12 +164,24 @@ function quotaSuSpesa(s, condId, importo, nAttivi) {
 // primo giorno in cui non partecipa più: a quella data subentra il nuovo.
 // Ingresso ancora da venire (DAT-001). Come sul server (ingressoFuturo in functions/notifiche.js):
 // conta solo una data AAAA-MM-GG esistente; un altro formato vale "nessuna data".
-function ingressoFuturo(c, oggi = ymdLocale(new Date())) {
-  const t = c && c.dataIngresso;
+function dataIsoValida(t) {
   if (typeof t !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
   const d = new Date(`${t}T00:00:00Z`);
-  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t) return false;
-  return t > oggi;
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
+}
+function ingressoFuturo(c, oggi = ymdLocale(new Date())) {
+  const t = c && c.dataIngresso;
+  return dataIsoValida(t) && t > oggi;
+}
+// Uscita arrivata (ADV-TECH-025), come uscitaArrivata in functions/notifiche.js: una data non AAAA-MM-GG vale "nessuna uscita".
+function uscitaArrivata(c, oggi = ymdLocale(new Date())) {
+  const t = c && c.dataUscita;
+  return dataIsoValida(t) && t <= oggi;
+}
+// Uscita ancora da venire (stessa validazione).
+function uscitaFutura(c, oggi = ymdLocale(new Date())) {
+  const t = c && c.dataUscita;
+  return dataIsoValida(t) && t > oggi;
 }
 function periodoCondomino(c) {
   const inizio = /^\d{4}-\d{2}-\d{2}/.test(c.dataIngresso || '') ? c.dataIngresso.slice(0, 10) : '';

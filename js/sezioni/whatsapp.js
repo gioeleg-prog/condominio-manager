@@ -67,7 +67,7 @@ function numeroWa(tel) {
 // Perché un condomino non può ricevere il messaggio (null = può).
 function motivoNoWa(c) {
   const oggi = ymdLocale(new Date());
-  if (c.disabled || (c.dataUscita && c.dataUscita <= oggi)) return 'archiviato';
+  if (c.disabled || uscitaArrivata(c, oggi)) return 'archiviato';
   if (c.whatsappNotifiche === false) return 'non vuole WhatsApp';
   if (!String(c.telefono || '').trim()) return 'senza cellulare';
   if (!numeroWa(c.telefono)) return 'numero fisso o non valido';

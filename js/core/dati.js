@@ -346,6 +346,15 @@ async function aggiornaVersioni(key, writes) {
 // Rilegge la versione di un solo record dopo che l'ha scritto il server (ADV-TECH-021: setUserRole aggiorna
 // anche i flag di ruolo della scheda). Senza, il salvataggio successivo della stessa scheda risulterebbe un
 // conflitto con sé stessi. Se la lettura non riesce, si dimentica la versione (nessun controllo, come prima).
+// ADV-TECH-023: la versione si adotta SOLO se il documento sul server differisce da quello caricato dalla pagina
+// per i soli flag di ruolo (e metadati/contatti). Se un altro amministratore ha cambiato altro, la versione nota
+// resta quella vecchia e il controllo di conflitto del salvataggio scatta come per ogni altra modifica.
+const CAMPI_RUOLO = ['isAdmin', 'canEdit'];
+function senzaRuolo(r) {
+  const o = {};
+  Object.keys(r || {}).forEach(k => { if (!k.startsWith('_') && k !== 'emailLower' && !CAMPI_RUOLO.includes(k) && !CAMPI_CONTATTO.includes(k)) o[k] = r[k]; });
+  return o;
+}
 async function rinfrescaVersione(key, rec) {
   let path = null;
   try {
@@ -353,7 +362,13 @@ async function rinfrescaVersione(key, rec) {
     path = ref.path;
     const snap = await window._fb.getDoc(ref);
     _versioni[key] = _versioni[key] || new Map();
-    if (snap.exists()) { _versioni[key].set(path, versioneDi(snap.data())); ricordaAutore(path, snap.data()); }
+    if (snap.exists()) {
+      const dati = snap.data();
+      // Record come lo ha caricato la pagina (ultimo stato confermato dal server); se non si conosce, si adotta come prima.
+      const caricato = (_serverSnap[key] || []).find(r => String(r.id) === String(rec.id));
+      const soloRuolo = !caricato || (!dati._deleted && stableStringify(senzaRuolo(JSON.parse(JSON.stringify(dati)))) === stableStringify(senzaRuolo(caricato)));
+      if (soloRuolo) { _versioni[key].set(path, versioneDi(dati)); ricordaAutore(path, dati); }
+    }
   } catch (e) { if (path && _versioni[key]) _versioni[key].delete(path); }
 }
 

@@ -3027,4 +3027,113 @@ describe('UNIT — lotto B: data di ingresso, serie con importo vecchio, tipi di
       assert.deepStrictEqual(ordine, ['setUserRole', 'lettura', 'salvataggio']);
     });
   });
+
+  // ADV-TECH-023: la versione si adotta solo se sul server sono cambiati soltanto i flag di ruolo
+  describe('ADV-TECH-023: rinfrescaVersione non assorbe le modifiche di altri', () => {
+    const finta = (dati) => ({ db: {}, doc: (db, ...p) => ({ path: p.join('/') }), getDoc: async () => ({ exists: () => true, data: () => dati }) });
+    const caricato = { id: 103, nome: 'Marta', appartamento: 'Int. 3', edificioId: 1, uid: 'u-member1', isAdmin: false, canEdit: false, email: 'm@qa.test' };
+    const prepara = (dati) => {
+      const app = base();
+      app.window._fb = finta(dati);
+      app.__get('_versioni').cm_condomini = new Map([['buildings/1/members/103', 1111]]);
+      app.__get('_serverSnap').cm_condomini = [caricato];
+      return app;
+    };
+    const scheda = (extra, ms) => ({ id: 103, nome: 'Marta', appartamento: 'Int. 3', edificioId: 1, uid: 'u-member1', isAdmin: false, canEdit: false,
+      _updatedBy: 'u-admin1', _updatedAt: { toMillis: () => ms }, ...extra });
+    it('se sul server cambiano solo i flag di ruolo la versione nuova si adotta', async () => {
+      const app = prepara(scheda({ canEdit: true }, 4242));
+      await app.rinfrescaVersione('cm_condomini', { id: 103, edificioId: 1 });
+      assert.strictEqual(app.__get('_versioni').cm_condomini.get('buildings/1/members/103'), 4242);
+    });
+    it('se un altro amministratore ha cambiato altro (appartamento) la versione resta quella vecchia e il salvataggio dà conflitto', async () => {
+      const app = prepara(scheda({ canEdit: true, appartamento: 'Int. 9' }, 4242));
+      await app.rinfrescaVersione('cm_condomini', { id: 103, edificioId: 1 });
+      assert.strictEqual(app.__get('_versioni').cm_condomini.get('buildings/1/members/103'), 1111, 'la modifica di un altro è stata assorbita');
+      await assert.rejects(() => app.controllaConflitti('cm_condomini', [[{ path: 'buildings/1/members/103' }, {}, { merge: true }]]), (e) => e.code === 'conflitto');
+    });
+    it('anche un campo aggiunto o tolto da un altro, o un record archiviato/cancellato, non viene assorbito', async () => {
+      for (const extra of [{ dataUscita: '2026-12-01' }, { nome: undefined }, { _deleted: true }]) {
+        const app = prepara(scheda({ canEdit: true, ...extra }, 4242));
+        await app.rinfrescaVersione('cm_condomini', { id: 103, edificioId: 1 });
+        assert.strictEqual(app.__get('_versioni').cm_condomini.get('buildings/1/members/103'), 1111, JSON.stringify(extra));
+      }
+    });
+  });
+
+  // ADV-TECH-024: il subentro non lascia una scheda spesa con la ripartizione di prima
+  describe('ADV-TECH-024: scheda spesa aperta mentre il subentro attende la conferma', () => {
+    const prepara = (modal) => {
+      const app = base({ condomini: [{ id: 201, nome: 'Dario', appartamento: 'Int. 3', edificioId: 1 }],
+        spese: [{ id: 5, data: `${Y + 1}-03-01`, titolo: 'Tetto', preventivo: '1000', consuntivo: '', edificioId: 1, split: [{ id: 201, perc: 100 }] },
+          { id: 6, data: `${Y + 1}-04-01`, titolo: 'Altra', preventivo: '500', consuntivo: '', edificioId: 1, split: [{ id: 201, perc: 100 }] }],
+        modal: { type: 'subentro', data: { id: 201 } } });
+      let sblocca; const attesa = new Promise((r) => { sblocca = r; });
+      app.save = (k) => (k === 'cm_condomini' ? attesa.then(() => true) : Promise.resolve(true));
+      const campi = { 'btn-sub-conferma': { dataset: { cond: '201' } }, 'sub-data': { value: `${Y + 1}-01-01` }, 'sub-nome': { value: 'Elena' },
+        'sub-email': { value: '' }, 'sub-ruolo': { value: 'lettura' }, 'sub-passa': { checked: true }, 'sub-err': { style: {} } };
+      app.document.getElementById = (id) => campi[id] || null;
+      app.bindSchedaSubentro();
+      return { app, sblocca, clic: () => campi['btn-sub-conferma'].onclick() };
+    };
+    const apriNellAttesa = async (t, id) => {
+      const p = t.clic();
+      await new Promise((r) => setTimeout(r, 0));
+      const s = t.app.__get('state');
+      t.app.__set('state', { ...s, modal: { type: 'spesa', data: { ...s.spese.find((x) => x.id === id) } } }); // ripartizione di prima
+      t.sblocca();
+      await p;
+    };
+    it('la scheda della spesa toccata dal subentro si chiude, con avviso: non si può salvare con la ripartizione vecchia', async () => {
+      const t = prepara();
+      await apriNellAttesa(t, 5);
+      const st = t.app.__get('state');
+      assert.strictEqual(st.modal, null, 'la scheda con la ripartizione vecchia è rimasta aperta');
+      assert.ok(st.spese.find((x) => x.id === 5).split.some((x) => x.id !== 201 && x.perc === 100), 'quota non passata');
+      assert.ok(t.app.__alerts.some((m) => /scheda della spesa/.test(m)), t.app.__alerts.join('|'));
+    });
+    it('una scheda aperta su una spesa non toccata, o una scheda nuova, resta aperta', async () => {
+      const t = prepara();
+      const p = t.clic();
+      await new Promise((r) => setTimeout(r, 0));
+      t.app.__set('state', { ...t.app.__get('state'), modal: { type: 'spesa', data: null } });
+      t.sblocca();
+      await p;
+      assert.strictEqual(t.app.__get('state').modal?.type, 'spesa');
+    });
+  });
+
+  // ADV-TECH-025: la data di uscita conta solo se è AAAA-MM-GG esistente, come sul server
+  describe('ADV-TECH-025: data di uscita non ISO', () => {
+    const male = ['01/12/2099', '25/12/2099', '2099', '2099-12', '2099-1-5', '31-12-2099', '2099-13-45', '2099-02-30', '2099-12-01T10:00', ' 2099-12-01', 'domani', '', 20991201, true, { a: 1 }, ['2099-12-01'], null, undefined];
+    it('una data non ISO vale "nessuna uscita": non archivia, non esclude dalle email né da WhatsApp', () => {
+      const app = loadApp();
+      for (const dataUscita of male) {
+        assert.strictEqual(app.uscitaArrivata({ dataUscita }, '2026-11-30'), false, JSON.stringify(dataUscita));
+        assert.strictEqual(app.uscitaFutura({ dataUscita }, '2026-11-30'), false, JSON.stringify(dataUscita));
+        assert.strictEqual(app.motivoNoEmail({ email: 'a@qa.test', dataUscita }), null, JSON.stringify(dataUscita));
+      }
+      assert.strictEqual(app.uscitaArrivata({ dataUscita: '2026-11-30' }, '2026-11-30'), true);
+      assert.strictEqual(app.uscitaArrivata({ dataUscita: '2026-11-29' }, '2026-11-30'), true);
+      assert.strictEqual(app.uscitaFutura({ dataUscita: '2099-12-01' }, '2026-11-30'), true);
+      assert.strictEqual(app.motivoNoEmail({ email: 'a@qa.test', dataUscita: '2020-01-01' }), 'archiviato');
+    });
+    it('client e server danno lo stesso risultato su ogni caso', () => {
+      process.env.FUNCTIONS_EMULATOR = 'true';
+      const fnReq = require('module').createRequire(path.join(__dirname, '..', 'functions', 'package.json'));
+      const server = fnReq('./notifiche')._test.uscitaArrivata;
+      const app = loadApp();
+      for (const dataUscita of [...male, '2099-12-01', '2026-11-30', '2026-11-29', '2024-02-29', '2099-02-29', '2100-02-29', '2000-01-01']) {
+        assert.strictEqual(app.uscitaArrivata({ dataUscita }, '2026-11-30'), server({ dataUscita }, '2026-11-30'), JSON.stringify(dataUscita));
+      }
+    });
+    it('la lista dei condomini non archivia chi ha una data di uscita non ISO', () => {
+      const app = base({ page: 'condomini', condomini: [
+        { id: 102, nome: 'Bruno', appartamento: 'Int. 2', edificioId: 1, dataUscita: '01/12/2099' },
+        { id: 103, nome: 'Carla', appartamento: 'Int. 3', edificioId: 1, dataUscita: '2020-01-01' }] });
+      const html = app.renderCondomini();
+      assert.ok(/Bruno/.test(html) && /Carla/.test(html));
+      assert.strictEqual((html.match(/Esce il/g) || []).length, 0, 'una data non ISO non è un\'uscita futura');
+    });
+  });
 });

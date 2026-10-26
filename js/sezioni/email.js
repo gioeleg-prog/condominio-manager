@@ -13,7 +13,7 @@ function edificioEmail() { return getUserEdificio(state.user) || state.edificioA
 // Perché un condomino non può ricevere email (null = può). Stesse regole del server.
 function motivoNoEmail(c) {
   const oggi = ymdLocale(new Date());
-  if (c.disabled || (c.dataUscita && c.dataUscita <= oggi)) return 'archiviato';
+  if (c.disabled || uscitaArrivata(c, oggi)) return 'archiviato';
   if (ingressoFuturo(c, oggi)) return 'non ancora entrato';
   if (c.emailNotifiche === false) return 'non vuole email';
   if (!EMAIL_VALIDA.test(String(c.email || '').trim())) return 'senza email';

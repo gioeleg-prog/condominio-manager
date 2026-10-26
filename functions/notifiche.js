@@ -78,7 +78,7 @@ function oggiRoma() { return dataTraGiorni(0); }
 // Perché un condomino non può ricevere email (null = può).
 function motivoEsclusione(m, oggi = oggiRoma()) {
   if (!m || m._deleted) return 'non trovato';
-  if (m.disabled || (m.dataUscita && String(m.dataUscita) <= oggi)) return 'archiviato';
+  if (m.disabled || uscitaArrivata(m, oggi)) return 'archiviato';
   if (ingressoFuturo(m, oggi)) return 'non ancora entrato';
   if (m.emailNotifiche === false) return 'ha tolto "Riceve le email"';
   if (!emailValida(m.email)) return 'senza email';
@@ -343,14 +343,26 @@ function dataTraGiorni(n) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 }
 
-// Data di ingresso ancora da venire (DAT-001). Conta solo una data AAAA-MM-GG esistente: un valore
-// in un altro formato, o impossibile, è trattato come assente e non toglie l'accesso a nessuno.
-function ingressoFuturo(m, oggi = dataTraGiorni(0)) {
-  const t = m && m.dataIngresso;
+// Una data AAAA-MM-GG esistente (DAT-001, ADV-TECH-025): un valore in un altro formato, o impossibile,
+// vale "nessuna data".
+function dataIsoValida(t) {
   if (typeof t !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return false;
   const d = new Date(`${t}T00:00:00Z`);
-  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t) return false;
-  return t > oggi;
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === t;
+}
+
+// Data di ingresso ancora da venire (DAT-001). Un valore non valido è trattato come assente e non toglie
+// l'accesso a nessuno.
+function ingressoFuturo(m, oggi = dataTraGiorni(0)) {
+  const t = m && m.dataIngresso;
+  return dataIsoValida(t) && t > oggi;
+}
+
+// Data di uscita arrivata (ADV-TECH-025): stessa validazione dell'ingresso. Una data non ISO (per esempio
+// 01/12/2099) vale "nessuna uscita"; confrontata come testo toglieva subito l'accesso.
+function uscitaArrivata(m, oggi = dataTraGiorni(0)) {
+  const t = m && m.dataUscita;
+  return dataIsoValida(t) && t <= oggi;
 }
 
 async function inviaPromemoriaRate() {
@@ -389,6 +401,6 @@ exports.promemoriaRate = onSchedule({ schedule: '0 8 * * *', timeZone: 'Europe/R
 });
 
 // Per gli avvisi al Super Admin (controllo.js).
-exports.posta = { GMAIL_APP_PASSWORD, EMULATORE, spedisci, pagina, escHtml, unaRiga, emailValida, dataTraGiorni, ingressoFuturo };
+exports.posta = { GMAIL_APP_PASSWORD, EMULATORE, spedisci, pagina, escHtml, unaRiga, emailValida, dataTraGiorni, ingressoFuturo, uscitaArrivata };
 
-exports._test = { inviaPromemoriaRate, inviaDaApp, motivoEsclusione, dataTraGiorni, ingressoFuturo, contenuto, unaRiga };
+exports._test = { inviaPromemoriaRate, inviaDaApp, motivoEsclusione, dataTraGiorni, ingressoFuturo, uscitaArrivata, contenuto, unaRiga };
