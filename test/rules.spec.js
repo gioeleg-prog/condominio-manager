@@ -889,6 +889,28 @@ describe('lotto B: allegati vecchi, margine delle espressioni, ripristino e tipi
       await seed('minutes', 1004, { allegati: incorporati(9), _deleted: true, _deletedBy: 'u_primo' });
       await assertSucceeds(admin().doc('buildings/1/minutes/1004').set(rec('u_admin', 1004, { allegati: [...incorporati(9), nuovoSp], ...riferimenti, ...testi, _deleted: false })));
     });
+    // SEC-021: il caso che la pagina può produrre davvero (js/sezioni/allegati.js): i file caricati si accumulano e si salvano
+    // insieme, fino a dieci allegati NUOVI nello stesso salvataggio, tutti già in Storage (storagePath), con importi validi.
+    const nuoviStorage = (n, da = 1) => Array.from({ length: n }, (_, i) => ({ id: da + i, nome: `f${da + i}.pdf`, mime: 'application/pdf', size: 1, storagePath: `buildings/1/allegati/f${da + i}` }));
+    const importiValidi = { importo: '100.50', preventivo: '200', consuntivo: '150.25' };
+    // Residuo noto e accettato (SEC-019/SEC-021): in AGGIORNAMENTO, otto o più allegati NUOVI nello stesso salvataggio, insieme a tutti e sei i
+    // riferimenti e a tutti i campi di testo, superano il limite di 1000 espressioni (scrittura rifiutata, mai accettata). Non è un caso d'uso
+    // realistico: la pagina collega di norma due o tre riferimenti. Per questo qui si provano i casi che possono succedere.
+    it('SEC-021 spesa esistente senza allegati: dieci allegati nuovi in Storage in un solo salvataggio, con importi validi', async () => {
+      await seed('expenses', 1030, { ...importiValidi });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1030').set(rec('u_editor', 1030, { allegati: nuoviStorage(10), ...importiValidi })));
+    });
+    it('SEC-021 spesa esistente senza allegati: sette allegati nuovi insieme a tutti i riferimenti e ai campi di testo', async () => {
+      await seed('expenses', 1033, { ...importiValidi });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1033').set(rec('u_editor', 1033, { allegati: nuoviStorage(7), ...importiValidi, ...riferimenti, ...testi })));
+    });
+    it('SEC-021 spesa esistente con cinque allegati in Storage: se ne aggiungono altri cinque nuovi insieme', async () => {
+      await seed('expenses', 1031, { allegati: nuoviStorage(5), ...importiValidi });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1031').set(rec('u_editor', 1031, { allegati: [...nuoviStorage(5), ...nuoviStorage(5, 6)], ...importiValidi, ...riferimenti, ...testi })));
+    });
+    it('SEC-021 creazione di una spesa con dieci allegati nuovi in Storage, con i riferimenti', async () => {
+      await assertSucceeds(editor().doc('buildings/1/expenses/1032').set(recNuovo('u_editor', 1032, { allegati: nuoviStorage(10), ...importiValidi, ...riferimenti, ...testi })));
+    });
     it('un allegato vecchio non è un lasciapassare: uno cambiato, accanto a quelli invariati, passa dal controllo completo', async () => {
       await seed('expenses', 1005, { allegati: incorporati(3) });
       const cambiato = { ...incorporati(3)[1], data64: 'javascript:alert(1)' };
