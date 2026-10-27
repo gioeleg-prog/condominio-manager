@@ -3177,3 +3177,348 @@ describe('UNIT — lotto B: data di ingresso, serie con importo vecchio, tipi di
     });
   });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// PERF-001/003/005/006/007 (misuratore-prestazioni, 2026-10-27): accesso più rapido
+// ═══════════════════════════════════════════════════════════════
+describe('UNIT — PERF: accesso più rapido senza cambiare cosa vede ciascun ruolo', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const vm = require('vm');
+  const radice = path.join(__dirname, '..');
+
+  // Archivio finto: percorso → [[idDocumento, dati], ...]
+  const ARCHIVIO = {
+    'buildings': [['1', { id: 1, nome: 'Uno' }], ['2', { id: 2, nome: 'Due' }]],
+    'buildings/1/members': [['101', { id: 101, nome: 'Ada', appartamento: 'Int. 1', edificioId: 1 }]],
+    'buildings/2/members': [['201', { id: 201, nome: 'Bruno', appartamento: 'Int. 1', edificioId: 2 }]],
+    'buildings/1/contatti': [['101', { email: 'ada@qa.test' }]],
+    'buildings/2/contatti': [['201', { email: 'bruno@qa.test' }]],
+    'buildings/1/expenses': [['1', { id: 1, titolo: 'Luce', edificioId: 1, data: '2026-01-10' }]],
+    'buildings/2/expenses': [['2', { id: 2, titolo: 'Acqua', edificioId: 2, data: '2026-01-10' }]],
+  };
+  // Gli array della sandbox hanno un altro prototipo: si confrontano come JSON.
+  const uguali = (a, b) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), b);
+  const docDi = (percorso, id, dati) => ({ id, ref: { path: percorso + '/' + id }, exists: () => true, data: () => dati });
+
+  // Firebase finto con registro delle richieste (nell'istante in cui partono).
+  function fbFinto({ ritardoDocEdificio = null } = {}) {
+    const log = [];
+    const fb = {
+      log,
+      auth: { currentUser: { uid: 'u1' } }, db: {},
+      doc: (_db, ...p) => ({ path: p.join('/') }),
+      collection: (_db, ...p) => ({ path: p.join('/') }),
+      getDoc: async (ref) => {
+        log.push('getDoc ' + ref.path);
+        if (ritardoDocEdificio && /^buildings\/[^/]+$/.test(ref.path)) await ritardoDocEdificio;
+        const m = ref.path.match(/^buildings\/([^/]+)$/);
+        const trovato = m && ARCHIVIO.buildings.find(([id]) => id === m[1]);
+        return trovato ? docDi('buildings', trovato[0], trovato[1])
+          : { exists: () => false, data: () => undefined, ref };
+      },
+      getDocs: async (ref) => {
+        log.push('getDocs ' + ref.path);
+        const docs = (ARCHIVIO[ref.path] || []).map(([id, d]) => docDi(ref.path, id, d));
+        return { docs, size: docs.length };
+      },
+    };
+    return fb;
+  }
+  const ruoloPrima = (app) => app.__get('_cache');
+
+  describe('PERF-005: token appena emesso', () => {
+    it('si salta il rinnovo solo per un token emesso da meno di un minuto', () => {
+      const app = loadApp();
+      const adesso = Date.parse('2026-10-27T10:00:00Z');
+      const tk = (iso) => ({ issuedAtTime: iso });
+      assert.strictEqual(app.tokenAppenaEmesso(tk('2026-10-27T09:59:30Z'), adesso), true);
+      assert.strictEqual(app.tokenAppenaEmesso(tk('2026-10-27T10:00:00Z'), adesso), true);
+      assert.strictEqual(app.tokenAppenaEmesso(tk('2026-10-27T09:58:59Z'), adesso), false, 'più vecchio di un minuto: rinnovo obbligatorio (SEC-03)');
+      assert.strictEqual(app.tokenAppenaEmesso(tk('2026-10-27T09:00:00Z'), adesso), false, 'sessione ripristinata dopo un riavvio');
+      assert.strictEqual(app.tokenAppenaEmesso(tk('2026-10-27T11:00:00Z'), adesso), false, 'orologio indietro: età negativa = non nuovo');
+      for (const male of [null, undefined, {}, { issuedAtTime: 'non una data' }, { issuedAtTime: '' }]) {
+        assert.strictEqual(app.tokenAppenaEmesso(male, adesso), false, JSON.stringify(male));
+      }
+    });
+  });
+
+  describe('PERF-003: profilo provvisorio dal token', () => {
+    it('ricava ruolo ed edificio solo da claim utilizzabili', () => {
+      const app = loadApp();
+      const P = (claims) => app.profiloDaToken({ claims });
+      uguali(JSON.parse(JSON.stringify(P({ role: 'superAdmin' }))), { superAdmin: true, isAdmin: true, canEdit: true });
+      uguali(JSON.parse(JSON.stringify(P({ role: 'adminEdificio', buildingId: '1' }))), { edificioId: '1', isAdmin: true, canEdit: true });
+      uguali(JSON.parse(JSON.stringify(P({ role: 'editor', buildingId: 2 }))), { edificioId: '2', isAdmin: false, canEdit: true });
+      uguali(JSON.parse(JSON.stringify(P({ role: 'member', buildingId: '1' }))), { edificioId: '1', isAdmin: false, canEdit: false });
+      for (const male of [{}, { role: 'member' }, { role: 'member', buildingId: '' }, { role: 'boh', buildingId: '1' }, { buildingId: '1' }]) {
+        assert.strictEqual(P(male), null, JSON.stringify(male));
+      }
+      assert.strictEqual(app.profiloDaToken(null), null);
+    });
+    it('la lettura anticipata vale solo con lo stesso edificio, lo stesso tipo di ruolo e gli stessi diritti di modifica', () => {
+      const app = loadApp();
+      const prov = { edificioId: '1', isAdmin: false, canEdit: false };
+      const C = app.letturaCoincideConProfilo;
+      assert.strictEqual(C(prov, { edificioId: 1, isAdmin: false, canEdit: false }), true);
+      assert.strictEqual(C(prov, { edificioId: 2, canEdit: false }), false, 'edificio diverso: vale whoami');
+      assert.strictEqual(C(prov, { edificioId: 1, canEdit: true }), false, 'può modificare: servono i contatti');
+      assert.strictEqual(C(prov, { superAdmin: true }), false, 'whoami dice superAdmin');
+      assert.strictEqual(C({ superAdmin: true, isAdmin: true, canEdit: true }, { edificioId: 1, isAdmin: false, canEdit: false }), false, 'il token diceva superAdmin, whoami no');
+      assert.strictEqual(C({ superAdmin: true, isAdmin: true, canEdit: true }, { superAdmin: true, isAdmin: true, canEdit: true }), true);
+      assert.strictEqual(C(null, { edificioId: 1 }), false);
+    });
+  });
+
+  describe('PERF-003: fbLoadBuildings legge in parallelo e applica a parte', () => {
+    it('un non superAdmin: documento edificio e collezioni partono insieme, senza aspettare il documento', async () => {
+      const app = loadApp();
+      let sblocca; const gate = new Promise((r) => { sblocca = r; });
+      const fb = fbFinto({ ritardoDocEdificio: gate });
+      app._fb = fb;
+      const p = app.fbLoadBuildings({ edificioId: '1', isAdmin: false, canEdit: false }, { soloLettura: true });
+      await new Promise((r) => setTimeout(r, 0));
+      // Il documento dell'edificio è ancora in attesa, ma le collezioni sono già state richieste.
+      assert.ok(fb.log.includes('getDoc buildings/1'));
+      for (const coll of ['members', 'expenses', 'payments', 'suppliers', 'notices', 'minutes', 'works', 'resolutions']) {
+        assert.ok(fb.log.includes('getDocs buildings/1/' + coll), 'collezione non richiesta in anticipo: ' + coll);
+      }
+      assert.ok(!fb.log.some((r) => /contatti/.test(r)), 'un condomino semplice non chiede i contatti');
+      sblocca();
+      const r = await p;
+      uguali(r.edifici.map((e) => e.id), [1]);
+      uguali(r.perKey.cm_condomini.map((c) => c.nome), ['Ada']);
+      assert.strictEqual(r.perKey.cm_condomini[0].email, undefined, 'nessun contatto a un condomino semplice');
+      uguali(r.perKey.cm_spese.map((s) => s.titolo), ['Luce']);
+    });
+    it('soloLettura non tocca la memoria dell\'app; fbApplicaBuildings sì (stesso risultato di prima)', async () => {
+      const app = loadApp();
+      app._fb = fbFinto();
+      const cache = ruoloPrima(app);
+      assert.strictEqual(cache.cm_edifici, undefined);
+      const r = await app.fbLoadBuildings({ edificioId: '1', isAdmin: true, canEdit: true }, { soloLettura: true });
+      assert.strictEqual(cache.cm_edifici, undefined, 'lettura anticipata: nessun dato adottato');
+      assert.strictEqual(cache.cm_condomini, undefined);
+      assert.strictEqual(app.__get('_serverSnap').cm_edifici, undefined);
+      app.fbApplicaBuildings(r);
+      uguali(cache.cm_edifici.map((e) => e.id), [1]);
+      assert.strictEqual(cache.cm_condomini[0].email, 'ada@qa.test', 'un amministratore riceve i contatti');
+      uguali(cache.cm_spese.map((s) => s.titolo), ['Luce']);
+      assert.ok(app.__get('_serverSnap').cm_spese, 'copia del server per il confronto dei salvataggi');
+      assert.ok(app.__get('_contattiNoti').has('buildings/1/contatti/101'));
+      assert.ok(app.__get('_versioni').cm_edifici.has('buildings/1'));
+    });
+    it('senza opzioni si comporta come prima: legge e adotta', async () => {
+      const app = loadApp();
+      app._fb = fbFinto();
+      await app.fbLoadBuildings({ edificioId: '2', isAdmin: false, canEdit: false });
+      uguali(ruoloPrima(app).cm_condomini.map((c) => c.nome), ['Bruno']);
+      uguali(ruoloPrima(app).cm_spese.map((s) => s.titolo), ['Acqua']);
+    });
+    it('edificio assente: nessun dato, come prima', async () => {
+      const app = loadApp();
+      app._fb = fbFinto();
+      const r = await app.fbLoadBuildings({ edificioId: '9', isAdmin: false, canEdit: false }, { soloLettura: true });
+      uguali(r.edifici, []);
+      uguali(r.perKey.cm_condomini, []);
+      uguali(r.perKey.cm_spese, []);
+    });
+    it('il superAdmin legge tutti gli edifici, nell\'ordine', async () => {
+      const app = loadApp();
+      app._fb = fbFinto();
+      const r = await app.fbLoadBuildings({ superAdmin: true, isAdmin: true, canEdit: true }, { soloLettura: true });
+      uguali(r.edifici.map((e) => e.id), [1, 2]);
+      uguali(r.perKey.cm_spese.map((s) => s.titolo).sort(), ['Acqua', 'Luce']);
+      assert.strictEqual(r.perKey.cm_condomini.find((c) => c.id === 201).email, 'bruno@qa.test');
+    });
+  });
+
+  describe('PERF-006: registro accessi e configurazione non si chiedono dove le rules li negano', () => {
+    it('fbLoadAll senzaLoginStats non legge cm_login_stats; senza opzione lo legge come prima', async () => {
+      const app = loadApp();
+      const fb = fbFinto(); app._fb = fb;
+      await app.fbLoadAll({ senzaLoginStats: true });
+      assert.ok(fb.log.some((r) => r === 'getDoc appdata/cm_categorie'));
+      assert.ok(!fb.log.some((r) => /cm_login_stats|cm_config/.test(r)), fb.log.join(', '));
+      fb.log.length = 0;
+      await app.fbLoadAll();
+      assert.ok(fb.log.some((r) => r === 'getDoc appdata/cm_login_stats'));
+      assert.ok(!fb.log.some((r) => /cm_config/.test(r)), 'cm_config lo legge loadSuperAdminConfig');
+    });
+  });
+
+  describe('PERF-007: impostazioni dell\'edificio lette prima del primo disegno', () => {
+    it('millesimi, affitti e WhatsApp (solo amministratori) dell\'edificio del profilo', async () => {
+      const app = loadApp();
+      const fb = fbFinto(); app._fb = fb;
+      await app.precaricaImpostazioni({ edificioId: '1', isAdmin: true, canEdit: true });
+      assert.ok(fb.log.includes('getDoc buildings/1/impostazioni/millesimi'));
+      assert.ok(fb.log.includes('getDoc buildings/1/impostazioni/affitti'));
+      assert.ok(fb.log.includes('getDoc buildings/1/impostazioni/whatsapp'));
+      assert.ok('1' in app.__get('_millesimi') && '1' in app.__get('_affitti'), 'già in memoria: assicura* non rilegge');
+      assert.strictEqual(app.__get('_impWaDi'), 'u1/1');
+      // Un condomino semplice non legge le impostazioni WhatsApp (come assicuraWhatsApp).
+      const app2 = loadApp(); const fb2 = fbFinto(); app2._fb = fb2;
+      await app2.precaricaImpostazioni({ edificioId: '1', isAdmin: false, canEdit: false });
+      assert.ok(!fb2.log.some((r) => /whatsapp/.test(r)));
+      assert.ok(fb2.log.some((r) => /millesimi/.test(r)));
+    });
+    it('dopo il precaricamento il disegno non rilegge le impostazioni', async () => {
+      const app = loadApp();
+      const fb = fbFinto(); app._fb = fb;
+      app.__set('state', { ...app.__get('state'), user: { id: 1, edificioId: '1', isAdmin: true, canEdit: true }, edificioAttivo: '1' });
+      await app.precaricaImpostazioni({ edificioId: '1', isAdmin: true, canEdit: true });
+      const letture = fb.log.length;
+      app.assicuraMillesimi(); app.assicuraAffitti(); app.assicuraWhatsApp();
+      await new Promise((r) => setTimeout(r, 0));
+      assert.strictEqual(fb.log.length, letture, 'nessuna lettura in più, nessun secondo disegno: ' + fb.log.slice(letture).join(', '));
+    });
+    it('una lettura che fallisce non blocca l\'accesso', async () => {
+      const app = loadApp();
+      const fb = fbFinto(); app._fb = fb;
+      fb.getDoc = async () => { throw Object.assign(new Error('negato'), { code: 'permission-denied' }); };
+      await app.precaricaImpostazioni({ edificioId: '1', isAdmin: true, canEdit: true });
+    });
+  });
+
+  // L'accesso completo (onAuthStateChanged) con Firebase finto.
+  describe('PERF-003/005/006/007: l\'accesso, passo per passo', () => {
+    async function accedi({ claims, profilo, whoamiRitardo = null, issuedAtTime = null }) {
+      const app = loadApp();
+      const fb = fbFinto();
+      const eventi = [];
+      let callback;
+      let rinnovi = 0;
+      let uscito = false;
+      Object.assign(fb, {
+        functionsInstance: {},
+        httpsCallable: (_i, nome) => async () => {
+          eventi.push(nome + ':inizio'); fb.log.push(nome + ':inizio');
+          if (whoamiRitardo) await whoamiRitardo;
+          eventi.push(nome + ':fine'); fb.log.push(nome + ':fine');
+          return { data: { profile: profilo } };
+        },
+        onAuthStateChanged: (_a, cb) => { callback = cb; },
+        signOut: async () => { uscito = true; },
+      });
+      app._fb = fb; app._fbReady = true;
+      app.document.getElementById = () => ({ innerHTML: '', style: {}, classList: { add() {}, remove() {}, toggle() {} } });
+      const renders = [];
+      app.render = () => { renders.push(fb.log.length); };
+      app.renderPresto = () => { renders.push('presto'); };
+      await app.initApp();
+      const utente = {
+        getIdTokenResult: async () => ({ claims, issuedAtTime: issuedAtTime || new Date().toISOString() }),
+        getIdToken: async () => { rinnovi++; return 't'; },
+      };
+      await callback(utente);
+      return { app, fb, rinnovi: () => rinnovi, uscito: () => uscito, renders, eventi };
+    }
+    const indice = (fb, re) => fb.log.findIndex((r) => re.test(r));
+
+    it('condomino con ruolo nel token: i dati partono prima della risposta di whoami e le richieste negate non partono', async () => {
+      let rilascia; const gate = new Promise((r) => { rilascia = r; });
+      const p = accedi({ claims: { role: 'member', buildingId: '1' }, profilo: { id: 101, nome: 'Ada', edificioId: 1, appartamento: 'Int. 1' }, whoamiRitardo: gate });
+      await new Promise((r) => setTimeout(r, 30));
+      rilascia();
+      const { app, fb, rinnovi, uscito } = await p;
+      assert.ok(indice(fb, /getDocs buildings\/1\/expenses/) < indice(fb, /whoami:fine/), 'i dati dell\'edificio dovevano partire prima della fine di whoami');
+      assert.ok(!fb.log.some((r) => /cm_config|cm_login_stats/.test(r)), 'documenti negati ai non superAdmin: ' + fb.log.join(', '));
+      assert.strictEqual(rinnovi(), 0, 'token appena emesso: nessun rinnovo');
+      assert.strictEqual(uscito(), false);
+      uguali(app.__get('state').condomini.map((c) => c.nome), ['Ada']);
+      assert.strictEqual(app.__get('state').user.nome, 'Ada');
+      assert.strictEqual(app.__get('state').edificioAttivo, 1);
+      assert.strictEqual(fb.log.filter((r) => r === 'getDocs buildings/1/members').length, 1, 'una sola lettura dei dati');
+      assert.ok('1' in app.__get('_millesimi'), 'impostazioni già lette prima del disegno');
+    });
+
+    it('token vecchio (riavvio con sessione salvata): il rinnovo resta', async () => {
+      const vecchio = new Date(Date.now() - 20 * 60000).toISOString();
+      const { rinnovi } = await accedi({ claims: { role: 'member', buildingId: '1' }, issuedAtTime: vecchio, profilo: { id: 101, nome: 'Ada', edificioId: 1 } });
+      assert.strictEqual(rinnovi(), 1);
+    });
+
+    it('whoami dice un edificio diverso da quello del token: vale whoami, i dati del token non si adottano', async () => {
+      const { app, fb } = await accedi({ claims: { role: 'member', buildingId: '2' }, profilo: { id: 101, nome: 'Ada', edificioId: 1 } });
+      uguali(app.__get('state').condomini.map((c) => c.nome), ['Ada'], 'solo l\'edificio 1');
+      uguali(app.__get('state').spese.map((s) => s.titolo), ['Luce']);
+      assert.strictEqual(app.__get('state').edificioAttivo, 1);
+      assert.ok(fb.log.includes('getDocs buildings/1/expenses'));
+    });
+
+    it('whoami toglie il diritto di modifica che il token prometteva: nessun contatto in memoria', async () => {
+      const { app } = await accedi({ claims: { role: 'editor', buildingId: '1' }, profilo: { id: 101, nome: 'Ada', edificioId: 1, isAdmin: false, canEdit: false } });
+      const ada = app.__get('state').condomini[0];
+      assert.strictEqual(ada.email, undefined, 'senza diritto di modifica i contatti non devono comparire');
+    });
+
+    it('whoami dice account disattivato: uscita, e nessun dato letto in anticipo resta in memoria', async () => {
+      const { app, uscito } = await accedi({ claims: { role: 'member', buildingId: '1' }, profilo: { id: 101, nome: 'Ada', edificioId: 1, disabled: true } });
+      assert.strictEqual(uscito(), true);
+      const cache = app.__get('_cache');
+      assert.strictEqual(cache.cm_condomini, undefined);
+      assert.strictEqual(cache.cm_spese, undefined);
+      assert.strictEqual(app.__get('state').user, null);
+    });
+
+    it('primo accesso (nessun ruolo nel token): si aspetta whoami e si rinnova il token, come prima', async () => {
+      const { app, fb, rinnovi } = await accedi({ claims: {}, profilo: { id: 101, nome: 'Ada', edificioId: 1 } });
+      assert.ok(indice(fb, /whoami:fine/) < indice(fb, /getDocs buildings\/1\/expenses/), 'senza ruolo nel token i dati partono dopo whoami');
+      assert.strictEqual(rinnovi(), 1, 'ruolo appena assegnato da whoami: rinnovo del token');
+      uguali(app.__get('state').condomini.map((c) => c.nome), ['Ada']);
+    });
+
+    it('superAdmin: legge cm_config, non il registro accessi prima del disegno; lo rilegge dopo', async () => {
+      const { app, fb, renders } = await accedi({ claims: { role: 'superAdmin' }, profilo: { id: 0, nome: 'Super Admin', superAdmin: true, isAdmin: true, canEdit: true } });
+      assert.ok(fb.log.includes('getDoc appdata/cm_config'));
+      uguali(app.__get('state').edifici.map((e) => e.id), [1, 2]);
+      const iStats = indice(fb, /cm_login_stats/);
+      assert.ok(iStats >= 0, 'il registro accessi si rilegge');
+      const disegni = renders.filter((x) => typeof x === 'number');
+      assert.ok(disegni.length >= 1);
+      assert.ok(iStats >= disegni[disegni.length - 1], 'il registro accessi parte dopo l\'ultimo disegno dell\'accesso');
+    });
+  });
+
+  describe('PERF-001: riscaldamento di whoami', () => {
+    const src = fs.readFileSync(path.join(radice, 'js', 'firebase.js'), 'utf8').split(String.fromCharCode(13)).join('');
+    const corpo = src.match(/function riscaldaWhoami\(\) \{[\s\S]*?\n\}\n/)[0];
+    const esegui = (contesto) => {
+      const chiamate = [];
+      const sb = { fetch: (url, opz) => { chiamate.push({ url, opz }); return Promise.resolve({}); }, ...contesto };
+      vm.createContext(sb);
+      vm.runInContext(corpo + '\nriscaldaWhoami();', sb);
+      return chiamate;
+    };
+    it('una sola chiamata, senza credenziali né dati, all\'indirizzo della funzione in europe-west1', () => {
+      const c = esegui({ firebaseConfig: { projectId: 'progetto-x' }, functionsInstance: { emulatorOrigin: null } });
+      assert.strictEqual(c.length, 1);
+      assert.strictEqual(c[0].url, 'https://europe-west1-progetto-x.cloudfunctions.net/whoami');
+      assert.strictEqual(c[0].opz.method, 'POST');
+      assert.strictEqual(c[0].opz.credentials, 'omit');
+      assert.strictEqual(c[0].opz.body, '{"data":{}}');
+      const intestazioni = Object.keys(c[0].opz.headers).map((h) => h.toLowerCase());
+      uguali(intestazioni, ['content-type'], 'nessun Authorization né token');
+    });
+    it('sugli emulatori usa l\'origine dell\'emulatore', () => {
+      const c = esegui({ firebaseConfig: { projectId: 'demo-qa' }, functionsInstance: { emulatorOrigin: 'http://127.0.0.1:5001' } });
+      assert.strictEqual(c[0].url, 'http://127.0.0.1:5001/demo-qa/europe-west1/whoami');
+    });
+    it('un errore di rete o una fetch che lancia non disturbano l\'avvio', async () => {
+      const sb = { fetch: () => Promise.reject(new Error('offline')), firebaseConfig: { projectId: 'p' }, functionsInstance: {} };
+      vm.createContext(sb);
+      vm.runInContext(corpo + '\nriscaldaWhoami();', sb);
+      const sb2 = { fetch: () => { throw new Error('boom'); }, firebaseConfig: { projectId: 'p' }, functionsInstance: {} };
+      vm.createContext(sb2);
+      vm.runInContext(corpo + '\nriscaldaWhoami();', sb2);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    it('parte una volta sola per caricamento della pagina e la CSP consente le funzioni', () => {
+      assert.strictEqual((src.match(/riscaldaWhoami\(\)/g) || []).length, 2, 'una definizione e una sola chiamata');
+      assert.ok(!/setInterval|addEventListener\(['"](focus|visibilitychange|online)/.test(corpo), 'nessuna ripetizione');
+      const html = fs.readFileSync(path.join(radice, 'index.html'), 'utf8');
+      assert.ok(/connect-src[^;]*https:\/\/\*\.cloudfunctions\.net/.test(html));
+    });
+  });
+});

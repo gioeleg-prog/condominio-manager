@@ -413,12 +413,15 @@ async function fbSaveKeyNow(key, val) {
 
 // Carica i dati globali (appdata). Best-effort per chiave: quelle riservate al
 // superAdmin falliscono da sole senza bloccare le altre.
-async function fbLoadAll() {
+// Con `senzaLoginStats` il registro accessi (riservato al superAdmin dalle rules)
+// non si legge: all'accesso lo rilegge in silenzio rileggiLoginStats (avvio.js),
+// e agli altri ruoli non si chiede un documento che le rules negano (PERF-006).
+async function fbLoadAll(opz = {}) {
   if (!window._fb) return;
   const { db, doc, getDoc } = window._fb;
   // cm_config no: ha i campi superAdminUid/superAdminEmail e non un valore JSON
   // (qui la lettura falliva sempre), lo legge loadSuperAdminConfig (avvio.js).
-  await Promise.all(GLOBAL_KEYS.filter(k => k !== 'cm_config').map(async (key) => {
+  await Promise.all(GLOBAL_KEYS.filter(k => k !== 'cm_config' && !(opz.senzaLoginStats && k === 'cm_login_stats')).map(async (key) => {
     try {
       const snap = await getDoc(doc(db, 'appdata', key));
       if (snap.exists()) { _cache[key] = JSON.parse(snap.data().value); setServerSnap(key, _cache[key]); }
@@ -458,20 +461,24 @@ function fromDocs(docs) {
 // senza contatti: l'app funziona, ma senza email da mostrare o a cui scrivere.
 // Contatti per "edificio/id" (null se la lettura non riesce): all'accesso la
 // lettura parte insieme alle altre collezioni, poi unisciContatti li aggiunge.
+// Non tocca la memoria dell'app: restituisce { perId, docs } e i documenti si
+// registrano in fbApplicaBuildings (PERF-003: la lettura può partire in anticipo
+// e venire scartata).
 async function leggiContatti(edifici) {
   const { db, getDocs, collection } = window._fb;
   const perId = new Map();
+  const tutti = [];
   try {
     await Promise.all(edifici.map(async (ed) => {
       const docs = (await getDocs(collection(db, 'buildings', String(ed.id), 'contatti'))).docs;
-      setVersioni('cm_condomini', docs);
-      docs.forEach(d => { _contattiNoti.add(d.ref.path); const c = d.data(); if (!c._deleted) perId.set(String(ed.id) + '/' + d.id, c); });
+      tutti.push(...docs);
+      docs.forEach(d => { const c = d.data(); if (!c._deleted) perId.set(String(ed.id) + '/' + d.id, c); });
     }));
   } catch (e) {
     console.warn('Contatti dei condomini non letti:', e.code || e.message);
     return null;
   }
-  return perId;
+  return { perId, docs: tutti };
 }
 function unisciContatti(lista, perId) {
   if (!perId) return lista;
@@ -484,39 +491,69 @@ function unisciContatti(lista, perId) {
   });
 }
 
-// Carica edifici e dati per edificio: tutti per il superAdmin, solo il proprio
-// per gli altri ruoli (le rules non permettono altro). Lancia un errore se non
-// riesce: senza questi dati l'app non è utilizzabile.
-async function fbLoadBuildings(profile) {
-  const { db, doc, getDoc, getDocs, collection } = window._fb;
-  let edifici;
-  if (isSuperAdmin(profile)) {
-    const docs = (await getDocs(collection(db, 'buildings'))).docs;
-    setVersioni('cm_edifici', docs);
-    edifici = fromDocs(docs);
-  } else {
-    const snap = await getDoc(doc(db, 'buildings', String(profile.edificioId)));
-    if (snap.exists()) setVersioni('cm_edifici', [snap]);
-    edifici = snap.exists() ? fromDocs([snap]) : [];
-  }
-  edifici.sort((a, b) => Number(a.id) - Number(b.id));
-  const perKey = {};
+// Legge le collezioni dei record per gli edifici indicati, senza toccare la
+// memoria dell'app (vedi fbApplicaBuildings).
+async function leggiRecordEdifici(profile, edifici) {
+  const { db, getDocs, collection } = window._fb;
+  const perKey = {}, docsPerKey = {};
   // I contatti (solo amministratori ed editor) partono insieme alle altre
   // collezioni: prima si aspettava la fine di tutte per leggerli.
   const contattiP = canUserEdit(profile) ? leggiContatti(edifici) : Promise.resolve(null);
   await Promise.all(RECORD_KEYS.filter(k => APPDATA_CONFIG[k].coll).map(async (key) => {
-    const parts = await Promise.all(edifici.map(async (ed) => {
-      const docs = (await getDocs(collection(db, 'buildings', String(ed.id), APPDATA_CONFIG[key].coll))).docs;
-      setVersioni(key, docs);
-      return fromDocs(docs);
-    }));
-    perKey[key] = parts.flat();
+    const parts = await Promise.all(edifici.map(async (ed) =>
+      (await getDocs(collection(db, 'buildings', String(ed.id), APPDATA_CONFIG[key].coll))).docs));
+    docsPerKey[key] = parts.flat();
+    perKey[key] = fromDocs(docsPerKey[key]);
   }));
   const contatti = await contattiP;
-  if (perKey.cm_condomini && canUserEdit(profile)) perKey.cm_condomini = unisciContatti(perKey.cm_condomini, contatti);
-  _cache.cm_edifici = edifici;
-  setServerSnap('cm_edifici', edifici);
-  Object.entries(perKey).forEach(([key, arr]) => { _cache[key] = arr; setServerSnap(key, arr); });
+  if (perKey.cm_condomini && canUserEdit(profile)) perKey.cm_condomini = unisciContatti(perKey.cm_condomini, contatti && contatti.perId);
+  return { perKey, docsPerKey, contatti };
+}
+
+// Carica edifici e dati per edificio: tutti per il superAdmin, solo il proprio
+// per gli altri ruoli (le rules non permettono altro). Lancia un errore se non
+// riesce: senza questi dati l'app non è utilizzabile.
+// Con `soloLettura` legge soltanto e restituisce il risultato, che si adotta con
+// fbApplicaBuildings: l'accesso lo fa partire con ruolo ed edificio del token
+// mentre whoami è ancora in corso e lo adotta solo dopo il suo verdetto (PERF-003).
+async function fbLoadBuildings(profile, opz = {}) {
+  const { db, doc, getDoc, getDocs, collection } = window._fb;
+  let docsEdifici, edifici, dati;
+  if (isSuperAdmin(profile)) {
+    docsEdifici = (await getDocs(collection(db, 'buildings'))).docs;
+    edifici = fromDocs(docsEdifici);
+    edifici.sort((a, b) => Number(a.id) - Number(b.id));
+    dati = await leggiRecordEdifici(profile, edifici);
+  } else {
+    // Il documento dell'edificio e le sue collezioni partono insieme: l'id è
+    // quello del profilo, non occorre aspettare il documento per conoscerlo.
+    const edId = String(profile.edificioId);
+    const [snap, letti] = await Promise.all([
+      getDoc(doc(db, 'buildings', edId)),
+      leggiRecordEdifici(profile, [{ id: edId }]),
+    ]);
+    docsEdifici = snap.exists() ? [snap] : [];
+    edifici = fromDocs(docsEdifici);
+    // Documento assente o con un id diverso da quello atteso: si rilegge come prima, sull'elenco vero.
+    dati = edifici.length === 1 && String(edifici[0].id) === edId ? letti : await leggiRecordEdifici(profile, edifici);
+  }
+  const risultato = { edifici, docsEdifici, ...dati };
+  if (opz.soloLettura) return risultato;
+  fbApplicaBuildings(risultato);
+}
+
+// Adotta nella memoria dell'app ciò che ha letto fbLoadBuildings (versioni per
+// il controllo dei conflitti, copia del server, cache).
+function fbApplicaBuildings(r) {
+  if (r.docsEdifici.length) setVersioni('cm_edifici', r.docsEdifici);
+  Object.entries(r.docsPerKey).forEach(([key, docs]) => setVersioni(key, docs));
+  if (r.contatti) {
+    setVersioni('cm_condomini', r.contatti.docs);
+    r.contatti.docs.forEach(d => _contattiNoti.add(d.ref.path));
+  }
+  _cache.cm_edifici = r.edifici;
+  setServerSnap('cm_edifici', r.edifici);
+  Object.entries(r.perKey).forEach(([key, arr]) => { _cache[key] = arr; setServerSnap(key, arr); });
 }
 
 // ═══════════════════════════════════════════════════════
