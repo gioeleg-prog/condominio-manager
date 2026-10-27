@@ -198,7 +198,7 @@ function disegnaMillesimi() {
   const categorie = getCategorie().filter(c => c.tipo !== 'entrata');
   const cambiati = !!(b.__ver && _millesimiVer[state.edificioAttivo] && b.__ver !== _millesimiVer[state.edificioAttivo]);
   box.innerHTML = `
-    ${cambiati ? `<div class="alert alert-warning" id="mill-cambiati" style="font-size:13px;margin:0 0 .75rem">Un'altra persona ha salvato nuovi millesimi dopo che hai aperto questa scheda. Se salvi ora il salvataggio viene fermato per non cancellare la sua modifica.
+    ${cambiati ? `<div class="alert alert-warning" id="mill-cambiati" role="status" aria-live="polite" style="font-size:13px;margin:0 0 .75rem">Un'altra persona ha salvato nuovi millesimi dopo che hai aperto questa scheda. Se salvi ora il salvataggio viene fermato per non cancellare la sua modifica.
       <button type="button" class="btn btn-secondary btn-sm" id="mill-ricarica" style="width:auto;margin-left:.5rem">Ricarica i valori</button></div>` : ''}
     <label class="casella-email" for="mill-attivo" style="margin-top:0">
       <input type="checkbox" id="mill-attivo" ${b.attivo ? 'checked' : ''}>

@@ -1619,6 +1619,46 @@ describe('UNIT — retest regole: ricorrenze, quote fuori scala, lucchetti, spes
     assert.ok(libera.includes('data-locked="0"') && !libera.includes('split-lock-btn locked'));
   });
 
+  // UXA-002: ogni campo quota e ogni lucchetto ha un nome che dice di chi è; il lucchetto espone lo stato
+  it('UXA-002: campi quota e lucchetto portano il nome del condomino; il lucchetto ha aria-pressed', () => {
+    const app = mk();
+    const c = { id: 102, nome: 'Bruno "Il" <b>', appartamento: 'Int. 2', color: '#3B82F6' };
+    const bloccata = app.htmlRigaSplit(c, { id: 102, perc: 25, locked: true }, true, 100);
+    const libera = app.htmlRigaSplit(c, { id: 102, perc: 25, locked: false }, true, 100);
+    assert.ok(bloccata.includes('aria-label="Quota di Bruno &quot;Il&quot; &lt;b&gt;, percentuale"'), 'nome del campo %');
+    assert.ok(bloccata.includes('aria-label="Quota di Bruno &quot;Il&quot; &lt;b&gt;, euro"'), 'nome del campo euro');
+    assert.ok(bloccata.includes('aria-label="Blocca la quota di Bruno &quot;Il&quot; &lt;b&gt;"'), 'nome del lucchetto');
+    assert.ok(bloccata.includes('aria-pressed="true"') && libera.includes('aria-pressed="false"'));
+    assert.ok(!/aria-label="0\.00"/.test(bloccata + libera), 'il segnaposto non fa da nome');
+  });
+  // UXA-001, UXA-005, UXA-004: riquadri nella scheda spesa
+  it('UXA-001/005: la scheda spesa ha il riquadro errore (role=alert) e i riquadri degli avvisi annunciati', () => {
+    const h = mk().renderModalSpesa({ data: `${Y}-03-01` });
+    assert.match(h, /id="m-err"[^>]*role="alert"|role="alert"[^>]*id="m-err"/);
+    assert.match(h, /id="split-data-avviso"[^>]*role="status"/);
+    assert.match(h, /id="split-warn" role="status"/);
+    assert.match(h, /id="split-annuncio"[^>]*aria-live="polite"/);
+  });
+  it('UXA-001: il blocco al 100% mostra il messaggio nel riquadro, con la virgola, e porta il focus lì', async () => {
+    const Yn = new Date().getFullYear();
+    const app = mk();
+    let focus = 0;
+    const err = { style: {}, textContent: '', focus: () => { focus++; }, scrollIntoView: () => {} };
+    const campi = { 'm-titolo': { value: 'Tetto' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '' },
+      'm-cons': { value: '1000' }, 'm-data': { value: `${Yn}-03-01` }, 'm-err': err };
+    app.document.getElementById = (id) => campi[id] || null;
+    app.document.querySelectorAll = (sel) => sel === '.split-perc-inp' ? [33.33, 33.33, 26.67].map((v, i) => ({ dataset: { cid: String(101 + i) }, value: String(v) })) : [];
+    app.__set('state', { ...app.__get('state'), pendingFiles: [] });
+    let salvato = false; app.save = () => { salvato = true; };
+    let toast = 0; app.avvisa = () => { toast++; };
+    await app.salvaSchedaSpesa({ data: null });
+    assert.strictEqual(salvato, false);
+    assert.strictEqual(toast, 0, 'niente avviso a scomparsa');
+    assert.strictEqual(err.style.display, 'block');
+    assert.match(err.textContent, /ora fa 93,33%/);
+    assert.strictEqual(focus, 1);
+  });
+
   // ADV-FUNC-029: spese senza ripartizione
   describe('spese senza ripartizione (legacy) prima del subentro', () => {
     const legacy = { id: 5, data: `${Y}-03-01`, titolo: 'Luce', categoria: 'luce', consuntivo: '300', edificioId: 1 };
@@ -2805,12 +2845,12 @@ describe('UNIT — lotto A: subentro futuro, rappresentante, editor, millesimi, 
     it('resta bloccata al 100% ma il messaggio spiega la causa e cosa fare', async () => {
       const r = await prova([{ id: 101, perc: 30 }, { id: 102, perc: 30 }, { id: 999, perc: 40 }]);
       assert.strictEqual(r.salvati(), 0, 'il blocco al 100% è stato indebolito');
-      assert.ok(/non esiste più/.test(r.err.textContent) && /40\.00%/.test(r.err.textContent) && /Parti uguali/.test(r.err.textContent), r.err.textContent);
+      assert.ok(/non esiste più/.test(r.err.textContent) && /40,00%/.test(r.err.textContent) && /Parti uguali/.test(r.err.textContent), r.err.textContent);
     });
     it('senza quote orfane il messaggio resta quello generico', async () => {
       const r = await prova([{ id: 101, perc: 30 }, { id: 102, perc: 30 }]);
       assert.strictEqual(r.salvati(), 0);
-      assert.ok(/ora fa 60\.00%/.test(r.err.textContent) && !/non esiste più/.test(r.err.textContent), r.err.textContent);
+      assert.ok(/ora fa 60,00%/.test(r.err.textContent) && !/non esiste più/.test(r.err.textContent), r.err.textContent);
     });
   });
 

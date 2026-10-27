@@ -40,6 +40,21 @@ function bindSplit() {
     return cons > 0 ? cons : prev > 0 ? prev : 0;
   }
 
+  // Lucchetto di una quota: simbolo, classe e stato per i lettori di schermo (aria-pressed, UXA-002) vanno sempre insieme.
+  function impostaLucchetto(btn, bloccato) {
+    btn.dataset.locked = bloccato ? '1' : '0';
+    btn.textContent = bloccato ? '🔒' : '🔓';
+    btn.classList.toggle('locked', bloccato);
+    btn.setAttribute('aria-pressed', bloccato ? 'true' : 'false');
+    btn.title = bloccato ? 'Quota bloccata: premi per sbloccarla' : 'Blocca questa quota';
+  }
+  // Messaggio per i lettori di schermo (regione role="status" accanto alla tabella).
+  function annuncia(testo) {
+    const el = document.getElementById('split-annuncio');
+    if (el) el.textContent = testo;
+  }
+  const nomeDi = (cid) => state.condomini.find(c => String(c.id) === String(cid))?.nome || '';
+
   function getLocked() {
     const locked = {};
     document.querySelectorAll('.split-lock-btn').forEach(b => {
@@ -212,9 +227,7 @@ function bindSplit() {
       eMap[String(c.id)] = euros[i];
     });
     // sblocca tutti e aggiorna
-    document.querySelectorAll('.split-lock-btn').forEach(b => {
-      b.dataset.locked = '0'; b.textContent = '🔓'; b.classList.remove('locked');
-    });
+    document.querySelectorAll('.split-lock-btn').forEach(b => impostaLucchetto(b, false));
     setPercInputs(pMap);
     setEuroInputs(eMap);
     updateTotals();
@@ -224,30 +237,27 @@ function bindSplit() {
   // Si può richiamare dopo aver ridisegnato le righe: ogni controllo viene collegato una volta sola.
   function collegaRighe() {
     const blocca = (inp) => {
-      // Al focus: blocca automaticamente questo campo così non viene sovrascritto dal ricalcolo
+      // Quando l'utente scrive nel campo (non al semplice focus: attraversare la tabella con Tab non deve
+      // bloccare nulla, UXA-003) la quota si blocca, così non viene sovrascritta dal ricalcolo, e lo si annuncia.
       const btn = document.querySelector(`.split-lock-btn[data-lock-cid="${inp.dataset.cid}"]`);
       if (btn && btn.dataset.locked !== '1') {
-        btn.dataset.locked = '1';
-        btn.textContent = '🔒';
-        btn.classList.add('locked');
+        impostaLucchetto(btn, true);
+        annuncia('Quota di ' + nomeDi(inp.dataset.cid) + ' bloccata');
       }
     };
     document.querySelectorAll('.split-perc-inp').forEach(inp => {
       if (inp.dataset.legato) return; inp.dataset.legato = '1';
-      inp.addEventListener('focus', () => blocca(inp));
-      inp.addEventListener('input', () => onPercChange(inp.dataset.cid));
+      inp.addEventListener('input', () => { blocca(inp); onPercChange(inp.dataset.cid); });
     });
     document.querySelectorAll('.split-euro-inp').forEach(inp => {
       if (inp.dataset.legato) return; inp.dataset.legato = '1';
-      inp.addEventListener('focus', () => blocca(inp));
-      inp.addEventListener('input', () => onEuroChange(inp.dataset.cid));
+      inp.addEventListener('input', () => { blocca(inp); onEuroChange(inp.dataset.cid); });
     });
     document.querySelectorAll('.split-lock-btn').forEach(btn => {
       btn.onclick = () => {
         const locked = btn.dataset.locked === '1';
-        btn.dataset.locked = locked ? '0' : '1';
-        btn.textContent = locked ? '🔓' : '🔒';
-        btn.classList.toggle('locked', !locked);
+        impostaLucchetto(btn, !locked);
+        annuncia('Quota di ' + nomeDi(btn.dataset.lockCid) + (locked ? ' sbloccata' : ' bloccata'));
       };
     });
   }
@@ -272,6 +282,13 @@ function bindSplit() {
     collegaRighe();
     aggiornaAggiungibili();
     updateTotals();
+    // Il focus passa al campo della nuova riga (il pulsante può sparire con l'ultimo condomino aggiunto) e la
+    // riga si annuncia (UXA-004). Sul telefono la colonna % è nascosta: si ripiega sul campo in euro.
+    const nuovo = tbody.querySelector(`.split-perc-inp[data-cid="${c.id}"]`);
+    const nuovoEuro = tbody.querySelector(`.split-euro-inp[data-cid="${c.id}"]`);
+    if (nuovo) nuovo.focus();
+    if (nuovoEuro && document.activeElement !== nuovo) nuovoEuro.focus();
+    annuncia('Aggiunto ' + c.nome);
   };
 
   // ── cambio data: le righe seguono chi abitava alla data ───────────────
@@ -325,7 +342,7 @@ function bindSplit() {
       pMap[inp.dataset.cid] = s ? s.perc : 0;
       eMap[inp.dataset.cid] = ref > 0 ? (s ? s.perc : 0) / 100 * ref : 0;
     });
-    document.querySelectorAll('.split-lock-btn').forEach(b => { b.dataset.locked = '0'; b.textContent = '🔓'; b.classList.remove('locked'); });
+    document.querySelectorAll('.split-lock-btn').forEach(b => impostaLucchetto(b, false));
     setPercInputs(pMap);
     if (ref > 0) setEuroInputs(eMap);
     updateTotals();
@@ -360,9 +377,8 @@ function bindSplit() {
 
   const btnResetLock = document.getElementById('split-reset-lock');
   if (btnResetLock) btnResetLock.onclick = () => {
-    document.querySelectorAll('.split-lock-btn').forEach(b => {
-      b.dataset.locked = '0'; b.textContent = '🔓'; b.classList.remove('locked');
-    });
+    document.querySelectorAll('.split-lock-btn').forEach(b => impostaLucchetto(b, false));
+    annuncia('Tutte le quote sbloccate');
   };
 
   // ── ricalcola euro quando cambiano gli importi ────────────────────────

@@ -479,15 +479,15 @@ function htmlRigaSplit(c, sd, base, importoRef) {
         <span style="font-size:11px;color:var(--text2)">${esc(c.appartamento)}</span>${c.disabled ? '<span class="badge badge-gray" style="font-size:10px">non più attivo</span>' : (!base ? '<span class="badge badge-gray" style="font-size:10px">aggiunto a mano</span>' : '')}
       </div></td>
       <td>
-        <input type="number" class="split-perc-inp" data-cid="${c.id}" value="${perc.toFixed(2)}" min="0" max="100" step="0.01" placeholder="0.00">
+        <input type="number" class="split-perc-inp" data-cid="${c.id}" value="${perc.toFixed(2)}" min="0" max="100" step="0.01" placeholder="0.00" aria-label="Quota di ${esc(c.nome)}, percentuale">
         <span style="color:var(--text2);font-size:12px"> %</span>
       </td>
       <td>
-        <input type="number" class="split-euro-inp" data-cid="${c.id}" value="${importoRef>0?(perc/100*importoRef).toFixed(2):''}" min="0" step="0.01" placeholder="0.00">
+        <input type="number" class="split-euro-inp" data-cid="${c.id}" value="${importoRef>0?(perc/100*importoRef).toFixed(2):''}" min="0" step="0.01" placeholder="0.00" aria-label="Quota di ${esc(c.nome)}, euro">
         <span style="color:var(--text2);font-size:12px"> €</span>
       </td>
       <td style="text-align:center">
-        <button class="split-lock-btn${sd?.locked ? ' locked' : ''}" data-lock-cid="${c.id}" data-locked="${sd?.locked ? '1' : '0'}" title="Blocca questa quota">${sd?.locked?'🔒':'🔓'}</button>
+        <button type="button" class="split-lock-btn${sd?.locked ? ' locked' : ''}" data-lock-cid="${c.id}" data-locked="${sd?.locked ? '1' : '0'}" aria-pressed="${sd?.locked ? 'true' : 'false'}" aria-label="Blocca la quota di ${esc(c.nome)}" title="${sd?.locked ? 'Quota bloccata: premi per sbloccarla' : 'Blocca questa quota'}">${sd?.locked?'🔒':'🔓'}</button>
       </td>
     </tr>`;
 }
@@ -677,19 +677,20 @@ function renderModalSpesa(d) {
             </div>
           </div>
           <div style="padding:.5rem .75rem .75rem">
-            <div id="split-warn" style="display:none;font-size:12px;padding:4px 8px;background:var(--amber-light);color:var(--amber);border-radius:4px;margin-bottom:.5rem"></div>
-            <div id="split-data-avviso" class="alert alert-warning" style="display:none;font-size:12px;margin-bottom:.5rem">⚠️ Hai cambiato la data: le quote <strong>non sono state ricalcolate</strong>, restano quelle salvate. Per ricalcolarle su chi abitava alla nuova data: salva, riapri la spesa e usa "↔ Parti uguali" (o "⚖️ Millesimi", se attivi), portando a 0% chi non abitava a quella data.</div>
+            <div id="split-warn" role="status" aria-live="polite" style="display:none;font-size:12px;padding:4px 8px;background:var(--amber-light);color:var(--amber);border-radius:4px;margin-bottom:.5rem"></div>
+            <div id="split-data-avviso" class="alert alert-warning" role="status" aria-live="polite" style="display:none;font-size:12px;margin-bottom:.5rem">⚠️ Hai cambiato la data: le quote <strong>non sono state ricalcolate</strong>, restano quelle salvate. Per ricalcolarle su chi abitava alla nuova data: salva, riapri la spesa e usa "↔ Parti uguali" (o "⚖️ Millesimi", se attivi), portando a 0% chi non abitava a quella data.</div>
             <table class="split-table">
               <thead><tr>
                 <th>Condomino</th>
                 <th>Percentuale</th>
                 <th>Importo (€)</th>
-                <th title="Blocca: questa quota non si ricalcola automaticamente">🔒</th>
+                <th title="Blocca: questa quota non si ricalcola automaticamente"><span aria-hidden="true">🔒</span><span class="sr-only">Blocca la quota</span></th>
               </tr></thead>
               <tbody id="split-tbody" data-segue-data="${d?.split?.length ? '0' : '1'}"${d?.split?.length ? ` data-data-originale="${esc(d.data || '')}"` : ''}>
                 ${_righeSplit.map(c => splitRow(c, splitData.find(s=>s.id===c.id))).join('')}
               </tbody>
             </table>
+            <div id="split-annuncio" class="sr-only" role="status" aria-live="polite"></div>
             <div id="split-aggiungi-box" style="display:${_aggiungibili.length ? 'flex' : 'none'};gap:.5rem;align-items:center;margin-top:.5rem;flex-wrap:wrap">
               <select id="split-aggiungi" class="spese-filter-sel" style="flex:0 0 auto;min-width:0" aria-label="Aggiungi un condomino alla ripartizione">${_aggiungibili.map(c => `<option value="${c.id}">${esc(c.nome)}${c.appartamento ? ' · ' + esc(c.appartamento) : ''}${c.disabled ? ' (non più attivo)' : ''}</option>`).join('')}</select>
               <button type="button" class="btn btn-secondary btn-sm" id="split-aggiungi-btn" title="Aggiunge una riga a mano, per esempio per chi è uscito">＋ Aggiungi condomino</button>
@@ -722,6 +723,7 @@ function renderModalSpesa(d) {
         <div class="alert alert-info" style="font-size:13px">
           💡 <strong>Preventivo</strong> → spesa <em>Previsionale</em>. <strong>Consuntivo</strong> → spesa <em>Definitiva</em>. Puoi avere solo uno dei due. &nbsp;|&nbsp; 🔒 Blocca una quota per fissarla mentre ricalcoli le altre.
         </div>
+        <div id="m-err" class="alert alert-warning" role="alert" tabindex="-1" style="display:none;margin-top:.75rem"></div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="modal-cancel">Annulla</button>
@@ -1017,7 +1019,21 @@ function bindSchedaSpese() {
 }
 
 // Salvataggio della scheda spesa (nuova o modificata, con eventuali occorrenze ricorrenti). Chiamata da saveModal() (schede.js).
+// Errore che blocca il salvataggio: resta nella scheda finché non si corregge (role="alert", UXA-001),
+// non sparisce dopo qualche secondo come un avviso; il focus va al messaggio così il lettore di schermo lo legge.
+// Senza il riquadro (scheda non disegnata) ripiega sull'avviso in basso.
+function erroreSchedaSpesa(msg) {
+  const errEl = document.getElementById('m-err');
+  if (!errEl) { avvisa(msg); return; }
+  errEl.textContent = msg;
+  errEl.style.display = 'block';
+  if (errEl.scrollIntoView) errEl.scrollIntoView({ block: 'nearest' });
+  if (errEl.focus) errEl.focus({ preventScroll: true });
+}
+
 async function salvaSchedaSpesa(m) {
+    const erroreVecchio = document.getElementById('m-err');
+    if (erroreVecchio) { erroreVecchio.style.display = 'none'; erroreVecchio.textContent = ''; }
     const titolo = document.getElementById('m-titolo')?.value?.trim();
     const desc = document.getElementById('m-desc')?.value?.trim();
     const cat = document.getElementById('m-cat')?.value;
@@ -1031,9 +1047,7 @@ async function salvaSchedaSpesa(m) {
     // Un valore già salvato e lasciato com'è non blocca la modifica di altri campi (come nelle regole).
     const nuovoNonValido = (v, vecchio) => v && !importoValido(v) && String(vecchio ?? '') !== v;
     if (nuovoNonValido(prev, m.data?.preventivo) || nuovoNonValido(cons, m.data?.consuntivo)) {
-      const errEl = document.getElementById('m-err');
-      if (errEl) { errEl.textContent = MSG_IMPORTO; errEl.style.display='block'; }
-      else avvisa(MSG_IMPORTO);
+      erroreSchedaSpesa(MSG_IMPORTO);
       return;
     }
     const existingAllegati = m.data?.allegati||[];
@@ -1052,14 +1066,12 @@ async function salvaSchedaSpesa(m) {
       const percOrfane = orfane.reduce((a, x) => a + (parseFloat(x.perc) || 0), 0);
       const msg = fuoriScala
         ? 'Ogni quota deve essere tra 0% e 100%. Correggi le quote prima di salvare.'
-        : 'La ripartizione deve fare 100%: ora fa ' + totSplit.toFixed(2) + '%. '
+        : 'La ripartizione deve fare 100%: ora fa ' + fmtN(totSplit) + '%. '
           + (percOrfane > 0.005
-            ? 'Questa spesa ha salvata una quota del ' + percOrfane.toFixed(2) + '% per ' + (orfane.length === 1 ? 'un condomino che' : orfane.length + ' condomini che')
+            ? 'Questa spesa ha salvata una quota del ' + fmtN(percOrfane) + '% per ' + (orfane.length === 1 ? 'un condomino che' : orfane.length + ' condomini che')
               + ' non esiste più e non compare nella tabella. Assegna quella quota a chi è presente (aggiungi la riga di chi ne risponde, o usa «Parti uguali») e salva di nuovo.'
             : 'Correggi le quote prima di salvare.');
-      const errEl = document.getElementById('m-err');
-      if (errEl) { errEl.textContent = msg; errEl.style.display='block'; }
-      else avvisa(msg);
+      erroreSchedaSpesa(msg);
       return;
     }
     // Tabella millesimale usata (solo informativa: la ripartizione resta quella salvata qui sopra).
@@ -1071,9 +1083,7 @@ async function salvaSchedaSpesa(m) {
     const ricorrenzaFine = document.getElementById('m-freq-fine')?.value || '';
     // Validazione: data fine obbligatoria per spese ricorrenti
     if (ricorrente && !ricorrenzaFine) {
-      const errEl = document.getElementById('m-err');
-      if (errEl) { errEl.textContent = 'Inserisci la data di fine per la spesa ricorrente'; errEl.style.display='block'; }
-      else avvisa('Inserisci la data di fine per la spesa ricorrente');
+      erroreSchedaSpesa('Inserisci la data di fine per la spesa ricorrente');
       return;
     }
     // La fine deve venire dopo la prima spesa, altrimenti non si crea nessuna
@@ -1083,9 +1093,7 @@ async function salvaSchedaSpesa(m) {
     const ricorrenzaCambiata = !m.data?.id || !m.data?.ricorrente || m.data.frequenza !== frequenza || m.data.ricorrenzaFine !== ricorrenzaFine;
     if (ricorrente && ricorrenzaCambiata && ricorrenzaFine <= data) {
       const msg = 'La data di fine della ricorrenza deve essere successiva alla data della spesa';
-      const errEl = document.getElementById('m-err');
-      if (errEl) { errEl.textContent = msg; errEl.style.display='block'; }
-      else avvisa(msg);
+      erroreSchedaSpesa(msg);
       return;
     }
     // Serie con un importo vecchio non valido (DAT-003): le occorrenze nuove copiano il preventivo (o il
@@ -1099,9 +1107,7 @@ async function salvaSchedaSpesa(m) {
         || (applicaSerie && prev && !importoValido(prev) && occorrenzeSuccessive(m.data).some(s => String(s.preventivo ?? '') !== prev))) {
       const msg = 'Le occorrenze della serie copiano l\'importo di questa spesa, che non è valido. ' + MSG_IMPORTO
         + ' Correggi l\'importo e salva di nuovo.';
-      const errEl = document.getElementById('m-err');
-      if (errEl) { errEl.textContent = msg; errEl.style.display='block'; }
-      else avvisa(msg);
+      erroreSchedaSpesa(msg);
       return;
     }
     const ricGruppoId = m.data?.ricGruppoId || (ricorrente ? newId() : null);
