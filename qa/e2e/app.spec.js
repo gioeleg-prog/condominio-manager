@@ -276,6 +276,65 @@ test.describe('Spese (modifica i dati)', () => {
     await page.locator('#modal-cancel').click();
   });
 
+  test('tabella delle quote: attraversare i campi con Tab non blocca nulla; scrivere blocca e annuncia; i campi hanno un nome (UXA-002, UXA-003)', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await page.locator('#m-cons').fill('600');
+    // Nomi accessibili: il campo dice di chi è la quota, il lucchetto lo stato.
+    const perc = page.locator('.split-perc-inp[data-cid="101"]');
+    await expect(perc).toHaveAttribute('aria-label', /^Quota di .+, percentuale$/);
+    await expect(page.locator('.split-euro-inp[data-cid="101"]')).toHaveAttribute('aria-label', /^Quota di .+, euro$/);
+    const lucchetto = page.locator('.split-lock-btn[data-lock-cid="101"]');
+    await expect(lucchetto).toHaveAttribute('aria-label', /^Blocca la quota di /);
+    await expect(lucchetto).toHaveAttribute('aria-pressed', 'false');
+    // Solo Tab: nessuna quota si blocca.
+    await perc.focus();
+    for (let i = 0; i < 6; i++) await page.keyboard.press('Tab');
+    await expect(page.locator('.split-lock-btn[data-locked="1"]')).toHaveCount(0);
+    // Scrivere nel campo blocca la quota e lo annuncia.
+    await perc.fill('40');
+    await expect(lucchetto).toHaveAttribute('data-locked', '1');
+    await expect(lucchetto).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#split-annuncio')).toContainText('bloccata');
+    await page.locator('#modal-cancel').click();
+  });
+
+  test('totale diverso da 100%: l\'errore resta nella scheda (role=alert), con la virgola, e non sparisce da solo (UXA-001)', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await page.locator('#m-titolo').fill('Prova errore ' + Date.now());
+    await page.locator('#m-cat').selectOption({ index: 1 });
+    await page.locator('#m-cons').fill('100');
+    await page.locator('.split-perc-inp[data-cid="101"]').fill('60');
+    await page.locator('.split-perc-inp[data-cid="102"]').fill('60');
+    await page.locator('#modal-save').click();
+    const err = page.locator('#m-err');
+    await expect(err).toBeVisible();
+    await expect(err).toHaveAttribute('role', 'alert');
+    await expect(err).toContainText('La ripartizione deve fare 100%');
+    await expect(err).toContainText(/\d,\d\d%/);
+    await expect(err).toBeFocused();
+    // Più dei 5 secondi dei vecchi avvisi a scomparsa.
+    await page.waitForTimeout(5500);
+    await expect(err).toBeVisible();
+    await page.locator('#modal-cancel').click();
+  });
+
+  test('"Aggiungi condomino": il focus va sul campo della nuova riga e la riga è annunciata (UXA-004)', async ({ page }) => {
+    await accedi(page, 'admin1@qa.test');
+    await vaiA(page, 'spese');
+    await page.locator('#btn-add-spesa').click();
+    await page.locator('#split-aggiungi').selectOption('106');
+    await page.locator('#split-aggiungi-btn').click();
+    await expect(page.locator('.split-perc-inp[data-cid="106"]')).toBeFocused();
+    await expect(page.locator('#split-annuncio')).toContainText('Aggiunto');
+    // Il solo arrivo sul campo non blocca la quota.
+    await expect(page.locator('.split-lock-btn[data-lock-cid="106"]')).toHaveAttribute('data-locked', '0');
+    await page.locator('#modal-cancel').click();
+  });
+
   test('spesa già salvata: il gruppo di base è chi abitava alla data; cambiando data compare un avviso e le quote non cambiano (ADV-FUNC-001, RA-12)', async ({ page }) => {
     await accedi(page, 'admin1@qa.test');
     await vaiA(page, 'spese');
