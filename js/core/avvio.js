@@ -22,6 +22,66 @@ async function loadSuperAdminConfig() {
 // superAdmin (QA PRIV-01/INT-02). Struttura invariata, aggregata per
 // utente/mese: { condominoId: { nome, ultimoLogin, totale, mensile } }.
 
+// PERF-005: un token appena emesso (accesso fatto in questo momento) è già
+// aggiornato, rinnovarlo costa un giro di rete inutile. Dopo un riavvio con
+// sessione salvata il token può essere vecchio e il rinnovo resta obbligatorio
+// (SEC-03). Un orologio indietro o un'età negativa contano come "non nuovo".
+const ETA_MAX_TOKEN_NUOVO_MS = 60000;
+function tokenAppenaEmesso(tokenResult, adesso = Date.now()) {
+  const emesso = Date.parse(tokenResult && tokenResult.issuedAtTime);
+  if (!Number.isFinite(emesso)) return false;
+  const eta = adesso - emesso;
+  return eta >= 0 && eta < ETA_MAX_TOKEN_NUOVO_MS;
+}
+
+// PERF-003: profilo provvisorio ricavato dal token (ruolo ed edificio), solo per
+// far partire in anticipo la lettura dei dati dell'edificio mentre whoami è in
+// corso. Non è mai autorevole: vale il profilo di whoami. null se il token non
+// ha un ruolo utilizzabile (primo accesso: allora si aspetta whoami, come prima).
+function profiloDaToken(tokenResult) {
+  const c = (tokenResult && tokenResult.claims) || {};
+  if (c.role === 'superAdmin') return { superAdmin: true, isAdmin: true, canEdit: true };
+  if (['adminEdificio', 'editor', 'member'].includes(c.role) && c.buildingId != null && c.buildingId !== '') {
+    return { edificioId: String(c.buildingId), isAdmin: c.role === 'adminEdificio', canEdit: c.role === 'adminEdificio' || c.role === 'editor' };
+  }
+  return null;
+}
+// La lettura anticipata si può adottare solo se il profilo di whoami ha lo stesso
+// "taglio" di quello provvisorio: stesso edificio e stessa possibilità di vedere i contatti.
+function letturaCoincideConProfilo(provvisorio, profilo) {
+  if (!provvisorio || !profilo) return false;
+  if (isSuperAdmin(provvisorio) !== isSuperAdmin(profilo)) return false;
+  if (!isSuperAdmin(profilo) && String(provvisorio.edificioId) !== String(profilo.edificioId)) return false;
+  return canUserEdit(provvisorio) === canUserEdit(profilo);
+}
+
+// PERF-007: millesimi, affitti e WhatsApp dell'edificio attivo si leggono insieme
+// ai dati dell'edificio, prima del primo disegno: prima partivano dopo il disegno
+// e ne richiedevano un secondo. Non fallisce mai (ogni lettura gestisce il proprio errore).
+function precaricaImpostazioni(profilo) {
+  const ed = isSuperAdmin(profilo) ? _cache.cm_edificio_attivo : profilo.edificioId;
+  if (ed == null || ed === '') return Promise.resolve();
+  const uid = (window._fb.auth.currentUser || {}).uid || '';
+  return Promise.all([
+    typeof caricaMillesimi === 'function' ? caricaMillesimi(ed) : null,
+    typeof caricaAffitti === 'function' ? caricaAffitti(ed) : null,
+    typeof caricaImpWa === 'function' && canUserAdmin(profilo) ? caricaImpWa(uid + '/' + ed, ed) : null,
+  ]).catch(() => {});
+}
+
+// PERF-006: il registro accessi (solo superAdmin) si rilegge dopo il primo disegno,
+// così include l'accesso appena registrato da whoami senza ritardare lo schermo.
+async function rileggiLoginStats() {
+  try {
+    const { db, doc, getDoc } = window._fb;
+    const snap = await getDoc(doc(db, 'appdata', 'cm_login_stats'));
+    if (!snap.exists()) return;
+    _cache.cm_login_stats = JSON.parse(snap.data().value);
+    state.loginStats = _cache.cm_login_stats;
+    if (state.user && state.page === 'impostazioni' && !state.modal && typeof renderPresto === 'function') renderPresto();
+  } catch (e) { console.warn('cm_login_stats:', e.message); }
+}
+
 async function initApp() {
   // Mostra una schermata di caricamento SENZA campo password finché non sappiamo se
   // esiste già una sessione Firebase valida. Prima qui veniva mostrato subito il form di
@@ -62,6 +122,7 @@ async function initApp() {
   // Ascolta cambiamenti auth
   const { auth, onAuthStateChanged } = window._fb;
   onAuthStateChanged(auth, async (firebaseUser) => {
+    let rileggiStats = false;
     if (firebaseUser) {
       const wasLoggedOut = !state.user;
 
@@ -71,7 +132,12 @@ async function initApp() {
       // aggiornato di recente (bug reale osservato in test: fbLoadAll falliva sulle
       // sole chiavi riservate al superAdmin subito dopo login, per poi funzionare
       // al retry). Forziamo un refresh esplicito prima di qualunque lettura.
-      try { await firebaseUser.getIdToken(true); } catch(e) { console.warn('token refresh:', e.message); }
+      // PERF-005: se il token è appena stato emesso (accesso fatto ora) il rinnovo si salta.
+      let tokenPrima = await firebaseUser.getIdTokenResult().catch(() => null);
+      if (!tokenAppenaEmesso(tokenPrima)) {
+        try { await firebaseUser.getIdToken(true); } catch(e) { console.warn('token refresh:', e.message); }
+        tokenPrima = await firebaseUser.getIdTokenResult().catch(() => null);
+      }
 
       // Ricarica SEMPRE i dati ora che l'autenticazione è confermata: se il
       // caricamento pre-login sopra è fallito per permessi, questo È il
@@ -81,11 +147,20 @@ async function initApp() {
       // demo di default invece dei condomini veri.
       // whoami parte subito, insieme ad appdata e cm_config (non dipende da
       // loro): prima erano tre attese in fila.
-      const tokenPrima = await firebaseUser.getIdTokenResult().catch(() => null);
       const { functionsInstance, httpsCallable } = window._fb;
       const whoamiP = httpsCallable(functionsInstance, 'whoami')().then(resp => ({ resp }), err => ({ err }));
+      // PERF-003: con ruolo ed edificio già nel token, i dati dell'edificio si leggono
+      // subito, insieme a whoami. Il risultato si adotta solo se whoami conferma lo
+      // stesso edificio e gli stessi diritti di modifica; altrimenti si rilegge con il suo profilo.
+      const provvisorio = profiloDaToken(tokenPrima);
+      const letturaP = provvisorio
+        ? fbLoadBuildings(provvisorio, { soloLettura: true }).then(r => ({ r }), e => ({ e }))
+        : null;
+      // PERF-006: chi ha un ruolo non superAdmin nel token non chiede cm_config
+      // (le rules lo negano). Il registro accessi non si legge qui (rileggiLoginStats).
+      const saltaConfig = !!provvisorio && !provvisorio.superAdmin;
       try {
-        await Promise.all([fbLoadAll().then(applyLoadedDataFromCache), loadSuperAdminConfig()]);
+        await Promise.all([fbLoadAll({ senzaLoginStats: true }).then(applyLoadedDataFromCache), saltaConfig ? null : loadSuperAdminConfig()]);
       } catch(e) {
         console.error('Caricamento dati dopo login fallito:', e.message);
         await window._fb.signOut(auth);
@@ -140,8 +215,18 @@ async function initApp() {
       // buildings/** — le rules lasciano leggere a ciascuno solo il proprio
       // edificio (tutti al superAdmin). Senza questi dati l'app non è usabile:
       // se il caricamento fallisce, si esce con un messaggio.
+      // PERF-007: le impostazioni dell'edificio partono ora, in parallelo alla lettura dei dati.
+      const impostazioniP = precaricaImpostazioni(profile);
       try {
-        await fbLoadBuildings(profile);
+        let dati = null;
+        if (letturaP && letturaCoincideConProfilo(provvisorio, profile)) {
+          const anticipata = await letturaP;
+          if (anticipata.r) dati = anticipata.r;
+        }
+        // Nessuna lettura anticipata utile (primo accesso, profilo diverso dal token, errore): come prima.
+        if (!dati) dati = await fbLoadBuildings(profile, { soloLettura: true });
+        fbApplicaBuildings(dati);
+        await impostazioniP;
       } catch (err) {
         console.error('Caricamento edifici fallito:', err.code || err.message || err);
         await window._fb.signOut(auth); state.user = null; render();
@@ -162,19 +247,12 @@ async function initApp() {
       }
       applyLoadedDataFromCache();
       if (wasLoggedOut) state.page = 'dashboard'; // l'accesso lo registra whoami (lato server)
-      if (isSuperAdmin(profile)) {
-        // Il registro è stato letto prima di whoami: si rilegge per includere
-        // anche l'accesso appena registrato (lo mostra solo al superAdmin).
-        try {
-          const { db, doc, getDoc } = window._fb;
-          const snap = await getDoc(doc(db, 'appdata', 'cm_login_stats'));
-          if (snap.exists()) { _cache.cm_login_stats = JSON.parse(snap.data().value); state.loginStats = _cache.cm_login_stats; }
-        } catch (e) { console.warn('cm_login_stats:', e.message); }
-      }
+      rileggiStats = isSuperAdmin(profile);
     } else {
       state.user = null;
     }
     render();
+    if (rileggiStats) rileggiLoginStats(); // dopo il disegno: lo mostra solo il superAdmin, in Impostazioni
   });
 }
 

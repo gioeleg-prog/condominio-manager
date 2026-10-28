@@ -114,10 +114,16 @@ function assicuraWhatsApp() {
   const chi = chiWa();
   if (_impWaDi === chi) return;
   _impWaInCarico = true;
-  leggiImpostazione(edificioWa(), 'whatsapp')
-    .then(r => { _impWa = r.dati || {}; _impWaDi = chi; _impWaVer = r.firma; })
-    .catch(e => { console.warn('Impostazioni WhatsApp non lette:', e.code || e.message); _impWa = {}; _impWaDi = chi; _impWaVer = undefined; })
+  caricaImpWa(chi, edificioWa())
     .finally(() => { _impWaInCarico = false; if (typeof renderPresto === 'function' && !state.modal) renderPresto(); });
+}
+// Lettura delle impostazioni per `chi` ("uid/edificio"); non fallisce mai: se la
+// lettura non riesce restano i valori predefiniti. L'accesso la fa partire prima
+// del primo disegno (precaricaImpostazioni, avvio.js).
+function caricaImpWa(chi, edId) {
+  return leggiImpostazione(edId, 'whatsapp')
+    .then(r => { _impWa = r.dati || {}; _impWaDi = chi; _impWaVer = r.firma; })
+    .catch(e => { console.warn('Impostazioni WhatsApp non lette:', e.code || e.message); _impWa = {}; _impWaDi = chi; _impWaVer = undefined; });
 }
 
 // Rilettura dal server all'apertura della scheda delle impostazioni (QA-CONS-010).

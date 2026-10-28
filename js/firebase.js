@@ -38,5 +38,29 @@ window._fb = {
   storage, ref, uploadBytes, getBytes, deleteObject
 
 };
+// PERF-001: riscaldamento di whoami. L'istanza della funzione si spegne quando non
+// è usata e il primo accesso paga l'avviamento a freddo (1-2 secondi). Una sola
+// chiamata per caricamento della pagina, senza credenziali e senza dati: whoami
+// risponde subito "unauthenticated" (è proprio il suo primo controllo), ma l'istanza
+// parte mentre l'utente scrive la password o la sessione salvata si ripristina.
+// Fuori dall'SDK di proposito: l'SDK allegherebbe il token della sessione salvata
+// e lo trasformerebbe in un vero accesso (registro accessi). Errori ignorati; il
+// 401 che il browser scrive in console è atteso.
+function riscaldaWhoami() {
+  try {
+    const regione = 'europe-west1';
+    const progetto = firebaseConfig.projectId;
+    const origine = functionsInstance.emulatorOrigin; // impostato solo dagli emulatori (collegamento locale)
+    const url = origine
+      ? origine + '/' + progetto + '/' + regione + '/whoami'
+      : 'https://' + regione + '-' + progetto + '.cloudfunctions.net/whoami';
+    fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"data":{}}',
+      credentials: 'omit', cache: 'no-store', referrerPolicy: 'no-referrer',
+    }).catch(() => {});
+  } catch (e) { /* il riscaldamento non deve mai disturbare l'avvio */ }
+}
+riscaldaWhoami();
+
 window._fbReady = true;
 document.dispatchEvent(new Event('fb-ready'));
