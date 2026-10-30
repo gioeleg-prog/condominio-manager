@@ -200,6 +200,19 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       const r = await (await as('stranger@qa.test')).call('whoami');
       assert.ok(r.ok && r.data.isSuperAdmin, r.message);
     });
+    // Audit 2026-10-30: il registro accessi è per id; un condomino con id 0 non sostituisce la riga del Super Admin e un nome enorme è troncato.
+    it('SEC-WHO-03 registro accessi: id 0 non sovrascrive il Super Admin; nome troncato', async () => {
+      assert.ok((await (await as('superadmin@qa.test')).call('whoami')).ok);
+      await admin.doc('buildings/1/members/0').set({ id: 0, edificioId: 1, nome: 'INTRUSO', isAdmin: true, _createdAt: new Date(), _createdBy: 'test' });
+      await admin.doc('buildings/1/contatti/0').set({ id: 0, edificioId: 1, emailLower: 'stranger@qa.test', email: 'stranger@qa.test' });
+      await (await as('stranger@qa.test')).call('whoami');
+      await admin.doc('buildings/1/members/104').update({ nome: 'x'.repeat(500) });
+      assert.ok((await (await as('newbie@qa.test')).call('whoami')).ok);
+      const stats = JSON.parse((await admin.collection('appdata').doc('cm_login_stats').get()).data().value);
+      assert.strictEqual(stats['0'].nome, 'Super Admin');
+      assert.strictEqual(stats['0'].superAdmin, true);
+      assert.strictEqual(stats['104'].nome.length, 100);
+    });
     // Audit 2026-10-30: richiediEmailVerificata (spento di default) impedisce di collegarsi a un profilo con un'email non confermata.
     it('SEC-WHO-01 richiediEmailVerificata: email non confermata non collega il profilo; confermata sì; opzione spenta come prima', async () => {
       await adminAuth().updateUser('u-newbie', { emailVerified: false });

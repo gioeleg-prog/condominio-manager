@@ -332,10 +332,14 @@ async function recordLogin(profile) {
       const snap = await tx.get(ref);
       let stats = {};
       try { stats = JSON.parse(snap.data()?.value || '{}') || {}; } catch { stats = {}; }
+      // Audit 2026-10-30: la chiave è l'id del condomino; '0' è del Super Admin, quindi un
+      // condomino con id 0 (lo può creare un amministratore) non sovrascrive la sua riga. Il nome
+      // è troncato: un nome enorme gonfiava il documento condiviso da tutti gli accessi.
+      if (!profile.superAdmin && String(profile.id) === '0') return;
       const key = String(profile.id);
       const prev = stats[key] || { totale: 0, mensile: {} };
       stats[key] = {
-        nome: profile.nome,
+        nome: String(profile.nome ?? '').slice(0, 100),
         superAdmin: !!profile.superAdmin,
         ultimoLogin: `${giorno} ${parts.hour}:${parts.minute}`,
         totale: (prev.totale || 0) + 1,
