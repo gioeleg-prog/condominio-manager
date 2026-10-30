@@ -335,7 +335,17 @@ service cloud.firestore {
           && dataOk(request.resource.data, 'dataIngresso') && dataOk(request.resource.data, 'dataUscita')
           && (isSuperAdmin() || (
                 request.resource.data.get('superAdmin', false) == (resource == null ? false : resource.data.get('superAdmin', false))
-             && request.resource.data.get('uid', null) == (resource == null ? null : resource.data.get('uid', null))));
+             && request.resource.data.get('uid', null) == (resource == null ? null : resource.data.get('uid', null))))
+          // Audit 2026-10-30: un amministratore non cambia sul proprio record (quello collegato al suo
+          // account) ciò che gli dà o gli toglie i permessi: disattivazione, cancellazione, data di
+          // uscita, ruolo. Altrimenti, revocato con un token ancora valido, si riattivava da solo e
+          // whoami gli ridava il ruolo. Il resto del proprio profilo (nome, colore…) resta modificabile.
+          && (isSuperAdmin() || resource == null || resource.data.get('uid', null) != request.auth.uid
+              || (request.resource.data.get('disabled', false) == resource.data.get('disabled', false)
+                  && request.resource.data.get('_deleted', false) == resource.data.get('_deleted', false)
+                  && request.resource.data.get('dataUscita', null) == resource.data.get('dataUscita', null)
+                  && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)
+                  && request.resource.data.get('canEdit', false) == resource.data.get('canEdit', false)));
         allow delete: if isSuperAdmin();
       }
 

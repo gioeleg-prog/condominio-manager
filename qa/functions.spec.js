@@ -213,6 +213,23 @@ describe('INTEGRAZIONE — modello per edificio su emulatori', function () {
       assert.strictEqual(stats['0'].superAdmin, true);
       assert.strictEqual(stats['104'].nome.length, 100);
     });
+    // Audit 2026-10-30: richiediEmailVerificata (spento di default) impedisce di collegarsi a un profilo con un'email non confermata.
+    it('SEC-WHO-01 richiediEmailVerificata: email non confermata non collega il profilo; confermata sì; opzione spenta come prima', async () => {
+      await adminAuth().updateUser('u-newbie', { emailVerified: false });
+      await admin.doc('appdata/cm_config').set({ superAdminUid: 'u-super', richiediEmailVerificata: true });
+      const r = await (await as('newbie@qa.test')).call('whoami');
+      assert.strictEqual(r.code, 'functions/failed-precondition');
+      assert.ok(!(await admin.doc('buildings/1/members/104').get()).data().uid, 'profilo collegato senza email confermata');
+      assert.ok(!(await claimsOf('u-newbie')).role, 'ruolo dato senza email confermata');
+      await admin.doc('appdata/cm_config').set({ superAdminUid: 'u-super' });
+      assert.ok((await (await as('newbie@qa.test')).call('whoami')).ok, 'opzione spenta: collega come prima');
+    });
+    it('SEC-WHO-02 richiediEmailVerificata: con l\'email confermata il primo accesso funziona', async () => {
+      await admin.doc('appdata/cm_config').set({ superAdminUid: 'u-super', richiediEmailVerificata: true });
+      const r = await (await as('newbie@qa.test')).call('whoami');
+      assert.ok(r.ok, r.message);
+      assert.strictEqual((await admin.doc('buildings/1/members/104').get()).data().uid, 'u-newbie');
+    });
     it('FT-AUTH-11 condomino uscito (data di uscita passata): niente ruolo al primo accesso', async () => {
       await admin.doc('buildings/1/members/104').update({ dataUscita: '2000-01-01' });
       const r = await (await as('newbie@qa.test')).call('whoami');
