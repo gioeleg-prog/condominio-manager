@@ -474,6 +474,20 @@ describe('buildings/** — modello per edificio (fase 2)', () => {
       await assertFails(admin().doc('buildings/1/expenses/49').delete());
       await assertSucceeds(superA().doc('buildings/1/expenses/49').delete());
     });
+    it('un adminEdificio non cambia sul proprio record disattivazione, cancellazione, uscita e ruolo (audit 2026-10-30)', async () => {
+      const mio = { id: 60, edificioId: 1, uid: 'u_admin', isAdmin: true, canEdit: true, disabled: true, _createdBy: 'backfill', _createdAt: T0 };
+      await seedDoc('buildings/1/members/60', mio);
+      const ok = (extra) => rec('u_admin', 60, { _createdBy: 'backfill', _createdAt: T0, uid: 'u_admin', isAdmin: true, canEdit: true, disabled: true, ...extra });
+      await assertFails(admin().doc('buildings/1/members/60').set(ok({ disabled: false })));
+      await assertFails(admin().doc('buildings/1/members/60').set(ok({ _deleted: true, _deletedBy: 'u_admin' })));
+      await assertFails(admin().doc('buildings/1/members/60').set(ok({ dataUscita: '2030-01-01' })));
+      await assertFails(admin().doc('buildings/1/members/60').set(ok({ isAdmin: false })));
+      await assertSucceeds(admin().doc('buildings/1/members/60').set(ok({ nome: 'Nuovo nome' })));
+      // sul record di un altro condomino resta libero, e il Super Admin può tutto
+      await seedDoc('buildings/1/members/61', { id: 61, edificioId: 1, uid: 'u_altro', disabled: true, _createdBy: 'backfill', _createdAt: T0 });
+      await assertSucceeds(admin().doc('buildings/1/members/61').set(rec('u_admin', 61, { _createdBy: 'backfill', _createdAt: T0, uid: 'u_altro', disabled: false })));
+      await assertSucceeds(superA().doc('buildings/1/members/60').set(rec('u_super', 60, { _createdBy: 'backfill', _createdAt: T0, uid: 'u_admin', isAdmin: true, canEdit: true, disabled: false })));
+    });
     it('un adminEdificio non può creare un superAdmin né cambiare l\'account collegato', async () => {
       await assertFails(admin().doc('buildings/1/members/50').set(rec('u_admin', 50, { superAdmin: true })));
       await seedDoc('buildings/1/members/51', { id: 51, edificioId: 1, uid: 'u_vero', _createdBy: 'backfill', _createdAt: T0 });
