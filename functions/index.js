@@ -184,7 +184,13 @@ exports.whoami = onCall({ region: REGIONI_CALLABLE }, async (request) => {
   }
 
   // Non-superAdmin: cerca il profilo (vedi sceltaProfilo più sotto).
-  const ref = await sceltaProfilo(uid, email);
+  // Audit 2026-10-30: con cm_config.richiediEmailVerificata attivo, un account con email non
+  // confermata non si collega a un profilo solo perché ne conosce l'indirizzo (chi riuscisse a
+  // registrare un account con l'email di un condomino invitato ne prenderebbe il ruolo). Spento di
+  // default: gli account creati dall'amministratore con password provvisoria non hanno l'email
+  // confermata, e attivarlo senza controllare li bloccherebbe al primo accesso.
+  const collegaPerEmail = cfg.richiediEmailVerificata !== true || request.auth.token.email_verified === true;
+  const ref = await sceltaProfilo(uid, email, collegaPerEmail);
   const buildingId = ref.parent.parent.id;
   // Profilo già collegato a questo account (tutti gli accessi dopo il primo):
   // basta leggerlo. La transazione serve solo a collegarlo la prima volta
@@ -275,17 +281,18 @@ async function profiliPerEmail(email) {
   return [...perPercorso.values()];
 }
 
-async function sceltaProfilo(uid, email) {
+async function sceltaProfilo(uid, email, collegaPerEmail = true) {
   const members = db.collectionGroup('members');
   const alive = (snap) => snap.docs.filter((d) => !d.data()._deleted);
   const perUid = alive(await members.where('uid', '==', uid).get());
   if (perUid.some((d) => permessi.membroAttivo(d.data()))) return piuVecchio(preferisciAttivi(perUid)).ref;
-  const perEmail = (await profiliPerEmail(email)).filter((d) => !d.data()._deleted);
+  const perEmail = collegaPerEmail ? (await profiliPerEmail(email)).filter((d) => !d.data()._deleted) : [];
   // Uno libero (o già suo) e attivo: es. chi è uscito da un condominio ed è entrato in un altro.
   const liberi = perEmail.filter((d) => (!d.data().uid || d.data().uid === uid) && permessi.membroAttivo(d.data()));
   if (liberi.length) return piuVecchio(liberi).ref;
   if (perUid.length) return piuVecchio(perUid).ref;
   if (perEmail.length) return piuVecchio(preferisciAttivi(perEmail)).ref;
+  if (!collegaPerEmail) throw new HttpsError('failed-precondition', 'Conferma prima il tuo indirizzo email (controlla la posta) e riprova.');
   throw new HttpsError('not-found', 'Nessun condomino associato a questa email. Contatta l\'amministratore.');
 }
 
