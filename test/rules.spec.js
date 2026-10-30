@@ -1017,6 +1017,20 @@ describe('lotto B: allegati vecchi, margine delle espressioni, ripristino e tipi
       await assertFails(admin().doc('buildings/1/members/1040').set(rec('u_admin', 1040, { rappresentante: 'no' })));
       await assertSucceeds(admin().doc('buildings/1/members/1040').set(rec('u_admin', 1040, { rappresentante: true })));
     });
+    it('data di una spesa o di un lavoro: vuota o AAAA-MM-GG; HTML e altri formati sono rifiutati (audit 2026-10-30)', async () => {
+      await assertSucceeds(editor().doc('buildings/1/expenses/1100').set(recNuovo('u_editor', 1100, { data: '2026-03-01' })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1101').set(recNuovo('u_editor', 1101, { data: '' })));
+      await assertSucceeds(editor().doc('buildings/1/expenses/1102').set(recNuovo('u_editor', 1102)));
+      for (const [i, v] of ['9<img src=x onerror=alert(1)>', '2026-03-01<b>', '1/3/26', '2026-3-1', 20260301, true, { a: 1 }].entries()) {
+        await assertFails(editor().doc(`buildings/1/expenses/${1110 + i}`).set(recNuovo('u_editor', 1110 + i, { data: v })));
+        await assertFails(admin().doc(`buildings/1/works/${1120 + i}`).set(recNuovo('u_admin', 1120 + i, { data: v })));
+      }
+    });
+    it('una data di spesa vecchia in un altro formato, già salvata, non blocca altri salvataggi finché non cambia', async () => {
+      await seed('expenses', 1130, { data: '1/3/26' });
+      await assertSucceeds(editor().doc('buildings/1/expenses/1130').set(rec('u_editor', 1130, { data: '1/3/26', titolo: 'Nuovo' })));
+      await assertFails(editor().doc('buildings/1/expenses/1130').set(rec('u_editor', 1130, { data: '<b>x</b>' })));
+    });
     it('date di ingresso e uscita: vuote o AAAA-MM-GG; un altro formato è rifiutato', async () => {
       await assertSucceeds(admin().doc('buildings/1/members/1050').set(recNuovo('u_admin', 1050, { dataIngresso: '2026-03-01', dataUscita: '2027-01-31' })));
       await assertSucceeds(admin().doc('buildings/1/members/1051').set(recNuovo('u_admin', 1051, { dataIngresso: '', dataUscita: null })));

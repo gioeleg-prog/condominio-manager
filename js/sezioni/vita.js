@@ -229,7 +229,7 @@ function renderLavoroCard(l, canManage) {
       </div>
       ${storico.length ? `<div style="margin-top:10px;font-size:12.5px;color:var(--text2)">
         <strong style="color:var(--text)">Ultimo aggiornamento:</strong>
-        <div style="margin-top:2px">${esc(storico[0].nota)} <span style="color:var(--text2)">— ${esc(storico[0].autore||'')}, ${storico[0].data}</span></div>
+        <div style="margin-top:2px">${esc(storico[0].nota)} <span style="color:var(--text2)">— ${esc(storico[0].autore||'')}, ${esc(storico[0].data)}</span></div>
       </div>` : ''}
       ${deliberaRif ? `<div style="margin-top:8px;font-size:12px"><span onclick="setState({page:'vita',vitaTab:'delibere',sidebarOpen:false})" style="color:var(--accent);cursor:pointer">📜 Da delibera: ${esc(deliberaRif.descrizioneSintetica)}</span></div>` : ''}
     </div>

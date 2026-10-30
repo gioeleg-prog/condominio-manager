@@ -3522,3 +3522,23 @@ describe('UNIT — PERF: accesso più rapido senza cambiare cosa vede ciascun ru
     });
   });
 });
+
+describe('UNIT — date dei record non si stampano senza escape (audit 2026-10-30)', () => {
+  const Y = new Date().getFullYear();
+  const xss = '<img src=x onerror=alert(1)>';
+  const app = loadApp();
+  it('scheda del lavoro: la data dell\'ultimo aggiornamento è neutralizzata', () => {
+    const html = app.renderLavoroCard({ id: 1, titolo: 'T', stato: 'in_corso', percentuale: 10,
+      storicoAggiornamenti: [{ data: xss, autore: 'a', nota: 'n' }] }, false);
+    assert.ok(!html.includes('<img'), 'tag non escapato');
+    assert.ok(html.includes('&lt;img'));
+  });
+  it('riquadro della serie: la data "fino al" è neutralizzata', () => {
+    const serie = [{ id: 1, ricGruppoId: 9, data: `${Y + 1}-01-01`, preventivo: '1', split: [] },
+      { id: 2, ricGruppoId: 9, data: `9${xss}`, preventivo: '1', consuntivo: '', split: [] }];
+    app.__set('state', { ...app.__get('state'), spese: serie });
+    const html = app.renderBoxSerie(serie[0]);
+    assert.ok(html.includes('occorrenza successiva'));
+    assert.ok(!html.includes('<img'), 'tag non escapato');
+  });
+});
