@@ -1176,7 +1176,7 @@ function renderBoxSerie(d) {
   if (!succ.length) return '';
   const fino = succ.map(s => s.data).sort().at(-1).split('-').reverse().join('/');
   return `<div class="serie-box" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:.75rem .875rem;margin-bottom:1rem">
-    <div style="font-weight:600;font-size:13px;margin-bottom:.4rem">🔁 Serie: ${succ.length} ${succ.length === 1 ? 'occorrenza successiva' : 'occorrenze successive'} non ancora consuntivate (fino al ${fino})</div>
+    <div style="font-weight:600;font-size:13px;margin-bottom:.4rem">🔁 Serie: ${succ.length} ${succ.length === 1 ? 'occorrenza successiva' : 'occorrenze successive'} non ancora consuntivate (fino al ${esc(fino)})</div>
     <label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;cursor:pointer">
       <input type="checkbox" id="m-serie-applica" style="width:16px;height:16px;margin-top:2px">
       <span>Applica anche a quelle le modifiche di titolo, descrizione, categoria, tipo, preventivo, fornitore e ripartizione. Date, consuntivi e allegati di ciascuna restano com'erano.</span>
