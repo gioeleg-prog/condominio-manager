@@ -29,6 +29,7 @@
   --on-primary: #FAFAFA;
   --ring: #0A0A0A;            /* contorno del fuoco da tastiera */
   --ring-soft: rgba(10,10,10,0.08);
+  --focus-halo: rgba(29,78,216,0.28); /* alone dei campi attivi: visibile, non solo il bordo */
   --scroll: #D4D4D4;
   --scroll-hover: #A3A3A3;
   /* Tinte usate nelle pagine (prima scritte a mano nei singoli elementi). */
@@ -69,6 +70,7 @@
   --on-primary: #171717;
   --ring: #D4D4D4;
   --ring-soft: rgba(250,250,250,0.10);
+  --focus-halo: rgba(126,167,221,0.40);
   --scroll: #3F3F46;
   --scroll-hover: #5A5A63;
   --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.6), 0 4px 6px -4px rgba(0,0,0,0.5);
@@ -117,14 +119,31 @@ body { font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, sans-se
 .login-logo h1 { font-size: 1.25rem; font-weight: 700; color: var(--text); }
 .login-logo p { font-size: 12px; color: var(--text2); }
 .login-card h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.4rem; }
-.login-card p.sub { color: var(--text2); font-size: 14px; margin-bottom: 1.5rem; }
+.login-card p.sub { color: var(--text2); font-size: 14px; margin-bottom: 1.25rem; }
+.login-logo .login-brand { font-size: 1.15rem; font-weight: 800; color: var(--text); line-height: 1.25; }
+.login-logo .login-tagline { font-size: 12px; color: var(--text2); }
+.login-card .login-title { font-size: 1.2rem; margin-bottom: .25rem; }
+/* Aree da toccare di almeno 44px (Apple HIG / WCAG 2.5.5) per campi e pulsanti dell'accesso */
+.login-card .field input { min-height: 44px; }
+.login-card .btn { min-height: 44px; }
+.login-submit { margin-top: .25rem; }
+.login-msg { color: var(--red); font-size: 13px; line-height: 1.4; margin-bottom: .75rem; }
+.login-msg.ok { color: var(--green); }
+.login-link { display: block; width: 100%; min-height: 44px; margin-top: .25rem; padding: .5rem; background: none; border: none; border-radius: var(--radius-sm); color: var(--accent); font: inherit; font-size: 13px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.login-link:hover { text-decoration-thickness: 2px; }
+.login-sep { display: flex; align-items: center; gap: .75rem; margin: .75rem 0; font-size: 12px; color: var(--text2); }
+.login-sep::before, .login-sep::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.login-google { width: 100%; gap: .5rem; }
+.login-footer { text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 11px; color: var(--text2); }
 .field { margin-bottom: 1rem; }
 .field label { display: block; font-size: 13px; font-weight: 500; color: var(--text2); margin-bottom: 6px; }
-.field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: var(--surface); color: var(--text); outline: none; transition: border-color .15s; }
-.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+.field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: var(--surface); color: var(--text); outline: none; transition: border-color .15s, box-shadow .15s; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-halo); }
+.field input[aria-invalid="true"] { border-color: var(--red); }
+.field input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 25%, transparent); }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 20px; border-radius: var(--radius-sm); border: none; cursor: pointer; font-size: 14px; font-weight: 500; transition: all .15s; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .btn-primary { background: var(--accent-fill); color: white; width: 100%; }
-.btn-primary:hover { background: var(--accent-fill); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-fill); filter: brightness(.92); }
 .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
 .btn-secondary:hover { background: var(--border); }
 .btn-danger { background: var(--red-light); color: var(--red); border: 1px solid var(--red-border); }
