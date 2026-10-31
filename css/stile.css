@@ -63,6 +63,8 @@ select option { background: var(--surface); color: var(--text); }
 .spese-filter-sel { padding-right: 30px; }
 /* Tutti gli altri campi di testo, data e numero dell'app: stesso fuoco. */
 :is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select, textarea):focus { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); outline: none; }
+/* Campo segnato come errato (accesso): il bordo resta rosso anche mentre ha il fuoco. */
+:is(input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]))[aria-invalid="true"]:focus { border-color: var(--red); box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 25%, transparent); }
 
 /* --- SCHEDE E TABELLE --- */
 .card, .stat-card, .condomino-card, .spesa-mobile-card, .entrata-mobile-card, .edificio-card { border-radius: var(--radius); border-color: var(--border); box-shadow: var(--shadow); }

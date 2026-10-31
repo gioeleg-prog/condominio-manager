@@ -45,7 +45,7 @@ function validatePassword(pw) {
 // ===========================
 function renderLogin() {
   return `
-  <div class="login-wrap">
+  <div class="login-wrap" role="main">
     <div class="login-card">
       <div class="login-logo">
         <div class="login-logo-icon" aria-hidden="true">${svgHome()}</div>
