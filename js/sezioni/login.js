@@ -45,44 +45,47 @@ function validatePassword(pw) {
 // ===========================
 function renderLogin() {
   return `
-  <div class="login-wrap">
+  <div class="login-wrap" role="main">
     <div class="login-card">
       <div class="login-logo">
-        <div class="login-logo-icon">${svgHome()}</div>
+        <div class="login-logo-icon" aria-hidden="true">${svgHome()}</div>
         <div>
-          <div style="font-weight:800;font-size:1.15rem;color:var(--text)">${esc(getBranding().nomeProdotto)}</div>
-          <div style="font-size:12px;color:var(--text2)">Accesso privato e sicuro</div>
+          <h1 class="login-brand">${esc(getBranding().nomeProdotto)}</h1>
+          <p class="login-tagline">Accesso privato e sicuro</p>
         </div>
       </div>
 
-      <h2 style="font-size:1.2rem;margin-bottom:.25rem">Accedi</h2>
-      <p class="sub" style="margin-bottom:1.25rem">Inserisci le tue credenziali. Solo tu puoi vedere il tuo condominio.</p>
+      <h2 class="login-title">Accedi</h2>
+      <p class="sub">Inserisci le tue credenziali. Solo tu puoi vedere il tuo condominio.</p>
 
-      <div class="field">
-        <label>Email</label>
-        <input type="text" id="inp-login"
-          placeholder="Es. mario@email.it"
-          autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus>
-        <p class="hint">Usa l'email con cui l'amministratore ha creato il tuo account.</p>
-      </div>
-      <div class="field">
-        <label>Password</label>
-        <input type="password" id="inp-pw" placeholder="••••••••" autocomplete="current-password">
-      </div>
-      <div id="login-err" style="color:var(--red);font-size:13px;margin-bottom:.75rem;display:none"></div>
-      <button class="btn btn-primary" style="width:100%;margin-top:.25rem" id="btn-login">Accedi</button>
-      <button type="button" id="btn-forgot" style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;margin-top:.5rem;width:100%;text-decoration:underline">Password dimenticata? Invia email di reset</button>
-      <div style="display:flex;align-items:center;gap:.75rem;margin:1rem 0 .75rem">
-        <div style="flex:1;height:1px;background:var(--border)"></div>
-        <span style="font-size:12px;color:var(--text2)">oppure</span>
-        <div style="flex:1;height:1px;background:var(--border)"></div>
-      </div>
-      <button type="button" id="btn-login-google" class="btn btn-secondary" style="width:100%;display:flex;align-items:center;justify-content:center;gap:.5rem">
-        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+      <!-- Un vero <form>: Invio nel campo password invia, e i gestori di password
+           riconoscono e salvano le credenziali. novalidate: i messaggi d'errore
+           restano quelli dell'app, non i fumetti del browser. -->
+      <form id="form-login" class="login-form" novalidate>
+        <div class="field">
+          <label for="inp-login">Email</label>
+          <input type="email" id="inp-login" name="username" inputmode="email"
+            placeholder="Es. mario@email.it"
+            autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus
+            aria-describedby="inp-login-hint login-err">
+          <p class="hint" id="inp-login-hint">Usa l'email con cui l'amministratore ha creato il tuo account.</p>
+        </div>
+        <div class="field">
+          <label for="inp-pw">Password</label>
+          <input type="password" id="inp-pw" name="password" placeholder="••••••••" autocomplete="current-password"
+            aria-describedby="login-err">
+        </div>
+        <div id="login-err" class="login-msg" role="alert" hidden></div>
+        <button type="submit" class="btn btn-primary login-submit" id="btn-login">Accedi</button>
+      </form>
+      <button type="button" id="btn-forgot" class="login-link">Password dimenticata? Invia email di reset</button>
+      <div class="login-sep" aria-hidden="true"><span>oppure</span></div>
+      <button type="button" id="btn-login-google" class="btn btn-secondary login-google">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true" focusable="false"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
         Accedi con Google
       </button>
-      <div style="text-align:center;margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)">
-        <span style="font-size:11px;color:var(--text2)">Powered by <strong>${esc(getBranding().fornitore)}</strong></span>
+      <div class="login-footer">
+        <span>Powered by <strong>${esc(getBranding().fornitore)}</strong></span>
       </div>
     </div>
   </div>`;
@@ -96,19 +99,19 @@ function bindLogin() {
   // riaprire un popup Google fresco.
   window.__pendingGoogleLink = null;
 
-  const bl = document.getElementById('btn-login');
-  if (bl) bl.onclick = doLogin;
-  // Enter su username → focus password; Enter su password → login
+  // Il pulsante "Accedi" e l'Invio nel campo password inviano il form: un solo
+  // punto d'ingresso, così doLogin non parte due volte.
+  const form = document.getElementById('form-login');
+  if (form) form.onsubmit = e => { e.preventDefault(); doLogin(); };
+  // Invio nel campo email → passa alla password (non invia ancora)
   const inpLogin = document.getElementById('inp-login');
   const inpPw    = document.getElementById('inp-pw');
   // Se l'utente cambia l'email, annulla il collegamento in sospeso: la
   // password andrebbe verificata contro l'email del popup, non una nuova.
-  if (inpLogin) inpLogin.oninput = () => { window.__pendingGoogleLink = null; };
+  if (inpLogin) inpLogin.oninput = () => { window.__pendingGoogleLink = null; clearLoginInvalid(inpLogin); };
+  if (inpPw) inpPw.oninput = () => clearLoginInvalid(inpPw);
   if (inpLogin) inpLogin.onkeydown = e => {
     if (e.key === 'Enter') { e.preventDefault(); inpPw?.focus(); }
-  };
-  if (inpPw) inpPw.onkeydown = e => {
-    if (e.key === 'Enter') { e.preventDefault(); doLogin(); }
   };
 
 
@@ -194,21 +197,19 @@ function bindLogin() {
   const bf = document.getElementById('btn-forgot');
   if (bf) bf.onclick = async () => {
     const email = (document.getElementById('inp-login')?.value||'').trim();
-    if (!email) { showLoginErr('Inserisci la tua email prima di cliccare reset.'); return; }
+    if (!email) { showLoginErr('Inserisci la tua email prima di cliccare reset.', ['inp-login']); document.getElementById('inp-login')?.focus(); return; }
     if (!window._fb) { showLoginErr('Connessione richiesta.'); return; }
     // QA: stessa risposta se l'email non è registrata, per non rivelare quali
     // email hanno un account.
-    const ok = () => {
-      const el = document.getElementById('login-err');
-      if (el) { el.style.color='var(--green)'; el.style.display='block'; el.textContent='✅ Se l’email è registrata riceverai a breve il link per reimpostare la password. Controlla anche lo spam.'; }
-    };
+    const ok = () => showLoginMsg('Se l’email è registrata riceverai a breve il link per reimpostare la password. Controlla anche lo spam.', 'ok');
     try {
       const { auth, sendPasswordResetEmail } = window._fb;
       await sendPasswordResetEmail(auth, email);
       ok();
     } catch(e) {
       if (e.code === 'auth/user-not-found') ok();
-      else showLoginErr(e.code === 'auth/invalid-email' ? 'Indirizzo email non valido.' : (e.message || 'Invio non riuscito. Riprova.'));
+      else if (e.code === 'auth/invalid-email') showLoginErr('Indirizzo email non valido.', ['inp-login']);
+      else showLoginErr(e.message || 'Invio non riuscito. Riprova.');
     }
   };
 }
@@ -220,8 +221,8 @@ async function doLogin() {
   window.__pendingGoogleLink = null;
   const loginInput = (document.getElementById('inp-login')?.value || '').trim();
   const pw         = (document.getElementById('inp-pw')?.value   || '').trim();
-  if (!loginInput) { showLoginErr('Inserisci la tua email'); return; }
-  if (!pw)         { showLoginErr('Inserisci la password'); return; }
+  if (!loginInput) { showLoginErr('Inserisci la tua email', ['inp-login']); document.getElementById('inp-login')?.focus(); return; }
+  if (!pw)         { showLoginErr('Inserisci la password', ['inp-pw']); document.getElementById('inp-pw')?.focus(); return; }
 
   const btn = document.getElementById('btn-login');
   if (btn) { btn.disabled = true; btn.textContent = 'Accesso in corso…'; }
@@ -252,16 +253,41 @@ async function doLogin() {
       : e.code === 'auth/user-disabled'
       ? 'Account disabilitato. Contatta l amministratore.'
       : 'Accesso non riuscito. Verifica email e password e riprova.';
-    showLoginErr(msg);
+    const campi = e.code === 'auth/invalid-email' ? ['inp-login']
+      : (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential' || e.code === 'auth/user-not-found') ? ['inp-login', 'inp-pw']
+      : [];
+    showLoginErr(msg, campi);
     if (btn) { btn.disabled = false; btn.textContent = 'Accedi'; }
   }
 }
 
-function showLoginErr(msg) {
+// Messaggio sotto i campi di accesso. role="alert": i lettori di schermo lo
+// leggono appena compare. tipo 'err' (rosso) o 'ok' (verde, es. email di reset).
+function showLoginMsg(msg, tipo) {
   const el = document.getElementById('login-err');
-  // Reimposta il colore rosso: un messaggio di errore mostrato dopo un avviso
-  // verde (es. "email di reset inviata") altrimenti resterebbe verde.
-  if (el) { el.style.color = 'var(--red)'; el.textContent = msg; el.style.display = 'block'; }
+  if (!el) return;
+  // Tollerante con elementi parziali (stub nei test unitari)
+  el.classList?.toggle('ok', tipo === 'ok');
+  el.textContent = msg;
+  el.hidden = false;
+  if (el.style) el.style.display = '';
+  if (tipo === 'ok') ['inp-login', 'inp-pw'].forEach(id => clearLoginInvalid(document.getElementById(id)));
+}
+
+// campi: id degli input da segnare come non validi (aria-invalid + bordo rosso).
+// Chiamata anche da js/core/avvio.js con il solo messaggio.
+function showLoginErr(msg, campi = []) {
+  showLoginMsg(msg, 'err');
+  ['inp-login', 'inp-pw'].forEach(id => {
+    const inp = document.getElementById(id);
+    if (!inp) return;
+    if (campi.includes(id)) inp.setAttribute?.('aria-invalid', 'true');
+    else clearLoginInvalid(inp);
+  });
+}
+
+function clearLoginInvalid(inp) {
+  inp?.removeAttribute?.('aria-invalid');
 }
 
 function renderModalChangePw() {
