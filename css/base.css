@@ -124,7 +124,8 @@ body { font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, sans-se
 .login-logo .login-tagline { font-size: 12px; color: var(--text2); }
 .login-card .login-title { font-size: 1.2rem; margin-bottom: .25rem; }
 /* Aree da toccare di almeno 44px (Apple HIG / WCAG 2.5.5) per campi e pulsanti dell'accesso */
-.login-card .field input { min-height: 44px; }
+/* 16px nei campi: sotto, Safari su iPhone ingrandisce la pagina al tocco */
+.login-card .field input { min-height: 44px; font-size: 16px; }
 .login-card .btn { min-height: 44px; }
 .login-submit { margin-top: .25rem; }
 .login-msg { color: var(--red); font-size: 13px; line-height: 1.4; margin-bottom: .75rem; }
@@ -134,7 +135,7 @@ body { font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, sans-se
 .login-sep { display: flex; align-items: center; gap: .75rem; margin: .75rem 0; font-size: 12px; color: var(--text2); }
 .login-sep::before, .login-sep::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .login-google { width: 100%; gap: .5rem; }
-.login-footer { text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 11px; color: var(--text2); }
+.login-footer { text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 12px; color: var(--text2); }
 .field { margin-bottom: 1rem; }
 .field label { display: block; font-size: 13px; font-weight: 500; color: var(--text2); margin-bottom: 6px; }
 .field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: var(--surface); color: var(--text); outline: none; transition: border-color .15s, box-shadow .15s; }
