@@ -85,9 +85,9 @@ function load(key, def) {
 // l'esito (true = confermato dal server, false = rifiutato e già annullato):
 // chi deve fare qualcosa SOLO dopo un salvataggio riuscito (es. cancellare il
 // file di un allegato) la aspetta; gli altri possono ignorarla.
-function save(key, val) {
+function save(key, val, opz) {
   _cache[key] = val;
-  return fbSaveKey(key, val);
+  return fbSaveKey(key, val, opz);
 }
 
 let state = {

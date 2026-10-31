@@ -26,6 +26,11 @@ test.describe('Accesso e ruoli', () => {
     await vaiA(page, 'spese');
     await expect(page.locator('#btn-add-spesa')).toHaveCount(0);
     await expect(page.locator('[data-del-spesa], [data-edit-spesa]')).toHaveCount(0);
+    // ADV-FUNC-036: niente caselle di selezione né "seleziona tutte"; le colonne restano allineate.
+    await expect(page.locator('.chk-spesa, #chk-all-spese, #btn-del-sel')).toHaveCount(0);
+    const colonne = await page.locator('.table-wrap table').first().evaluate((t) => ({
+      th: t.querySelectorAll('thead th').length, td: t.querySelector('tbody tr')?.querySelectorAll('td').length }));
+    expect(colonne.td).toBe(colonne.th);
   });
 
   test('modifica: può aggiungere spese ma non gestire i condomini', async ({ page }) => {

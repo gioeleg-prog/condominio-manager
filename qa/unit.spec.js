@@ -3542,3 +3542,165 @@ describe('UNIT — date dei record non si stampano senza escape (audit 2026-10-3
     assert.ok(!html.includes('<img'), 'tag non escapato');
   });
 });
+
+describe('UNIT — operazioni massive e profilo (audit avversario regole 2026-10-31)', () => {
+  const fbBatch = (batch) => ({ auth: { currentUser: { uid: 'u' } }, db: {}, doc: (_db, ...p) => ({ path: p.join('/'), id: p[p.length - 1] }),
+    serverTimestamp: () => 'ORA', deleteField: () => 'TOGLI', getDoc: async () => { throw new Error('no'); },
+    writeBatch: () => { const n = { sets: 0 }; batch.push(n); return { set: () => { n.sets++; }, commit: async () => { n.fatto = true; } }; } });
+  const molte = (n) => Array.from({ length: n }, (_, i) => ({ id: i + 1, titolo: 'S' + i, preventivo: '10', edificioId: 1 }));
+  it('ADV-FUNC-035: oltre 400 scritture non si scrive nulla e il messaggio dice la verità', async () => {
+    const app = loadApp();
+    app.render = () => {};
+    const batch = [];
+    app._fb = fbBatch(batch);
+    const base = molte(401);
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, spese: [] });
+    app.setServerSnap('cm_spese', base);
+    await assert.rejects(() => app.saveRecords('cm_spese', []), /Troppe modifiche insieme \(401\): al massimo 400 alla volta/);
+    assert.strictEqual(batch.length, 0, 'è stato aperto un batch');
+    // Tramite il salvataggio dell'app: ripristino dello stato e avviso.
+    app.__set('state', { ...app.__get('state'), spese: [] });
+    assert.strictEqual(await app.fbSaveKey('cm_spese', []), false);
+    assert.strictEqual(app.__get('state').spese.length, 401, 'lo schermo non è tornato al salvato');
+    assert.ok(app.__alerts.some((a) => /Troppe modifiche insieme/.test(a) && /annullata/.test(a)));
+  });
+  it('ADV-FUNC-035: esattamente 400 scritture = un solo batch', async () => {
+    const app = loadApp();
+    const batch = [];
+    app._fb = fbBatch(batch);
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1 });
+    app.setServerSnap('cm_spese', molte(400));
+    app.__get('_versioni').cm_spese = new Map();
+    await app.saveRecords('cm_spese', []);
+    assert.deepStrictEqual(batch.map((b) => [b.sets, b.fatto]), [[400, true]]);
+  });
+  it('ADV-FUNC-035: "Elimina selezionate" oltre 400 avvisa e non salva', async () => {
+    const app = loadApp();
+    const Y = new Date().getFullYear();
+    const spese = molte(401).map((s) => ({ ...s, categoria: 'luce', data: Y + '-02-01' }));
+    app.__set('state', { ...app.__get('state'), page: 'spese', user: { id: 1, nome: 'A', isAdmin: true, canEdit: true, edificioId: 1 }, edificioAttivo: 1,
+      spese, speseSelezionate: new Set(spese.map((s) => String(s.id))) });
+    app.render = () => {};
+    app.renderSpese();
+    const bottone = {};
+    const gid = app.document.getElementById;
+    app.document.getElementById = (id) => (id === 'btn-del-sel' ? bottone : gid.call(app.document, id));
+    let salvato = false;
+    app.save = () => { salvato = true; };
+    app.bindAzioniSpese();
+    await bottone.onclick();
+    assert.strictEqual(salvato, false);
+    assert.ok(app.__alerts.some((a) => /Troppe modifiche insieme \(401\)/.test(a)));
+  });
+  describe('ADV-FUNC-043: ripristino da backup oltre 400 record (eccezione al tetto)', () => {
+    const leggi = (app, backup) => {
+      app.FileReader = class { readAsText() { setTimeout(() => this.onload({ target: { result: JSON.stringify(backup) } }), 0); } };
+      app.importaDati({ nome: 'backup.json' });
+      return new Promise((ok) => setTimeout(ok, 30));
+    };
+    const prepara = (commit) => {
+      const app = loadApp();
+      const batch = [];
+      app.render = () => {};
+      app._fb = { ...fbBatch(batch), writeBatch: () => { const n = { sets: 0 }; batch.push(n); return { set: () => { n.sets++; }, commit: async () => { await commit(n, batch); n.fatto = true; } }; } };
+      app.__set('state', { ...app.__get('state'), edificioAttivo: 1, spese: [] });
+      app.setServerSnap('cm_spese', []);
+      app.__get('_versioni').cm_spese = new Map();
+      return { app, batch };
+    };
+    it('più di 400 record: si scrive a blocchi da 400 e compare il messaggio di successo', async () => {
+      const { app, batch } = prepara(async () => {});
+      await leggi(app, { version: 3, data: { cm_spese: molte(401) } });
+      assert.deepStrictEqual(batch.map((b) => [b.sets, b.fatto]), [[400, true], [1, true]]);
+      assert.ok(app.__alerts.some((a) => /Dati ripristinati con successo/.test(a)));
+      assert.ok(!app.__alerts.some((a) => /INCOMPLETO|Troppe modifiche/.test(a)));
+    });
+    it('un salvataggio che fallisce: niente messaggio di successo, ripristino dichiarato incompleto', async () => {
+      const { app } = prepara(async (n, batch) => { if (batch.length > 1) throw new Error('rete caduta'); });
+      await leggi(app, { version: 3, data: { cm_spese: molte(401) } });
+      assert.ok(!app.__alerts.some((a) => /Dati ripristinati con successo/.test(a)), 'successo dichiarato a torto');
+      assert.ok(app.__alerts.some((a) => /Ripristino INCOMPLETO/.test(a) && /Ricarica la pagina/.test(a)));
+    });
+    it('un salvataggio normale resta limitato a 400 (nessuna eccezione per gli altri)', async () => {
+      const { app, batch } = prepara(async () => {});
+      assert.strictEqual(await app.save('cm_spese', molte(401)), false);
+      assert.strictEqual(batch.length, 0);
+    });
+  });
+  it('ADV-FUNC-042: la selezione tiene una spesa con id testuale', () => {
+    const app = loadApp();
+    const Y = new Date().getFullYear();
+    app.__set('state', { ...app.__get('state'), page: 'spese', user: { id: 1, nome: 'A', isAdmin: true, canEdit: true, edificioId: 1 }, edificioAttivo: 1,
+      spese: [{ id: 'abc-1', titolo: 'Luce', categoria: 'luce', data: Y + '-02-01', edificioId: 1, preventivo: '10' },
+        { id: 2, titolo: 'Acqua', categoria: 'acqua', data: Y + '-03-01', edificioId: 1, preventivo: '10' }],
+      speseSelezionate: new Set(['abc-1', '2']) });
+    app.renderSpese();
+    assert.deepStrictEqual([...app.__get('state').speseSelezionate].sort(), ['2', 'abc-1']);
+    assert.deepStrictEqual([...app.__get('_idsSpeseFiltrate')].sort(), ['2', 'abc-1']);
+  });
+  it('ADV-FUNC-036: un condomino in sola lettura non ha caselle né "Elimina selezionate"', () => {
+    const app = loadApp();
+    const Y = new Date().getFullYear();
+    app.__set('state', { ...app.__get('state'), page: 'spese', user: { id: 3, nome: 'M', edificioId: 1 }, edificioAttivo: 1,
+      spese: [{ id: 1, titolo: 'Luce', categoria: 'luce', data: Y + '-02-01', edificioId: 1, preventivo: '10' }],
+      speseSelezionate: new Set(['1']) });
+    const html = app.renderSpese();
+    assert.ok(!/chk-spesa|chk-all-spese|btn-del-sel/.test(html));
+  });
+  describe('ADV-FUNC-044: la scheda profilo dice a quale indirizzo arrivano le comunicazioni', () => {
+    const scheda = (profilo) => {
+      const app = loadApp();
+      app.__set('state', { ...app.__get('state'), user: { id: 5, edificioId: 1, nome: 'A' }, edifici: [{ id: 1, nome: 'Cond' }] });
+      return app.renderModalProfilo({ profilo: { id: 5, nome: 'A', username: '', appartamento: '', dataIngresso: '', emailNotifiche: true, whatsappNotifiche: true, telefono: '', emailInAttesa: null, ...profilo } });
+    };
+    it('email dei contatti diversa da quella di accesso: avviso con l\'indirizzo reale', () => {
+      const html = scheda({ emailAccesso: 'nuova@qa.test', email: 'vecchia@qa.test' });
+      assert.match(html, /arrivano a <strong>vecchia@qa\.test<\/strong>/);
+      assert.match(html, /chiedi all'amministratore/);
+      assert.ok(!html.includes('Con questa email entri nell\'app e ricevi le comunicazioni'));
+    });
+    it('nessuna email nei contatti: avviso che le comunicazioni non arrivano (ADV-FUNC-046)', () => {
+      const html = scheda({ emailAccesso: 'a@qa.test', email: '' });
+      assert.match(html, /non c'è un indirizzo per le comunicazioni/);
+      assert.ok(!html.includes('ricevi le comunicazioni del condominio'));
+    });
+    it('"Ricevo le email" tolto: la scheda non promette le comunicazioni (ADV-FUNC-046)', () => {
+      const html = scheda({ emailAccesso: 'a@qa.test', email: 'a@qa.test', emailNotifiche: false });
+      assert.match(html, /hai tolto "Ricevo le email"/);
+    });
+    it('stessa email (anche con maiuscole diverse): nessun avviso', () => {
+      const html = scheda({ emailAccesso: 'a@qa.test', email: 'A@qa.test' });
+      assert.ok(!html.includes('è diverso dall\'email con cui accedi'));
+      assert.ok(html.includes('Con questa email entri nell\'app e ricevi le comunicazioni'));
+    });
+    it('l\'email dei contatti è neutralizzata', () => {
+      const html = scheda({ emailAccesso: 'a@qa.test', email: '<img src=x onerror=1>' });
+      assert.ok(!html.includes('<img'));
+    });
+  });
+  describe('ADV-FUNC-040: applicaMioProfilo e versioni', () => {
+    const prepara = (nota) => {
+      const app = loadApp();
+      app._fb = { auth: { currentUser: { uid: 'me' } }, db: {}, doc: (_db, ...p) => ({ path: p.join('/') }) };
+      app.__set('state', { ...app.__get('state'), user: { id: 5, edificioId: 1, isAdmin: true, canEdit: true }, condomini: [{ id: 5, nome: 'A', edificioId: 1 }] });
+      app.__get('_versioni').cm_condomini = new Map([['buildings/1/members/5', nota]]);
+      return app;
+    };
+    const p = { id: 5, nome: 'A', username: '', emailNotifiche: true, whatsappNotifiche: true, telefono: '' };
+    it('adotta la versione se l\'ultima modifica è dell\'utente e il documento era come lo conosceva', () => {
+      const app = prepara(100);
+      app.applicaMioProfilo(p, { members: { ms: 200, by: 'me' } }, { members: { ms: 100, by: 'x' } });
+      assert.strictEqual(app.__get('_versioni').cm_condomini.get('buildings/1/members/5'), 200);
+    });
+    it('non adotta la versione se l\'ultima modifica è di un altro amministratore', () => {
+      const app = prepara(100);
+      app.applicaMioProfilo(p, { members: { ms: 200, by: 'altro-admin' } }, { members: { ms: 150, by: 'altro-admin' } });
+      assert.strictEqual(app.__get('_versioni').cm_condomini.get('buildings/1/members/5'), 100);
+    });
+    it('non adotta la versione se prima della scrittura il documento era già cambiato da altri', () => {
+      const app = prepara(100);
+      app.applicaMioProfilo(p, { members: { ms: 200, by: 'me' } }, { members: { ms: 150, by: 'altro-admin' } });
+      assert.strictEqual(app.__get('_versioni').cm_condomini.get('buildings/1/members/5'), 100);
+    });
+  });
+});

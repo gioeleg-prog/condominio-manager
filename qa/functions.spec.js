@@ -1326,12 +1326,12 @@ describe('INTEGRAZIONE — il mio profilo (il condomino corregge i propri dati)'
     assert.strictEqual(r.data.profilo.appartamento, 'Int. 3');
     assert.strictEqual(r.data.profilo.emailAccesso, 'member1@qa.test');
   });
-  it('PROF-02 salva nome, nickname, cellulare e preferenze, firmati a suo nome', async () => {
+  it('PROF-02 salva nickname, cellulare e preferenze, firmati a suo nome', async () => {
     const r = await (await as('member1@qa.test')).call('mioProfilo', { modifiche: {
-      nome: '  Marta Rossi ', username: 'Marta del 3°', telefono: '333 123 4567', emailNotifiche: false, whatsappNotifiche: true } });
+      username: 'Marta del 3°', telefono: '333 123 4567', emailNotifiche: false, whatsappNotifiche: true } });
     assert.ok(r.ok, r.message);
     const m = await membro();
-    assert.strictEqual(m.nome, 'Marta Rossi');
+    assert.strictEqual(m.nome, 'Marta Member', 'il nome non cambia');
     assert.strictEqual(m.username, 'Marta del 3°');
     assert.strictEqual(m.emailNotifiche, false);
     assert.strictEqual(m._updatedBy, 'u-member1');
@@ -1346,7 +1346,7 @@ describe('INTEGRAZIONE — il mio profilo (il condomino corregge i propri dati)'
   });
   it('PROF-03 appartamento, ruolo e altri campi non passano', async () => {
     const r = await (await as('member1@qa.test')).call('mioProfilo', { modifiche: {
-      nome: 'Marta', appartamento: 'Attico', isAdmin: true, canEdit: true, dataUscita: '2000-01-01', superAdmin: true } });
+      username: 'Marta', appartamento: 'Attico', isAdmin: true, canEdit: true, dataUscita: '2000-01-01', superAdmin: true } });
     assert.ok(r.ok, r.message);
     const m = await membro();
     assert.strictEqual(m.appartamento, 'Int. 3');
@@ -1355,7 +1355,7 @@ describe('INTEGRAZIONE — il mio profilo (il condomino corregge i propri dati)'
   });
   it('PROF-04 rifiuta dati non validi', async () => {
     const u = await as('member1@qa.test');
-    for (const modifiche of [{ nome: ' ' }, { nome: 'x'.repeat(101) }, { telefono: '333<script>' }, { telefono: '12' },
+    for (const modifiche of [{ telefono: '333<script>' }, { telefono: '12' },
       { emailNotifiche: 'no' }, { nuovaEmail: 'non-una-email' }, { username: 'x'.repeat(41) }]) {
       const r = await u.call('mioProfilo', { modifiche });
       assert.strictEqual(r.code, 'functions/invalid-argument', JSON.stringify(modifiche));
@@ -1371,9 +1371,10 @@ describe('INTEGRAZIONE — il mio profilo (il condomino corregge i propri dati)'
     assert.strictEqual((await anonCall('mioProfilo')).code, 'functions/unauthenticated');
   });
   it('PROF-06 tocca solo la propria scheda, anche per un amministratore', async () => {
-    const r = await (await as('admin1@qa.test')).call('mioProfilo', { modifiche: { nome: 'Anna Nuova' } });
+    const r = await (await as('admin1@qa.test')).call('mioProfilo', { modifiche: { username: 'Anna Nuova' } });
     assert.ok(r.ok, r.message);
-    assert.strictEqual((await admin.doc('buildings/1/members/101').get()).data().nome, 'Anna Nuova');
+    assert.strictEqual((await admin.doc('buildings/1/members/101').get()).data().username, 'Anna Nuova');
+    assert.strictEqual((await membro()).username, undefined);
     assert.strictEqual((await membro()).nome, 'Marta Member');
   });
   it('PROF-07 cambio email: i contatti cambiano solo al rientro con l\'indirizzo chiesto e confermato', async () => {
@@ -1409,5 +1410,106 @@ describe('INTEGRAZIONE — il mio profilo (il condomino corregge i propri dati)'
     await adminAuth().updateUser('u-member1', { email: 'altra@qa.test', emailVerified: true });
     assert.ok((await (await as('altra@qa.test')).call('whoami')).ok);
     assert.strictEqual((await contatti()).emailLower, 'member1@qa.test');
+  });
+  it('PROF-18 pagina vecchia in cache: il nome uguale a quello salvato si ignora, il resto si salva', async () => {
+    const u = await as('member1@qa.test');
+    const r = await u.call('mioProfilo', { modifiche: { nome: ' Marta Member ', username: 'Marta3' } });
+    assert.ok(r.ok, r.message);
+    const m = await membro();
+    assert.strictEqual(m.nome, 'Marta Member');
+    assert.strictEqual(m.username, 'Marta3');
+  });
+  it('PROF-10 il nome anagrafico lo cambia solo l\'amministratore: la richiesta con "nome" è rifiutata (ADV-FUNC-037)', async () => {
+    const u = await as('member1@qa.test');
+    for (const modifiche of [{ nome: 'Altro Nome' }, { nome: 'Altro Nome', username: 'x' }, { nome: '' }]) {
+      const r = await u.call('mioProfilo', { modifiche });
+      assert.strictEqual(r.code, 'functions/invalid-argument', JSON.stringify(modifiche));
+      assert.match(r.message, /amministratore/);
+    }
+    const m = await membro();
+    assert.strictEqual(m.nome, 'Marta Member');
+    assert.ok(!('username' in m), 'una richiesta rifiutata non scrive nulla');
+  });
+  it('PROF-11 richiesta X poi Y, link di X aperto: i contatti prendono X; con la vecchia email la richiesta resta (ADV-FUNC-038)', async () => {
+    const u = await as('member1@qa.test');
+    assert.ok((await u.call('mioProfilo', { modifiche: { nuovaEmail: 'x@qa.test' } })).ok);
+    assert.ok((await u.call('mioProfilo', { modifiche: { nuovaEmail: 'y@qa.test' } })).ok);
+    // Entra ancora con l'email di prima: nulla cambia e la richiesta resta in attesa.
+    assert.ok((await (await as('member1@qa.test')).call('whoami')).ok);
+    assert.strictEqual((await contatti()).emailLower, 'member1@qa.test');
+    assert.strictEqual((await admin.doc('richiesteEmail/u-member1').get()).data().email, 'y@qa.test');
+    // Link di X aperto: Firebase porta l'accesso a X, che è confermata.
+    await adminAuth().updateUser('u-member1', { email: 'x@qa.test', emailVerified: true });
+    assert.ok((await (await as('x@qa.test')).call('whoami')).ok);
+    const c = await contatti();
+    assert.strictEqual(c.email, 'x@qa.test');
+    assert.strictEqual(c.emailLower, 'x@qa.test');
+    assert.ok(!(await admin.doc('richiesteEmail/u-member1').get()).exists, 'la richiesta si cancella');
+  });
+  it('PROF-12 l\'email corretta dall\'amministratore dopo la richiesta non viene sovrascritta (ADV-FUNC-039)', async () => {
+    const u = await as('member1@qa.test');
+    assert.ok((await u.call('mioProfilo', { modifiche: { nuovaEmail: 'nuova@qa.test' } })).ok);
+    await new Promise((r) => setTimeout(r, 150));
+    await admin.doc('buildings/1/contatti/103').set({ email: 'scelta.admin@qa.test', emailLower: 'scelta.admin@qa.test',
+      _updatedBy: 'u-admin1', _updatedAt: new Date() }, { merge: true });
+    await adminAuth().updateUser('u-member1', { email: 'nuova@qa.test', emailVerified: true });
+    assert.ok((await (await as('nuova@qa.test')).call('whoami')).ok);
+    assert.strictEqual((await contatti()).email, 'scelta.admin@qa.test', 'la correzione dell\'amministratore è stata sovrascritta');
+    assert.ok(!(await admin.doc('richiesteEmail/u-member1').get()).exists, 'la richiesta va cancellata');
+  });
+  it('PROF-13 richiesta di un altro condominio o scheda (spostamento): si cancella senza toccare i contatti (ADV-FUNC-039)', async () => {
+    const u = await as('member1@qa.test');
+    assert.ok((await u.call('mioProfilo', { modifiche: { nuovaEmail: 'nuova@qa.test' } })).ok);
+    await admin.doc('richiesteEmail/u-member1').set({ buildingId: '2', memberId: '103' }, { merge: true });
+    await adminAuth().updateUser('u-member1', { email: 'nuova@qa.test', emailVerified: true });
+    assert.ok((await (await as('nuova@qa.test')).call('whoami')).ok);
+    assert.strictEqual((await contatti()).emailLower, 'member1@qa.test');
+    assert.ok(!(await admin.doc('richiesteEmail/u-member1').get()).exists);
+  });
+  it('PROF-15 se l\'amministratore cambia solo il telefono l\'email nuova verificata allinea comunque i contatti (CR-02)', async () => {
+    const u = await as('member1@qa.test');
+    assert.ok((await u.call('mioProfilo', { modifiche: { nuovaEmail: 'nuova@qa.test' } })).ok);
+    assert.strictEqual((await admin.doc('richiesteEmail/u-member1').get()).data().emailContattiAllaRichiesta, 'member1@qa.test');
+    await admin.doc('buildings/1/contatti/103').set({ telefono: '320 111 2222', _updatedBy: 'u-admin1', _updatedAt: new Date() }, { merge: true });
+    await adminAuth().updateUser('u-member1', { email: 'nuova@qa.test', emailVerified: true });
+    assert.ok((await (await as('nuova@qa.test')).call('whoami')).ok);
+    const c = await contatti();
+    assert.strictEqual(c.email, 'nuova@qa.test');
+    assert.strictEqual(c.telefono, '320 111 2222');
+    assert.ok(!(await admin.doc('richiesteEmail/u-member1').get()).exists);
+  });
+  it('PROF-16 una modifica del condomino (telefono) non maschera il cambio email dell\'amministratore (CR-02)', async () => {
+    const u = await as('member1@qa.test');
+    assert.ok((await u.call('mioProfilo', { modifiche: { nuovaEmail: 'nuova@qa.test' } })).ok);
+    await admin.doc('buildings/1/contatti/103').set({ email: 'scelta.admin@qa.test', emailLower: 'scelta.admin@qa.test', _updatedBy: 'u-admin1', _updatedAt: new Date() }, { merge: true });
+    assert.ok((await u.call('mioProfilo', { modifiche: { telefono: '333 999 8888' } })).ok);   // ultima scrittura: del condomino
+    await adminAuth().updateUser('u-member1', { email: 'nuova@qa.test', emailVerified: true });
+    assert.ok((await (await as('nuova@qa.test')).call('whoami')).ok);
+    assert.strictEqual((await contatti()).email, 'scelta.admin@qa.test');
+    assert.ok(!(await admin.doc('richiesteEmail/u-member1').get()).exists, 'la richiesta decade');
+  });
+  it('PROF-17 richiesta vecchia senza i campi nuovi: si scrive solo se l\'email di accesso è quella richiesta (CR-03)', async () => {
+    const vecchia = { email: 'chiesta@qa.test', buildingId: '1', memberId: '103', at: new Date() };
+    // Accesso con un'altra email confermata: nessuna modifica ai contatti, richiesta lasciata.
+    await admin.doc('richiesteEmail/u-member1').set(vecchia);
+    await adminAuth().updateUser('u-member1', { email: 'altra@qa.test', emailVerified: true });
+    assert.ok((await (await as('altra@qa.test')).call('whoami')).ok);
+    assert.strictEqual((await contatti()).emailLower, 'member1@qa.test');
+    assert.ok((await admin.doc('richiesteEmail/u-member1').get()).exists, 'la richiesta resta');
+    // Accesso con l'email richiesta: i contatti si allineano.
+    await adminAuth().updateUser('u-member1', { email: 'chiesta@qa.test', emailVerified: true });
+    assert.ok((await (await as('chiesta@qa.test')).call('whoami')).ok);
+    assert.strictEqual((await contatti()).email, 'chiesta@qa.test');
+    assert.ok(!(await admin.doc('richiesteEmail/u-member1').get()).exists);
+  });
+  it('PROF-14 mioProfilo restituisce la versione dei documenti, prima e dopo la scrittura (ADV-FUNC-040)', async () => {
+    const r = await (await as('member1@qa.test')).call('mioProfilo', { modifiche: { username: 'Mia', telefono: '333 123 4567' } });
+    assert.ok(r.ok, r.message);
+    const { versioni, versioniPrima } = r.data;
+    assert.strictEqual(versioni.members.by, 'u-member1');
+    assert.strictEqual(versioni.contatti.by, 'u-member1');
+    assert.ok(Number.isFinite(versioni.members.ms) && versioni.members.ms >= (versioniPrima.members.ms || 0));
+    assert.strictEqual(versioni.members.ms, (await membro())._updatedAt.toMillis());
+    assert.strictEqual(versioni.contatti.ms, (await contatti())._updatedAt.toMillis());
   });
 });

@@ -1,10 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
 // Il mio profilo (2026-10-19): ogni condomino legge e corregge da solo i
 // propri dati personali, senza passare dall'amministratore.
-//  • Li modifica lui: nome e cognome, nickname, cellulare, se riceve email e
-//    WhatsApp. Sono dati suoi e la scelta sulle comunicazioni spetta a lui.
-//  • Restano all'amministratore: appartamento, date di ingresso e uscita,
-//    condominio, ruolo, millesimi e quote. Decidono cosa paga e cosa può fare
+//  • Li modifica lui: nickname, cellulare, se riceve email e WhatsApp. Sono dati
+//    suoi e la scelta sulle comunicazioni spetta a lui.
+//  • Restano all'amministratore: nome e cognome (ADV-FUNC-037: compaiono in
+//    bilanci, rendiconti e CSV e identificano la persona nei documenti contabili),
+//    appartamento, date di ingresso e uscita, condominio, ruolo, millesimi e quote. Decidono cosa paga e cosa può fare
 //    nell'app, quindi non li cambia chi ne trae vantaggio.
 //  • Email: è anche l'email di accesso. Il cambio lo fa Firebase con un link
 //    di conferma al nuovo indirizzo (verifyBeforeUpdateEmail, lato app); qui si
@@ -32,10 +33,10 @@ function modificheValide(m) {
   const no = (msg) => { throw new HttpsError('invalid-argument', msg); };
   if (!m || typeof m !== 'object' || Array.isArray(m)) no('Richiesta non valida.');
   const out = {};
-  if ('nome' in m) {
-    out.nome = riga(m.nome);
-    if (out.nome.length < 2 || out.nome.length > 100) no('Scrivi nome e cognome (da 2 a 100 caratteri).');
-  }
+  // Il nome anagrafico lo cambia solo l'amministratore (ADV-FUNC-037). Le pagine vecchie
+  // rimaste in cache lo mandano sempre: uguale a quello salvato si ignora, diverso si
+  // rifiuta in modo esplicito (controllo nella transazione di mioProfilo).
+  if ('nome' in m) out.nome = riga(m.nome);
   if ('username' in m) {
     out.username = riga(m.username);
     if (out.username.length > 40) no('Il nickname può avere al massimo 40 caratteri.');
@@ -73,7 +74,7 @@ function vista(m, c, emailAccesso, inAttesa) {
   return {
     id: m.id, nome: m.nome || '', username: m.username || '', appartamento: m.appartamento || '',
     dataIngresso: m.dataIngresso || '', emailNotifiche: m.emailNotifiche !== false, whatsappNotifiche: m.whatsappNotifiche !== false,
-    telefono: c?.telefono || '', email: c?.email || emailAccesso, emailAccesso, emailInAttesa: inAttesa || null,
+    telefono: c?.telefono || '', email: c?.email || '', emailAccesso, emailInAttesa: inAttesa || null,
   };
 }
 
@@ -96,13 +97,20 @@ exports.mioProfilo = onCall({ region: REGIONI_CALLABLE }, async (request) => {
   const richiestaRef = db().collection('richiesteEmail').doc(uid);
   const mod = modificheValide(request.data?.modifiche || {});
   const emailAccesso = String(request.auth.token.email || '').toLowerCase();
+  // Versione di un documento (ADV-FUNC-040): millisecondi dell'ultima modifica e chi l'ha fatta.
+  const versione = (d) => d.exists ? { ms: d.data()._updatedAt?.toMillis?.() ?? null, by: d.data()._updatedBy || null, cancellato: d.data()._deleted === true } : null;
+  let prima = null;
 
   await db().runTransaction(async (tx) => {
     const [m, c] = await Promise.all([tx.get(ref), tx.get(contattiRef)]);
+    prima = { members: versione(m), contatti: versione(c) };   // com'erano prima di questa scrittura
     const rec = m.data();
+    if ('nome' in mod && mod.nome !== riga(rec.nome)) {
+      throw new HttpsError('invalid-argument', "Il nome e cognome li modifica solo l'amministratore del condominio.");
+    }
     const firma = { _updatedBy: uid, _updatedAt: FieldValue.serverTimestamp() };
     const delMembro = {};
-    for (const k of ['nome', 'username', 'emailNotifiche', 'whatsappNotifiche']) {
+    for (const k of ['username', 'emailNotifiche', 'whatsappNotifiche']) {
       if (!(k in mod)) continue;
       const vuoto = k === 'username' && !mod[k];
       if (vuoto ? rec[k] != null : rec[k] !== mod[k]) delMembro[k] = vuoto ? FieldValue.delete() : mod[k];
@@ -117,35 +125,78 @@ exports.mioProfilo = onCall({ region: REGIONI_CALLABLE }, async (request) => {
     }
     if ('nuovaEmail' in mod) {
       if (mod.nuovaEmail === emailAccesso) tx.delete(richiestaRef);
-      else tx.set(richiestaRef, { email: mod.nuovaEmail, buildingId: ref.parent.parent.id, memberId: ref.id, at: FieldValue.serverTimestamp() });
+      // emailPrecedente: l'email con cui chiede il cambio. Serve a whoami per distinguere chi
+      // entra ancora con quella (richiesta in attesa) da chi ha confermato un'altra richiesta.
+      // emailContattiAllaRichiesta: l'email dei contatti in questo momento. Se più tardi è diversa,
+      // l'ha cambiata l'amministratore e la sua correzione prevale (allineaEmail, ADV-FUNC-039).
+      else tx.set(richiestaRef, { email: mod.nuovaEmail, emailPrecedente: emailAccesso, emailContattiAllaRichiesta: vivo(c) ? String(c.data().email || '').toLowerCase() : '', buildingId: ref.parent.parent.id, memberId: ref.id, at: FieldValue.serverTimestamp() });
     }
   });
 
   const [m, c, r] = await Promise.all([ref.get(), contattiRef.get(), richiestaRef.get()]);
-  return { profilo: vista(m.data(), c.exists && !c.data()._deleted ? c.data() : null, emailAccesso, r.exists ? r.data().email : null) };
+  // Versioni dopo (e prima della) scrittura: il client adotta la nuova solo se l'ultima modifica è
+  // sua e il documento non era già cambiato rispetto a ciò che conosceva, così un cambio concorrente
+  // di un altro amministratore resta segnalato al salvataggio successivo.
+  return {
+    profilo: vista(m.data(), c.exists && !c.data()._deleted ? c.data() : null, emailAccesso, r.exists ? r.data().email : null),
+    versioni: { members: versione(m), contatti: versione(c) },
+    versioniPrima: prima,
+  };
 });
 
 // Chiamata da whoami a ogni accesso, con il profilo (members) già trovato per
-// uid. Se il condomino aveva chiesto di cambiare email e ora entra con quel
-// nuovo indirizzo, confermato da Firebase, l'email dei contatti diventa
-// quella. Restituisce true se l'ha aggiornata.
+// uid. Se il condomino aveva chiesto di cambiare email e ora entra con un
+// indirizzo di accesso confermato da Firebase, l'email dei contatti diventa
+// quella (anche se non è l'ultima richiesta: X poi Y con il link di X aperto,
+// ADV-FUNC-038). Non scrive se:
+//  • non c'è nessuna richiesta in sospeso (es. email di contatto scelta dall'amministratore);
+//  • entra ancora con la vecchia email (la richiesta resta in attesa);
+//  • l'amministratore ha cambiato l'EMAIL dei contatti dopo la richiesta (la richiesta si
+//    cancella senza toccarli, ADV-FUNC-039; si riconosce dal campo email, non dalla data:
+//    telefono o altri campi cambiati da chiunque non contano);
+//  • richiesta senza i campi nuovi (precedente alle ultime modifiche): si scrive solo se l'email
+//    di accesso è quella richiesta, altrimenti non si tocca nulla (ADV-FUNC-038, CR-03);
+//  • la richiesta riguarda un'altra scheda o un altro condominio (spostamento: si cancella).
+// Restituisce true se ha aggiornato i contatti.
 async function allineaEmail(uid, token, memberRef) {
   const email = String(token.email || '').toLowerCase();
   if (!email || token.email_verified !== true) return false;
   const richiestaRef = db().collection('richiesteEmail').doc(uid);
-  const r = await richiestaRef.get();
-  if (!r.exists || r.data().email !== email || r.data().memberId !== memberRef.id
-      || r.data().buildingId !== memberRef.parent.parent.id) return false;
   const contattiRef = memberRef.parent.parent.collection('contatti').doc(memberRef.id);
-  const rec = (await memberRef.get()).data() || {};
-  const c = await contattiRef.get();
-  const firma = { _updatedBy: uid, _updatedAt: FieldValue.serverTimestamp() };
-  const batch = db().batch();
-  if (vivo(c)) batch.set(contattiRef, { email, emailLower: email, ...firma }, { merge: true });
-  else batch.set(contattiRef, contattoNuovo(c, rec, uid, { email, emailLower: email }));
-  batch.delete(richiestaRef);
-  await batch.commit();
-  return true;
+  // Tutto in una transazione: se la richiesta cambia mentre si decide (es. ne viene creata una
+  // nuova nello stesso istante) si rilegge e non si cancella mai una richiesta diversa da quella valutata.
+  return db().runTransaction(async (tx) => {
+    const [r, mDoc, c] = await Promise.all([tx.get(richiestaRef), tx.get(memberRef), tx.get(contattiRef)]);
+    if (!r.exists) return false;
+    const rich = r.data();
+    if (rich.memberId !== memberRef.id || rich.buildingId !== memberRef.parent.parent.id) {
+      tx.delete(richiestaRef);   // spostamento di scheda o condominio: la richiesta non vale più
+      return false;
+    }
+    // Richiesta con emailPrecedente: entra ancora con l'email di prima = il cambio non è avvenuto,
+    // la richiesta resta in attesa.
+    if (rich.emailPrecedente) {
+      if (email !== rich.email && email === rich.emailPrecedente) return false;
+    } else if (email !== rich.email) {
+      // Richiesta vecchia (senza i campi nuovi): non si sa cosa sia successo, si scrive nei contatti
+      // solo se l'email di accesso è proprio quella richiesta; altrimenti non si tocca nulla.
+      return false;
+    }
+    const rec = mDoc.data() || {};
+    const attuale = vivo(c) ? String(c.data().email || '').toLowerCase() : '';
+    // Contatti già con l'email di accesso: nulla da allineare, la richiesta resta com'è.
+    if (email !== rich.email && attuale === email) return false;
+    // L'amministratore ha cambiato l'email dei contatti dopo la richiesta: la sua correzione prevale.
+    if (typeof rich.emailContattiAllaRichiesta === 'string' && attuale !== rich.emailContattiAllaRichiesta) {
+      tx.delete(richiestaRef);
+      return false;
+    }
+    const firma = { _updatedBy: uid, _updatedAt: FieldValue.serverTimestamp() };
+    if (vivo(c)) tx.set(contattiRef, { email, emailLower: email, ...firma }, { merge: true });
+    else tx.set(contattiRef, contattoNuovo(c, rec, uid, { email, emailLower: email }));
+    tx.delete(richiestaRef);
+    return true;
+  });
 }
 
 exports.allineaEmail = allineaEmail;

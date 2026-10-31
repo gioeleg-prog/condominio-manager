@@ -1,10 +1,11 @@
-// Il mio profilo: ogni condomino corregge da solo nome, nickname, cellulare, email di accesso e se riceve email e WhatsApp.
+// Il mio profilo: ogni condomino corregge da solo nickname, cellulare, email di accesso e se riceve email e WhatsApp.
 // Script classico: condivide le variabili globali con gli altri file di js/ (ordine in index.html).
 //
 // I dati passano dalla Cloud Function mioProfilo (functions/profilo.js): le
 // regole lasciano scrivere i condomini solo all'amministratore, e un condomino
 // non legge i contatti (nemmeno i propri). Appartamento, date, ruolo e
-// millesimi li mostra in sola lettura: li cambia l'amministratore.
+// millesimi li mostra in sola lettura: li cambia l'amministratore (anche nome e
+// cognome, ADV-FUNC-037: identificano la persona nei documenti contabili).
 // L'email è anche quella di accesso: la cambia Firebase dopo il clic sul link
 // di conferma mandato al nuovo indirizzo; al rientro con la nuova email whoami
 // la copia nei contatti.
@@ -19,9 +20,13 @@ function accedeConPassword() {
   return !!u && (u.providerData || []).some(p => p.providerId === 'password');
 }
 
-async function chiamaMioProfilo(modifiche) {
+// Restituisce { profilo, versioni, versioniPrima } come la funzione.
+async function chiamaMioProfiloCompleto(modifiche) {
   const { functionsInstance, httpsCallable } = window._fb;
-  return (await httpsCallable(functionsInstance, 'mioProfilo')({ modifiche })).data.profilo;
+  return (await httpsCallable(functionsInstance, 'mioProfilo')({ modifiche })).data;
+}
+async function chiamaMioProfilo(modifiche) {
+  return (await chiamaMioProfiloCompleto(modifiche)).profilo;
 }
 
 function apriMioProfilo() {
@@ -35,20 +40,18 @@ function renderModalProfilo(d) {
   const u = state.user;
   const p = d?.profilo;
   const ed = state.edifici.find(e => e.id === u.edificioId);
+  // Indirizzo a cui arrivano davvero le comunicazioni (email dei contatti): se non è quello di accesso si dice (ADV-FUNC-044).
+  const comunicazioniAltrove = !!p?.email && !!p?.emailAccesso && String(p.email).toLowerCase() !== String(p.emailAccesso).toLowerCase();
+  // Nessuna email nei contatti: le comunicazioni non partono (ADV-FUNC-046).
+  const senzaEmailComunicazioni = !!p && !p.email;
   const sola = (label, val) => `<div class="field"><label>${label}</label>
     <div style="padding:9px 12px;background:var(--surface2);border-radius:var(--radius-sm);font-size:14px">${esc(val || '—')}</div></div>`;
   const corpo = !d ? `<p style="color:var(--text2)">Caricamento del profilo…</p>`
     : d.errore ? `<div class="alert alert-warning">⚠️ ${esc(d.errore)}</div>`
     : `
-        <div class="form-row">
-          <div class="field">
-            <label for="pr-nome">Nome e cognome *</label>
-            <input type="text" id="pr-nome" value="${esc(p.nome)}" maxlength="100" autocomplete="name">
-          </div>
-          <div class="field">
-            <label for="pr-username">Nickname (facoltativo)</label>
-            <input type="text" id="pr-username" value="${esc(p.username)}" maxlength="40" placeholder="Es. Lucia del 2° piano">
-          </div>
+        <div class="field">
+          <label for="pr-username">Nickname (facoltativo)</label>
+          <input type="text" id="pr-username" value="${esc(p.username)}" maxlength="40" placeholder="Es. Lucia del 2° piano">
         </div>
         <div class="field">
           <label for="pr-tel">Cellulare (WhatsApp)</label>
@@ -69,7 +72,11 @@ function renderModalProfilo(d) {
         <div class="field">
           <label>Email di accesso</label>
           <div style="padding:9px 12px;background:var(--surface2);border-radius:var(--radius-sm);font-size:14px">${esc(p.emailAccesso)}</div>
-          <p class="hint">Con questa email entri nell'app e ricevi le comunicazioni del condominio.</p>
+          ${senzaEmailComunicazioni
+            ? `<div class="alert alert-warning" style="font-size:13px;margin-top:6px">⚠️ Nella tua scheda non c'è un indirizzo per le comunicazioni del condominio: le email non ti arrivano. Chiedi all'amministratore di inserirlo.</div>`
+            : comunicazioniAltrove
+            ? `<div class="alert alert-warning" style="font-size:13px;margin-top:6px">⚠️ Le comunicazioni del condominio (avvisi, estratti conto, promemoria) arrivano a <strong>${esc(p.email)}</strong>, che è diverso dall'email con cui accedi. Per cambiarlo chiedi all'amministratore.</div>`
+            : `<p class="hint">Con questa email entri nell'app${p.emailNotifiche ? ' e ricevi le comunicazioni del condominio' : ' (hai tolto "Ricevo le email": le comunicazioni del condominio non ti arrivano)'}.</p>`}
         </div>
         ${p.emailInAttesa ? `<div class="alert alert-info" style="font-size:13px">✉️ Hai chiesto di passare a <strong>${esc(p.emailInAttesa)}</strong>: apri il link di conferma che ti è arrivato a quell'indirizzo, poi esci e rientra con la nuova email.</div>` : ''}
         ${accedeConPassword() ? `
@@ -92,14 +99,17 @@ function renderModalProfilo(d) {
         <div style="border-top:1px solid var(--border);margin:1.25rem 0 1rem"></div>
         <div style="font-size:13px;font-weight:600;margin-bottom:.5rem">Gestiti dall'amministratore</div>
         <div class="form-row">
+          ${sola('Nome e cognome', p.nome)}
           ${sola('Appartamento', p.appartamento)}
+        </div>
+        <div class="form-row">
           ${sola('Condominio', ed?.nome)}
         </div>
         <div class="form-row">
           ${sola('Ruolo', getRuoloLabel(u))}
           ${sola('Nel condominio dal', p.dataIngresso ? fmtDataProfilo(p.dataIngresso) : '')}
         </div>
-        <p class="hint">Appartamento, date, ruolo e millesimi decidono quanto paghi e cosa puoi fare nell'app: se sono sbagliati, chiedi all'amministratore di correggerli.</p>`;
+        <p class="hint">Nome, appartamento, date, ruolo e millesimi decidono quanto paghi e cosa puoi fare nell'app: se sono sbagliati, chiedi all'amministratore di correggerli.</p>`;
   return `
   <div class="modal-overlay" id="modal-overlay">
     <div class="modal">
@@ -121,12 +131,13 @@ function fmtDataProfilo(ymd) {
   return g && m && a ? `${g}/${m}/${a}` : ymd;
 }
 
-// Dopo un salvataggio: il nome nell'intestazione e la propria riga tra i
-// condomini (per un amministratore anche la base dei suoi salvataggi, così la
-// prossima modifica della scheda non risulta fatta "da un'altra persona").
-function applicaMioProfilo(p) {
+// Dopo un salvataggio: il nickname nell'intestazione e la propria riga tra i
+// condomini. La versione dei documenti la si adotta solo se l'ultima modifica è
+// dell'utente stesso e il documento non era già cambiato (ADV-FUNC-040): altrimenti
+// resta quella vecchia e il salvataggio successivo segnala il conflitto con un altro amministratore.
+function applicaMioProfilo(p, versioni, versioniPrima) {
   const u = state.user;
-  const campi = { nome: p.nome, username: p.username, emailNotifiche: p.emailNotifiche, whatsappNotifiche: p.whatsappNotifiche };
+  const campi = { username: p.username, emailNotifiche: p.emailNotifiche, whatsappNotifiche: p.whatsappNotifiche };
   if (canUserEdit(u)) campi.telefono = p.telefono;
   const aggiorna = (r) => {
     if (!r || String(r.id) !== String(p.id) || String(r.edificioId) !== String(u.edificioId)) return r;
@@ -134,19 +145,29 @@ function applicaMioProfilo(p) {
     ['username', 'telefono'].forEach(k => { if (!o[k]) delete o[k]; });
     return o;
   };
-  Object.assign(u, { nome: p.nome, username: p.username || undefined });
+  Object.assign(u, { username: p.username || undefined });
   state.condomini = state.condomini.map(aggiorna);
   if (Array.isArray(_cache.cm_condomini)) _cache.cm_condomini = _cache.cm_condomini.map(aggiorna);
   if (Array.isArray(_serverSnap.cm_condomini)) setServerSnap('cm_condomini', _serverSnap.cm_condomini.map(aggiorna));
   if (window._fb && _versioni.cm_condomini) {
     const { db, doc } = window._fb;
     const b = String(u.edificioId), id = String(p.id);
-    const refs = [doc(db, 'buildings', b, 'members', id)];
-    if (p.telefono || _contattiNoti.has(`buildings/${b}/contatti/${id}`)) {
+    const miaUid = window._fb.auth?.currentUser?.uid;
+    const adotta = (ref, nuova, prima) => {
+      if (!nuova) return;
+      const nota = _versioni.cm_condomini.get(ref.path);
+      // Documento cambiato da altri dopo che la pagina lo aveva letto: si lascia la versione vecchia.
+      const invariato = nota == null || !prima || prima.ms == null || nota === prima.ms;
+      if (nuova.by !== miaUid || !invariato) return;
+      if (nuova.cancellato) { _versioni.cm_condomini.delete(ref.path); return; }
+      _versioni.cm_condomini.set(ref.path, nuova.ms);
+      ricordaAutore(ref.path, { _updatedBy: nuova.by, _updatedAt: { toMillis: () => nuova.ms } });
+    };
+    adotta(doc(db, 'buildings', b, 'members', id), versioni?.members, versioniPrima?.members);
+    if (versioni?.contatti) {
       _contattiNoti.add(`buildings/${b}/contatti/${id}`);
-      refs.push(doc(db, 'buildings', b, 'contatti', id));
+      adotta(doc(db, 'buildings', b, 'contatti', id), versioni.contatti, versioniPrima?.contatti);
     }
-    aggiornaVersioni('cm_condomini', refs.map(r => [r])).catch(() => {});
   }
 }
 
@@ -157,14 +178,14 @@ function bindSchedaProfilo() {
     errEl.style.display = 'none';
     const val = (id) => document.getElementById(id).value.trim();
     const modifiche = {
-      nome: val('pr-nome'), username: val('pr-username'), telefono: val('pr-tel'),
+      username: val('pr-username'), telefono: val('pr-tel'),
       emailNotifiche: document.getElementById('pr-email-notifiche').checked,
       whatsappNotifiche: document.getElementById('pr-wa-notifiche').checked,
     };
-    if (modifiche.nome.length < 2) { errEl.textContent = 'Scrivi nome e cognome.'; errEl.style.display = 'block'; return; }
     try {
-      const p = await chiamaMioProfilo(modifiche);
-      applicaMioProfilo(p);
+      const r = await chiamaMioProfiloCompleto(modifiche);
+      const p = r.profilo;
+      applicaMioProfilo(p, r.versioni, r.versioniPrima);
       setState({ modal: null });
       const telNoWa = p.telefono && typeof numeroWa === 'function' && !numeroWa(p.telefono);
       avvisa(telNoWa ? '✅ Profilo salvato. Attenzione: con questo numero WhatsApp non funziona (serve un cellulare).' : '✅ Profilo salvato.');

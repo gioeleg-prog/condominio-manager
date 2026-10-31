@@ -137,13 +137,15 @@ window.importaDati = function(file) {
       // Salva su Firebase
       // Solo le chiavi presenti nel file: un backup v2 (prima di bacheca/
       // verbali/lavori/delibere) non azzera le sezioni che non conteneva.
-      Object.entries(APPDATA_CONFIG).forEach(([key, cfg]) => {
-        if (d[key] == null) return;
+      // Eccezione al tetto di 400 scritture: il ripristino scrive a blocchi
+      // (aBlocchi) e si attende l'esito di ogni sezione.
+      const esiti = await Promise.all(Object.entries(APPDATA_CONFIG).filter(([key]) => d[key] != null).map(([key, cfg]) => {
         if (cfg.stateProp) state[cfg.stateProp] = d[key];
-        save(key, d[key]);
-      });
+        return save(key, d[key], { aBlocchi: true });
+      }));
       setState({page:'dashboard'});
-      avvisa('✅ Dati ripristinati con successo!');
+      if (esiti.every(ok => ok !== false)) avvisa('✅ Dati ripristinati con successo!');
+      else avvisa('⚠️ Ripristino INCOMPLETO: una o più sezioni non sono state salvate e altre possono essere state scritte in parte. Ricarica la pagina e ripeti l’importazione del backup.');
     } catch(err) {
       avvisa('Errore durante il ripristino: ' + err.message);
     }

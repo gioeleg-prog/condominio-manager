@@ -436,6 +436,11 @@ function bindSchedaMillesimi() {
   if (!b || state.modal?.type !== 'millesimiApplica') return;
   b.onclick = () => {
     const { nuove } = calcolaApplicazioneMillesimi();
+    // Un salvataggio è un solo batch atomico: oltre il limite si avvisa prima, senza salvare (ADV-FUNC-035).
+    if (nuove.length > MAX_SCRITTURE_SALVATAGGIO) {
+      avvisa(`⚠️ Troppe spese insieme (${nuove.length}): i millesimi si applicano al massimo a ${MAX_SCRITTURE_SALVATAGGIO} spese per volta. Non è stato modificato nulla. Inserisci prima il consuntivo delle spese già concluse (a quelle i millesimi non si applicano più) e ripeti, oppure chiedi assistenza.`);
+      return;
+    }
     const perId = new Map(nuove.map(s => [s.id, s]));
     const spese = state.spese.map(s => perId.get(s.id) || s);
     save('cm_spese', spese);
