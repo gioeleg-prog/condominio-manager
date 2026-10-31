@@ -923,7 +923,8 @@ function bindSchedaSubentro() {
       quoteOk = await salvaSpese !== false;
     }
     if (!quoteOk) {
-      avvisa('⚠️ Subentro registrato per ' + nome + ' dal ' + dataPdf(data) + ', ma le quote delle spese future NON sono passate al nuovo condomino: modificale a mano nelle spese.');
+      avvisa('⚠️ Subentro registrato per ' + nome + ' dal ' + dataPdf(data) + ', ma le quote delle spese future NON sono passate al nuovo condomino: modificale a mano nelle spese.'
+        + (daPassare.size > MAX_SCRITTURE_SALVATAGGIO ? ' Le spese da passare sono più di ' + MAX_SCRITTURE_SALVATAGGIO + ' (il massimo per volta): chiedi assistenza.' : ''));
     } else if (nonPassate) {
       avvisa('⚠️ Subentro registrato per ' + nome + ' dal ' + dataPdf(data) + ', ma ' + (daPassare.size ? 'solo ' + daPassare.size + ' spese hanno passato la quota: ' : 'nessuna quota è passata: ')
         + nonPassate + ' ' + (nonPassate === 1 ? 'spesa è cambiata' : 'spese sono cambiate') + ' mentre il subentro si salvava (modificata, consuntivata o eliminata). Controlla le quote nelle spese.');

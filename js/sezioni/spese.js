@@ -107,8 +107,8 @@ function renderSpeseMobileCards(items, canEdit) {
 
         <!-- Riga 3: azioni (solo se canEdit) -->
         ${canEdit ? `<div style="display:flex;justify-content:flex-end;gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid var(--border)">
-          <button class="allegato-btn" data-edit-spesa="${s.id}" style="font-size:16px;min-width:36px;min-height:36px">✏️</button>
-          <button class="allegato-btn danger" data-del-spesa="${s.id}" style="font-size:16px;min-width:36px;min-height:36px">🗑</button>
+          <button class="allegato-btn" data-edit-spesa="${esc(s.id)}" style="font-size:16px;min-width:36px;min-height:36px">✏️</button>
+          <button class="allegato-btn danger" data-del-spesa="${esc(s.id)}" style="font-size:16px;min-width:36px;min-height:36px">🗑</button>
         </div>` : ''}
       </div>`;
     }).join('')}
@@ -244,8 +244,8 @@ function renderSpese() {
   // anno, filtri, ricerca o condominio quelle nascoste escono dalla selezione.
   // Prima restavano selezionate e venivano cancellate senza che si vedessero.
   if (state.speseSelezionate?.size) {
-    const visibili = new Set(items.map(s => s.id));
-    const restano = [...state.speseSelezionate].filter(id => visibili.has(id));
+    const visibili = new Set(items.map(s => String(s.id)));   // id confrontati come testo (ADV-FUNC-042)
+    const restano = [...state.speseSelezionate].filter(id => visibili.has(String(id)));
     if (restano.length !== state.speseSelezionate.size) state.speseSelezionate = new Set(restano);
   }
 
@@ -271,7 +271,7 @@ function renderSpese() {
   });
   // Elenco filtrato completo (anche le righe non ancora disegnate): lo usano
   // "Seleziona tutte", l'esportazione e "Elimina selezionate" (bindAzioniSpese).
-  _idsSpeseFiltrate = items.map(s => parseInt(s.id)); // come gli id letti dalle caselle (parseInt)
+  _idsSpeseFiltrate = items.map(s => String(s.id)); // testo, come gli id letti dalle caselle: un id testuale non va perso (ADV-FUNC-042)
 
   // Helper: intestazione cliccabile
   const thSort = (label, colId) => {
@@ -303,7 +303,7 @@ function renderSpese() {
     </div>
 
     <!-- Barra selezione multipla -->
-    ${state.speseSelezionate && state.speseSelezionate.size > 0 ? `
+    ${canEdit && state.speseSelezionate && state.speseSelezionate.size > 0 ? `
     <div class="sel-count-bar">
       <span>${state.speseSelezionate.size} spese selezionate</span>
       <button id="btn-sel-all">Seleziona tutte (${items.length})</button>
@@ -409,7 +409,7 @@ function renderSpese() {
         ${items.length===0?`<div class="empty">${svgEmpty()}<p>Nessuna spesa trovata</p></div>`:
         `<table>
           <thead><tr>
-            ${state.speseSelezionate !== undefined ? `<th style="width:28px;padding:0 4px"><input type="checkbox" id="chk-all-spese" title="Seleziona/deseleziona tutte"></th>` : ''}
+            ${canEdit && state.speseSelezionate !== undefined ? `<th style="width:28px;padding:0 4px"><input type="checkbox" id="chk-all-spese" title="Seleziona/deseleziona tutte"></th>` : ''}
             ${canEdit?'<th class="col-azioni">Azioni</th>':''}
             ${thSort('Data','data')}
             ${thSort('Titolo / Descrizione','titolo')}
@@ -427,12 +427,12 @@ function renderSpese() {
             const cat = trovaPerId(getCategorie(), s.categoria)||{label:s.categoria};
             const hasPrev = s.preventivo && parseFloat(s.preventivo)>0;
             const hasCons = s.consuntivo && parseFloat(s.consuntivo)>0;
-            const isSel = state.speseSelezionate?.has(s.id);
+            const isSel = state.speseSelezionate?.has(String(s.id));
             return `<tr class="${isSel?'spesa-row-sel':''}">
-              <td style="width:28px;padding:0 4px;text-align:center"><input type="checkbox" class="chk-spesa" data-spesa-id="${s.id}" ${isSel?'checked':''}></td>
+              ${canEdit?`<td style="width:28px;padding:0 4px;text-align:center"><input type="checkbox" class="chk-spesa" data-spesa-id="${esc(s.id)}" ${isSel?'checked':''}></td>`:''}
               ${canEdit?`<td class="col-azioni"><div class="inline-actions">
-                <button class="btn btn-secondary btn-sm" data-edit-spesa="${s.id}" title="Modifica spesa">✏️</button>
-                <button class="btn btn-danger btn-sm" data-del-spesa="${s.id}" title="Elimina spesa">🗑</button>
+                <button class="btn btn-secondary btn-sm" data-edit-spesa="${esc(s.id)}" title="Modifica spesa">✏️</button>
+                <button class="btn btn-danger btn-sm" data-del-spesa="${esc(s.id)}" title="Elimina spesa">🗑</button>
               </div></td>`:''}
               <td class="col-data" style="font-size:13px">${esc(s.data)}</td>
               <td class="col-title">
@@ -857,7 +857,7 @@ function bindAzioniSpese() {
   // Checkbox singola spesa
   document.querySelectorAll('.chk-spesa').forEach(chk => {
     chk.onchange = () => {
-      const id = parseInt(chk.dataset.spesaId);
+      const id = String(chk.dataset.spesaId);
       const sel = new Set(state.speseSelezionate || []);
       if (chk.checked) sel.add(id); else sel.delete(id);
       state.speseSelezionate = sel;
@@ -883,7 +883,7 @@ function bindAzioniSpese() {
     const sel = state.speseSelezionate;
     const idsDaEsportare = (sel && sel.size > 0) ? idsVisibili.filter(id => sel.has(id)) : idsVisibili;
     const daEsportare = new Set(idsDaEsportare);
-    const speseDaEsportare = state.spese.filter(s => daEsportare.has(s.id));
+    const speseDaEsportare = state.spese.filter(s => daEsportare.has(String(s.id)));
     const nomeFile = 'spese-condominio-' + (sel && sel.size > 0 ? 'selezionate-' : '') + ymdLocale(new Date()) + '.csv';
     esportaSpeseCSV(speseDaEsportare, nomeFile);
   };
@@ -916,16 +916,21 @@ function bindAzioniSpese() {
   if (bDelSel) bDelSel.onclick = async () => {
     // Solo le spese selezionate E nell'elenco filtrato (come l'esportazione).
     const idsVisibili = new Set([..._idsSpeseFiltrate]);
-    const sel = new Set([...(state.speseSelezionate || [])].filter(id => idsVisibili.has(id)));
+    const sel = new Set([...(state.speseSelezionate || [])].map(String).filter(id => idsVisibili.has(id)));
     if (sel.size === 0) return;
+    // Un salvataggio è un solo batch atomico: oltre il limite si avvisa prima, senza salvare (ADV-FUNC-035).
+    if (sel.size > MAX_SCRITTURE_SALVATAGGIO) {
+      avvisa(`⚠️ Troppe modifiche insieme (${sel.size}): al massimo ${MAX_SCRITTURE_SALVATAGGIO} alla volta. Riduci la selezione e ripeti.`);
+      return;
+    }
     // Mostra dettaglio di cosa si sta eliminando
-    const toDelete = state.spese.filter(s=>sel.has(s.id));
+    const toDelete = state.spese.filter(s=>sel.has(String(s.id)));
     const msg = 'Eliminare ' + sel.size + ' spese?\n\n' +
       toDelete.slice(0,5).map(s=>'- ' + s.titolo + ' (' + s.data + ')').join('\n') +
       (toDelete.length > 5 ? '\n- ... e altre ' + (toDelete.length-5) : '') +
       (toDelete.some(s => modificaAnnoPassato(s, null, CAMPI_ANNO_SPESA)) ? '\n\n' + MSG_ANNO_PASSATO : '');
     if (!await chiedi(msg)) return;
-    const spese = state.spese.filter(s=>!sel.has(s.id));
+    const spese = state.spese.filter(s=>!sel.has(String(s.id)));
     save('cm_spese', spese);
     state.speseSelezionate = new Set();
     setState({spese});
@@ -959,16 +964,18 @@ function bindAzioniSpese() {
   // Edit/delete spese
   document.querySelectorAll('[data-edit-spesa]').forEach(btn => {
     btn.onclick = async () => {
-      const id = parseInt(btn.dataset.editSpesa);
-      const item = state.spese.find(s=>s.id===id);
+      // Id confrontati come testo (come nel resto della sezione): una spesa con id testuale si apre lo stesso.
+      const id = String(btn.dataset.editSpesa);
+      const item = state.spese.find(s=>String(s.id)===id);
       if (item) { await aggiornaMillesimi(); setState({modal:{type:'spesa',data:{...item}}, pendingFiles:[]}); }
     };
   });
   document.querySelectorAll('[data-del-spesa]').forEach(btn => {
     btn.onclick = async () => {
-      const daEliminare = state.spese.find(s=>s.id===parseInt(btn.dataset.delSpesa));
+      const idDel = String(btn.dataset.delSpesa);
+      const daEliminare = state.spese.find(s=>String(s.id)===idDel);
       if (!await chiedi('Eliminare questa spesa?' + (modificaAnnoPassato(daEliminare, null, CAMPI_ANNO_SPESA) ? '\n\n' + MSG_ANNO_PASSATO : ''))) return;
-      const spese = state.spese.filter(s=>s.id!==parseInt(btn.dataset.delSpesa));
+      const spese = state.spese.filter(s=>String(s.id)!==idDel);
       save('cm_spese', spese);
       setState({spese});
     };

@@ -117,11 +117,12 @@ if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('beforeunload', (e) => { if (_salvataggiInCorso > 0) { e.preventDefault(); e.returnValue = ''; } });
 }
 
-function fbSaveKey(key, val) {
+// opz.aBlocchi: solo per il ripristino da backup (vedi saveRecords).
+function fbSaveKey(key, val, opz = {}) {
   if (!window._fb) return Promise.resolve(true);
   _salvataggiInCorso++;
   _inCoda[key] = (_inCoda[key] || 0) + 1;
-  const run = () => fbSaveKeyNow(key, val);
+  const run = () => fbSaveKeyNow(key, val, opz);
   const p = (_saveQueue[key] || Promise.resolve()).then(run, run).finally(() => { _salvataggiInCorso--; _inCoda[key]--; });
   _saveQueue[key] = p;
   return p;
@@ -148,7 +149,11 @@ function recordRef(key, rec) {
 // insieme toccano record diversi e non si sovrascrivono più. Ogni scrittura è
 // firmata (_updatedBy/_updatedAt): le rules lo pretendono e la Cloud Function
 // auditTrail ne ricava il registro delle modifiche.
-async function saveRecords(key, val) {
+// Scritture al massimo in un salvataggio (un batch Firestore ne regge 500: resta un margine).
+const MAX_SCRITTURE_SALVATAGGIO = 400;
+// Con `opz.aBlocchi` (solo ripristino da backup, eccezione al tetto) si scrive a
+// blocchi da 400, senza atomicità complessiva.
+async function saveRecords(key, val, opz = {}) {
   const { auth, setDoc, writeBatch, db, serverTimestamp, deleteField } = window._fb;
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('Sessione scaduta: accedi di nuovo.');
@@ -178,10 +183,17 @@ async function saveRecords(key, val) {
     if (condomini) cancellaCondomino(writes, prev, uid);
     else writes.push([recordRef(key, prev), cancellazione(uid), { merge: true }]);
   }
+  // Un salvataggio è sempre un solo batch atomico (ADV-FUNC-035): oltre il limite
+  // ci si ferma PRIMA di scrivere qualsiasi cosa, così il ripristino dello stato
+  // a schermo (fbSaveKeyNow) dice il vero. Un condomino vale 2 scritture (scheda + contatti).
+  // Eccezione esplicita: il ripristino da backup (opz.aBlocchi) scrive a blocchi.
+  if (!opz.aBlocchi && writes.length > MAX_SCRITTURE_SALVATAGGIO) {
+    throw new Error(`Troppe modifiche insieme (${writes.length}): al massimo ${MAX_SCRITTURE_SALVATAGGIO} alla volta.`);
+  }
   await controllaConflitti(key, writes);
-  for (let i = 0; i < writes.length; i += 400) {
+  for (let i = 0; i < writes.length; i += MAX_SCRITTURE_SALVATAGGIO) {
     const batch = writeBatch(db);
-    writes.slice(i, i + 400).forEach(([ref, data, opts]) => opts ? batch.set(ref, data, opts) : batch.set(ref, data));
+    writes.slice(i, i + MAX_SCRITTURE_SALVATAGGIO).forEach(([ref, data, opts]) => opts ? batch.set(ref, data, opts) : batch.set(ref, data));
     await batch.commit();
   }
   writes.forEach(([ref]) => { if (/\/contatti\//.test(ref.path)) _contattiNoti.add(ref.path); });
@@ -372,10 +384,10 @@ async function rinfrescaVersione(key, rec) {
   } catch (e) { if (path && _versioni[key]) _versioni[key].delete(path); }
 }
 
-async function fbSaveKeyNow(key, val) {
+async function fbSaveKeyNow(key, val, opz = {}) {
   const cfg = APPDATA_CONFIG[key] || {};
   try {
-    if (RECORD_KEYS.includes(key)) await saveRecords(key, val);
+    if (RECORD_KEYS.includes(key)) await saveRecords(key, val, opz);
     else {
       const { db, doc, setDoc } = window._fb;
       await controllaGlobale(key);
@@ -404,7 +416,9 @@ async function fbSaveKeyNow(key, val) {
     const msg = /permission|insufficient/i.test(e.code || e.message || '')
       ? 'Non hai i permessi per questa modifica, oppure l’app è stata aggiornata: ricarica la pagina.'
       : (e.message || e);
-    avvisa('⚠️ Salvataggio non riuscito: ' + msg + (altriInCoda
+    // Il ripristino da backup (aBlocchi) dà lui l'esito di tutte le sezioni insieme:
+    // qui un secondo avviso direbbe il contrario (ADV-FUNC-047).
+    if (!opz.aBlocchi) avvisa('⚠️ Salvataggio non riuscito: ' + msg + (altriInCoda
       ? '\nCi sono altre modifiche in attesa: verranno salvate insieme a questa. Controlla l’esito dell’ultimo avviso.'
       : '\nL’ultima modifica è stata annullata: i dati mostrati sono quelli salvati.'));
     return false;

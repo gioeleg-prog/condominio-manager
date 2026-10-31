@@ -32,6 +32,48 @@ test('Spese: 200 righe alla volta, "Seleziona tutte" prende anche quelle non anc
   await expect(page.locator('.sel-count-bar')).toContainText('260 spese selezionate');
 });
 
+test('Spese: una spesa con id testuale si seleziona e si esporta come le altre (ADV-FUNC-042)', async ({ page }) => {
+  await accedi(page, 'admin1@qa.test');
+  await page.evaluate((anno) => {
+    state.spese = [...state.spese, { id: 'txt-1', titolo: 'Spesa id testuale', categoria: 'pulizie', tipoSpesa: 'ordinaria',
+      preventivo: '10', consuntivo: '10', data: `${anno}-05-05`, edificioId: 1, allegati: [], split: [] }];
+  }, Y);
+  await vaiA(page, 'spese');
+  await page.locator('#search-spese').fill('id testuale');
+  await expect(page.locator('.chk-spesa')).toHaveCount(1);
+  await page.locator('.chk-spesa').check();
+  await expect(page.locator('.sel-count-bar')).toContainText('1 spese selezionate');
+  // L'esportazione delle selezionate include la spesa (prima era esclusa in silenzio).
+  const [csv] = await Promise.all([page.waitForEvent('download'), page.locator('#btn-export-spese').click()]);
+  expect(csv.suggestedFilename()).toContain('selezionate');
+  const testo = require('fs').readFileSync(await csv.path(), 'utf8');
+  expect(testo).toContain('Spesa id testuale');
+  // "Seleziona tutte" la tiene, e la selezione sopravvive al ridisegno.
+  await page.locator('#btn-sel-all').click();
+  await expect(page.locator('.sel-count-bar')).toContainText('1 spese selezionate');
+});
+
+test('Spese: matita e cestino della riga funzionano anche con id testuale (CR-06)', async ({ page }) => {
+  await accedi(page, 'admin1@qa.test');
+  await page.evaluate((anno) => {
+    state.spese = [...state.spese, { id: 'txt-2', titolo: 'Spesa riga testuale', categoria: 'pulizie', tipoSpesa: 'ordinaria',
+      preventivo: '10', consuntivo: '10', data: `${anno}-05-05`, edificioId: 1, allegati: [], split: [] }];
+  }, Y);
+  await vaiA(page, 'spese');
+  await page.locator('#search-spese').fill('riga testuale');
+  const riga = page.locator('.table-wrap tr', { hasText: 'Spesa riga testuale' });
+  await expect(riga).toHaveCount(1);
+  // Matita: apre la scheda della spesa.
+  await riga.locator('[data-edit-spesa]').click();
+  await expect(page.locator('#m-titolo')).toHaveValue('Spesa riga testuale');
+  await page.locator('#modal-cancel').click();
+  // Cestino: dopo la conferma la riga sparisce.
+  await riga.locator('[data-del-spesa]').click();
+  await page.locator('dialog.dialogo [data-dlg="si"]').click();
+  await expect(riga).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => state.spese.some((s) => s.id === 'txt-2'))).toBe(false);
+});
+
 test('Entrate: 200 versamenti alla volta, totale su tutti', async ({ page }) => {
   await accedi(page, 'admin1@qa.test');
   await page.evaluate((anno) => {
