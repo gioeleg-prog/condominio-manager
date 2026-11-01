@@ -30,6 +30,7 @@ const APPDATA_CONFIG = {
   cm_login_stats:     { stateProp: 'loginStats' },
   cm_config:          {},
   cm_branding:        {},
+  cm_privacy:         {},
 };
 
 const RECORD_KEYS = Object.keys(APPDATA_CONFIG).filter(k => APPDATA_CONFIG[k].coll || APPDATA_CONFIG[k].buildings);
@@ -321,7 +322,7 @@ async function impostazioneCambiataAltrove(edId, nome, firmaBase, etichetta, ric
 
 // Dati globali con un solo documento per chiave (categorie, marchio): stesso
 // controllo, con la base che è già l'ultimo stato letto o scritto (_serverSnap).
-const CHIAVI_GLOBALI_CONTROLLATE = ['cm_categorie', 'cm_branding'];
+const CHIAVI_GLOBALI_CONTROLLATE = ['cm_categorie', 'cm_branding', 'cm_privacy'];
 const _daServer = {};   // chiave -> valore trovato sul server quando il controllo ha fermato un salvataggio
 async function controllaGlobale(key) {
   if (!CHIAVI_GLOBALI_CONTROLLATE.includes(key)) return;
@@ -435,7 +436,9 @@ async function fbLoadAll(opz = {}) {
   const { db, doc, getDoc } = window._fb;
   // cm_config no: ha i campi superAdminUid/superAdminEmail e non un valore JSON
   // (qui la lettura falliva sempre), lo legge loadSuperAdminConfig (avvio.js).
-  await Promise.all(GLOBAL_KEYS.filter(k => k !== 'cm_config' && !(opz.senzaLoginStats && k === 'cm_login_stats')).map(async (key) => {
+  // cm_privacy no: la bozza dell'informativa è riservata al superAdmin e la
+  // legge la sua scheda in Impostazioni (caricaPrivacy), non l'accesso di tutti.
+  await Promise.all(GLOBAL_KEYS.filter(k => k !== 'cm_config' && k !== 'cm_privacy' && !(opz.senzaLoginStats && k === 'cm_login_stats')).map(async (key) => {
     try {
       const snap = await getDoc(doc(db, 'appdata', key));
       if (snap.exists()) { _cache[key] = JSON.parse(snap.data().value); setServerSnap(key, _cache[key]); }

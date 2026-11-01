@@ -254,6 +254,20 @@ describe('appdata — modello attuale', () => {
     }
   });
 
+  it("cm_privacy (bozza dell'informativa): la leggono e la scrivono solo i superAdmin", async () => {
+    const superA = testEnv.authenticatedContext('u_super', { role: 'superAdmin' }).firestore();
+    await assertSucceeds(superA.collection('appdata').doc('cm_privacy').set({ value: JSON.stringify({ testo: 'x' }) }));
+    await assertSucceeds(superA.collection('appdata').doc('cm_privacy').get());
+    for (const [uid, role] of [['u_admin', 'adminEdificio'], ['u_editor', 'editor'], ['u_member', 'member']]) {
+      const db = testEnv.authenticatedContext(uid, { role, buildingId: 'b1' }).firestore();
+      await assertFails(db.collection('appdata').doc('cm_privacy').get());
+      await assertFails(db.collection('appdata').doc('cm_privacy').set({ value: '{}' }));
+    }
+    const anon = testEnv.unauthenticatedContext().firestore();
+    await assertFails(anon.collection('appdata').doc('cm_privacy').get());
+    await assertFails(anon.collection('appdata').doc('cm_privacy').set({ value: '{}' }));
+  });
+
   it('QA INT-02: cm_login_stats lo scrive solo il superAdmin (ripristino backup); member, adminEdificio e anonimi no', async () => {
     const member = testEnv.authenticatedContext('u_member', { role: 'member', buildingId: 'b1' }).firestore();
     await assertFails(member.collection('appdata').doc('cm_login_stats').set({ value: '{}' }));

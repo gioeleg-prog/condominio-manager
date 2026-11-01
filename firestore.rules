@@ -240,7 +240,7 @@ service cloud.firestore {
       // di tutti i condomìni): l'app legge l'elenco edifici da buildings/**.
       allow read: if key in ['cm_spese', 'cm_entrate', 'cm_fornitori', 'cm_delibere',
                              'cm_bacheca', 'cm_verbali', 'cm_lavori', 'cm_condomini',
-                             'cm_login_stats', 'cm_config', 'cm_edifici']
+                             'cm_login_stats', 'cm_config', 'cm_edifici', 'cm_privacy']
                    ? isSuperAdmin()
                    : (isSignedIn() && key in ['cm_categorie', 'cm_edificio_attivo', 'cm_branding']);
       // P0 urgente: le chiavi per edificio (spese/entrate/fornitori/condomini/
@@ -259,7 +259,7 @@ service cloud.firestore {
       // sicurezza della migrazione. Un client vecchio che prova a salvarci
       // riceve un errore invece di scrivere dati che nessuno vedrebbe più.
       allow write: if isSuperAdmin() && key in ['cm_categorie', 'cm_edificio_attivo', 'cm_config', 'cm_branding',
-                                                'cm_login_stats'];
+                                                'cm_login_stats', 'cm_privacy'];
     }
 
     // Specchio dei custom claims, leggibile per debug/UI, scrivibile
