@@ -85,6 +85,8 @@ function renderLogin() {
         Accedi con Google
       </button>
       <div class="login-footer">
+        <p class="login-privacy">Nessun cookie di profilazione né di terze parti: il browser conserva solo dati tecnici per l'accesso e il tema.
+          <a href="privacy.html" target="_blank" rel="noopener">Informativa privacy</a></p>
         <span>Powered by <strong>${esc(getBranding().fornitore)}</strong></span>
       </div>
     </div>
