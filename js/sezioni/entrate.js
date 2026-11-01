@@ -571,13 +571,14 @@ function calcolaPianoRate(anno, nRate = 3) {
 
   // ── 9. Split per condomino di ciascuna rata, proporzionale alla propria quota totale,
   //       con correzione dell'arrotondamento così il totale della rata torna esatto ──
-  // Competenza per periodo (subentri): la rata di un mese è di chi ha il condominio per
-  // più giorni in quel mese. Chi non c'è in quel mese ha 0 (il record resta, con la nota
-  // "fuori competenza"); la sua quota di competenza si distribuisce solo sulle rate del
-  // suo periodo. Senza subentri nessuno è escluso e il calcolo è quello di sempre.
+  // Competenza per periodo (subentri): una rata è di chi fa parte del condominio alla sua
+  // data di scadenza (come per ogni spesa ordinaria: conta il giorno). Chi non c'è quel
+  // giorno ha 0 (il record resta, con la nota "fuori competenza"); la sua quota di
+  // competenza si distribuisce solo sulle rate del suo periodo. Senza subentri nessuno è
+  // escluso e il calcolo è quello di sempre.
   const meseNomi = ['','Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
   const dataDi = (r) => ymdLocale(r.data);
-  const compRata = rate.map(r => idsDi(condominiPerMese(dataDi(r), edId)));
+  const compRata = rate.map(r => idsDi(condominiAllaData(dataDi(r), edId)));
   const sommaPeriodo = {};   // id -> somma delle rate del suo periodo
   const nelPeriodo = {};     // id -> quante rate cadono nel suo periodo
   condominiAttivi.forEach(c => {
@@ -710,7 +711,7 @@ function renderPianoRateBox(annoSel, canEdit) {
 
   const rateHtml = piano.rate.map(function(r) {
     const dettaglioRighe = r.perCondomino.map(c =>
-      '<tr><td style="padding:2px 8px 2px 0">' + esc(c.nome) + (c.fuoriCompetenza ? ' <span style="color:var(--text2)">(non è il suo mese)</span>' : '') + '</td><td style="padding:2px 0;text-align:right;font-weight:600">' + fmt(c.importo) + '</td></tr>'
+      '<tr><td style="padding:2px 8px 2px 0">' + esc(c.nome) + (c.fuoriCompetenza ? ' <span style="color:var(--text2)">(non c\'è in quella data)</span>' : '') + '</td><td style="padding:2px 0;text-align:right;font-weight:600">' + fmt(c.importo) + '</td></tr>'
     ).join('');
     return '<div style="flex:1;min-width:170px;background:var(--purple-light);border-radius:var(--radius-sm);padding:.875rem;border-left:3px solid var(--purple)">' +
       '<div style="font-weight:700;color:var(--purple);margin-bottom:2px;text-align:center">Rata ' + r.n + ' — ' + r.mese + '</div>' +
@@ -880,7 +881,7 @@ function bindAzioniEntrate() {
         const key = r.n + ':' + c.id;
         const descrizione = 'Piano rate ' + annoSel + ' - Rata ' + r.n + ' (' + r.mese + ')';
         if (c.fuoriCompetenza) {
-          // Rata di un mese che non è suo (esce o non è ancora entrato): una proposta già creata
+          // Rata con scadenza in un giorno in cui non c'è (esce o non è ancora entrato): una proposta già creata
           // resta ma a 0, con la nota; se non esiste non se ne crea una a zero.
           usedKeys.add(key);
           if (validatiByKey.has(key)) { saltati++; continue; }
@@ -926,12 +927,12 @@ function bindAzioniEntrate() {
     // Proposte pendenti che non fanno più parte del piano ricalcolato (rate/condomini cambiati):
     // queste sì vanno rimosse, non ha senso lasciarle in sospeso.
     // Quelle di condomini usciti (archiviati) restano a loro (D1) e non si rimuovono.
-    // Chi è uscito (archiviato): le sue rate previste dei mesi dopo l'uscita non sono più sue,
-    // vanno a 0 (il record resta). Quelle dei mesi in cui c'era restano com'erano (D1).
+    // Chi è uscito (archiviato): le sue rate previste con scadenza dopo l'uscita non sono più sue,
+    // vanno a 0 (il record resta). Quelle con scadenza quando c'era restano com'erano (D1).
     entrate = entrate.map(e => {
       if (!vecchieByKey.has(e.pianoRataN + ':' + e.condominoId) || vecchieByKey.get(e.pianoRataN + ':' + e.condominoId).id !== e.id) return e;
       const cond = state.condomini.find(x => x.id === e.condominoId && x.edificioId === edId);
-      if (!cond || !cond.disabled || importoNum(e.importo) === 0 || haIlMese(cond, e.data)) return e;
+      if (!cond || !cond.disabled || importoNum(e.importo) === 0 || attivoAllaData(cond, e.data)) return e;
       aggiornati++;
       return { ...e, importo: '', importoPrevisto: '0', descrizione: String(e.descrizione || '').replace(/ — fuori competenza$/, '') + ' — fuori competenza', fuoriCompetenza: true };
     });

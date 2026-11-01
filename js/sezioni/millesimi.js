@@ -340,7 +340,7 @@ function ripartizioneAMano(s) {
     return true;
   };
   const ed = s.edificioId || state.edificioAttivo;
-  const presenti = condominiDellaSpesa(s, ed);
+  const presenti = condominiAllaData(s.data, ed);
   if (presenti.length) {
     const pu = partiUguali(presenti.length);
     if (uguale(new Map(presenti.map((c, i) => [c.id, pu[i]])))) return false;
@@ -375,7 +375,7 @@ function calcolaApplicazioneMillesimi() {
     const p = propostaMillesimi(tabId, s.data);
     if (!p) { saltate.push({ spesa: s, motivo: 'senza-tabella' }); continue; }
     const importo = parseFloat(s.preventivo) || 0;
-    const nAttivi = condominiDellaSpesa(s).length;
+    const nAttivi = condominiAllaData(s.data).length;
     const ids = new Set([...(s.split || []).map(x => x.id), ...p.split.map(x => x.id)]);
     const dopoS = { ...s, split: p.split, tabellaMillesimi: p.tabella.id };
     ids.forEach(id => {

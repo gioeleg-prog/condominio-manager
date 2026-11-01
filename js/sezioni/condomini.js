@@ -156,7 +156,7 @@ function renderModalDisableCond(cond) {
         <div class="field">
           <label for="disable-uscita">Data di uscita</label>
           <input type="date" id="disable-uscita" value="${ymdLocale(new Date())}">
-          <p class="hint">Dal giorno indicato non partecipa più alle spese senza ripartizione. Per chi ha venduto a un nuovo condomino usa invece "🔁 Subentro".</p>
+          <p class="hint">Dal giorno indicato non partecipa più alle spese senza ripartizione. Per chi ha venduto a un nuovo condomino usa invece "🔁 Subentro" (per una vendita, il giorno dopo il rogito).</p>
         </div>
         <div class="field">
           <label>Motivazione (opzionale)</label>
@@ -318,12 +318,12 @@ function renderModalCond(d) {
           <div class="field">
             <label for="m-ingresso">Nel condominio dal</label>
             <input type="date" id="m-ingresso" value="${esc(d?.dataIngresso||'')}">
-            <p class="hint">Facoltativa: da questa data partecipa alle spese senza ripartizione.</p>
+            <p class="hint">Facoltativa: da questa data partecipa alle spese senza ripartizione. Per una vendita: il giorno dopo il rogito.</p>
           </div>
           ${d?.disabled || d?.dataUscita ? `<div class="field">
             <label for="m-uscita">Uscito il</label>
             <input type="date" id="m-uscita" value="${esc(d?.dataUscita || (d?.disabledOn||'').slice(0,10))}">
-            <p class="hint">Primo giorno in cui non partecipa più alle spese.</p>
+            <p class="hint">Primo giorno in cui non partecipa più alle spese. Per una vendita: il giorno dopo il rogito (il giorno del rogito è ancora del venditore).</p>
           </div>` : ''}
         </div>
         <div class="field">
@@ -824,7 +824,7 @@ function renderModalSubentro(d) {
         <div class="field">
           <label for="sub-data">Data del subentro *</label>
           <input type="date" id="sub-data" value="${oggi}">
-          <p class="hint">Dal giorno indicato le spese senza ripartizione si dividono con il nuovo condomino.</p>
+          <p class="hint">Dal giorno indicato le spese senza ripartizione si dividono con il nuovo condomino. Per una vendita inserisci il giorno dopo il rogito. Chi esce resta obbligato in solido con il nuovo proprietario finché all\'amministratore non arriva la copia autentica dell\'atto (art. 63 disp. att. c.c.); il nuovo proprietario risponde verso il condominio per l\'esercizio in corso e il precedente.</p>
         </div>
         <div class="field">
           <label for="sub-nome">Nome del nuovo condomino *</label>

@@ -3737,7 +3737,7 @@ describe("UNIT — bozza dell'informativa privacy (solo Super Admin)", () => {
   });
 });
 
-describe('UNIT — competenza nei subentri: spese puntuali per giorno, rate e ricorrenti per mese', () => {
+describe('UNIT — competenza nei subentri: sempre per giorno (spese, ricorrenze, rate)', () => {
   const mk = (condomini, extra = {}) => {
     const app = loadApp();
     app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], page: 'entrate',
@@ -3748,42 +3748,20 @@ describe('UNIT — competenza nei subentri: spese puntuali per giorno, rate e ri
   const bianchi = (ingresso) => ({ id: 202, nome: 'Bianchi', appartamento: 'Int. 1', edificioId: 1, dataIngresso: ingresso });
   const dora = { id: 203, nome: 'Dora', appartamento: 'Int. 2', edificioId: 1 };
 
-  it('il mese è di chi ha più giorni: uscita il 15/06 → Bianchi (16 giorni); uscita il 20/06 → Rossi (19 giorni)', () => {
-    const a = mk([rossi('2027-06-15'), bianchi('2027-06-15'), dora]);
-    assert.strictEqual(a.haIlMese(a.__get('state').condomini[0], '2027-06-05'), false);
-    assert.strictEqual(a.haIlMese(a.__get('state').condomini[1], '2027-06-05'), true);
-    const b = mk([rossi('2027-06-20'), bianchi('2027-06-20'), dora]);
-    assert.strictEqual(b.haIlMese(b.__get('state').condomini[0], '2027-06-28'), true);
-    assert.strictEqual(b.haIlMese(b.__get('state').condomini[1], '2027-06-28'), false);
-  });
-  it('a parità di giorni (febbraio, 14 e 14) il mese va a chi subentra; chi c\'è tutto l\'anno ha sempre il mese', () => {
-    const a = mk([rossi('2027-02-15'), bianchi('2027-02-15'), dora]);
-    const [r, b, d] = a.__get('state').condomini;
-    assert.strictEqual(a.haIlMese(r, '2027-02-10'), false);
-    assert.strictEqual(a.haIlMese(b, '2027-02-10'), true);
-    assert.strictEqual(a.haIlMese(d, '2027-02-10'), true);
-    assert.strictEqual(a.haIlMese(r, '2027-01-31'), true);
-    assert.strictEqual(a.haIlMese(b, '2027-03-31'), true);
-  });
-  it('spesa puntuale per giorno, ricorrente per mese: stessa data, due risultati', () => {
+  it('la competenza è del giorno: uscita il 15/06 → Rossi fino al 14/06, Bianchi dal 15/06', () => {
     const a = mk([rossi('2027-06-15'), bianchi('2027-06-15'), dora]);
     const nomi = (l) => Array.from(l.map((c) => c.nome)).sort().join(',');
-    assert.strictEqual(nomi(a.condominiDellaSpesa({ data: '2027-06-05' }, 1)), 'Dora,Rossi');
-    assert.strictEqual(nomi(a.condominiDellaSpesa({ data: '2027-06-05', ricGruppoId: 'g1' }, 1)), 'Bianchi,Dora');
+    assert.strictEqual(nomi(a.condominiAllaData('2027-06-14', 1)), 'Dora,Rossi');
+    assert.strictEqual(nomi(a.condominiAllaData('2027-06-15', 1)), 'Bianchi,Dora');
   });
-  it('prima del 2027 i dati non cambiano: anche una ricorrente segue il giorno', () => {
-    const a = mk([rossi('2026-06-15'), bianchi('2026-06-15'), dora]);
-    const nomi = (l) => Array.from(l.map((c) => c.nome)).sort().join(',');
-    assert.strictEqual(nomi(a.condominiDellaSpesa({ data: '2026-06-05', ricGruppoId: 'g1' }, 1)), 'Dora,Rossi');
-  });
-  it('quota di una spesa senza ripartizione: la ricorrente va a chi ha il mese, la puntuale a chi c\'è quel giorno', () => {
+  it('una spesa ricorrente segue il giorno come una puntuale: nessun arrotondamento al mese', () => {
     const a = mk([rossi('2027-06-15'), bianchi('2027-06-15'), dora]);
     const puntuale = { id: 1, data: '2027-06-05', preventivo: '1000', edificioId: 1 };
     const ricorrente = { ...puntuale, id: 2, ricGruppoId: 'g1' };
-    assert.strictEqual(a.quotaSuSpesa(puntuale, 201, 1000, 2), 500);
-    assert.strictEqual(a.quotaSuSpesa(puntuale, 202, 1000, 2), 0);
-    assert.strictEqual(a.quotaSuSpesa(ricorrente, 201, 1000, 2), 0);
-    assert.strictEqual(a.quotaSuSpesa(ricorrente, 202, 1000, 2), 500);
+    for (const s of [puntuale, ricorrente]) {
+      assert.strictEqual(a.quotaSuSpesa(s, 201, 1000, 2), 500);
+      assert.strictEqual(a.quotaSuSpesa(s, 202, 1000, 2), 0);
+    }
   });
 
   describe('piano rate per periodo', () => {
@@ -3863,10 +3841,10 @@ describe('UNIT — avvisi di competenza sulla ripartizione scritta a mano (suben
     const senza = mk([{ id: 1, nome: 'A', edificioId: 1 }, { id: 2, nome: 'B', edificioId: 1 }]);
     assert.deepStrictEqual(Array.from(senza.avvisiCompetenzaSpesa({ data: '2027-09-20', edificioId: 1, split: [{ id: 1, perc: 100 }] })), []);
   });
-  it('una spesa ricorrente si valuta per mese: stessa data, esito diverso dalla puntuale', () => {
+  it('una spesa ricorrente si valuta come una puntuale, sul giorno', () => {
     const a = mk([{ ...rossi, dataUscita: '2027-06-15' }, { ...bianchi, dataIngresso: '2027-06-15' }, dora]);
     const split = [{ id: 201, perc: 50 }, { id: 203, perc: 50 }];
-    assert.strictEqual(a.avvisiCompetenzaSpesa({ data: '2027-06-05', edificioId: 1, split }).length, 0, 'puntuale: Rossi c\'è ancora il 5/06');
-    assert.ok(a.avvisiCompetenzaSpesa({ data: '2027-06-05', edificioId: 1, split, ricGruppoId: 'g' }).length > 0, 'ricorrente: giugno è di Bianchi');
+    assert.strictEqual(a.avvisiCompetenzaSpesa({ data: '2027-06-05', edificioId: 1, split, ricGruppoId: 'g' }).length, 0, 'il 5/06 Rossi c\'è ancora');
+    assert.ok(a.avvisiCompetenzaSpesa({ data: '2027-06-20', edificioId: 1, split, ricGruppoId: 'g' }).length > 0, 'il 20/06 non c\'è più');
   });
 });
