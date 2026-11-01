@@ -3704,3 +3704,35 @@ describe('UNIT — operazioni massive e profilo (audit avversario regole 2026-10
     });
   });
 });
+
+describe("UNIT — bozza dell'informativa privacy (solo Super Admin)", () => {
+  const app = loadApp();
+  it('il formato produce titoli, elenchi, grassetto e paragrafi', () => {
+    const h = app.formattaInformativa('## Titolo\nTesto **forte**\n\n- uno\n- due');
+    assert.ok(h.includes('<h4>Titolo</h4>'));
+    assert.ok(h.includes('<strong>forte</strong>'));
+    assert.ok(h.includes('<ul><li>uno</li><li>due</li></ul>'));
+  });
+  it('il testo è sempre escapato: nessun tag o attributo passa', () => {
+    const h = app.formattaInformativa('<img src=x onerror=alert(1)> **<script>alert(1)</script>** & ');
+    assert.ok(!h.includes('<img') && !h.includes('<script'));
+    assert.ok(h.includes('&lt;img'));
+    assert.ok(h.includes('<strong>&lt;script&gt;'));
+  });
+  it('conta le parti tra parentesi quadre ancora da compilare', () => {
+    assert.strictEqual(app.segnapostiPrivacy('a [uno] b [due]'), 2);
+    assert.strictEqual(app.segnapostiPrivacy('niente'), 0);
+  });
+  it('senza bozza salvata si parte dal testo iniziale; con una salvata vale quella', () => {
+    const a = loadApp();
+    assert.strictEqual(a.privacyCorrente().predefinita, true);
+    assert.ok(a.privacyCorrente().testo.length > 500);
+    a.save('cm_privacy', { testo: 'mio testo', aggiornatoIl: '2026-11-01T10:00:00.000Z' });
+    assert.strictEqual(a.privacyCorrente().testo, 'mio testo');
+  });
+  it("la bozza non si legge all'accesso di tutti (solo dalla scheda del Super Admin)", () => {
+    const fs = require('fs');
+    const dati = fs.readFileSync(require('path').join(__dirname, '..', 'js', 'core', 'dati.js'), 'utf8');
+    assert.ok(/k !== 'cm_privacy'/.test(dati));
+  });
+});

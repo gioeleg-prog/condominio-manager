@@ -591,6 +591,7 @@ function renderImpostazioni() {
       <p class="hint" style="margin-bottom:.75rem">Il nome di ciascun condominio si modifica dalla sua scheda in "Gestione condomini" qui sotto.</p>
       <button class="btn btn-primary" id="btn-save-branding">💾 Salva</button>
     </div>
+    ${renderPrivacyAdmin()}
     ` : ''}
 
     <!-- DATI E RESET (solo superAdmin: reset e categorie sono dati globali,
@@ -888,6 +889,7 @@ Sposta o elimina prima tutti i dati associati.`);
   };
   // Reset
   bindOpsSection();
+  bindPrivacyAdmin();
   const bBrand = document.getElementById('btn-save-branding');
   if (bBrand) bBrand.onclick = () => {
     if (!isSuperAdmin(state.user)) return;
