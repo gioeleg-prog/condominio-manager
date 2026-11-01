@@ -152,7 +152,7 @@ function quotaSuSpesa(s, condId, importo, nAttivi) {
   }
   // Senza ripartizione: parti uguali tra chi faceva parte del condominio alla
   // data della spesa (subentri: chi è entrato dopo o uscito prima non paga).
-  const partecipanti = condominiAllaData(s.data, s.edificioId || state.edificioAttivo);
+  const partecipanti = condominiDellaSpesa(s, s.edificioId || state.edificioAttivo);
   if (partecipanti.length) return idsDi(partecipanti).has(condId) ? importo / partecipanti.length : 0;
   return importo / (nAttivi || 1);
 }
@@ -206,6 +206,51 @@ function condominiAllaData(data, edificioId = state.edificioAttivo) {
   let v = _memoRender.cond.get(k);
   if (!v) { v = calcola(); _memoRender.cond.set(k, v); }
   return v;
+}
+// ── Competenza per mese (rate e spese ricorrenti, dal 2027) ───────────────
+// Una spesa puntuale segue il GIORNO (condominiAllaData). Rate e spese
+// ricorrenti si arrotondano al mese: il mese è di chi ha il condominio per più
+// giorni; a parità (febbraio, 14 giorni a testa) di chi subentra. Così nessuna
+// rata o occorrenza viene divisa a metà. Conta sempre la data della voce, non
+// il giorno in cui la si inserisce. Vale dalla data COMPETENZA_MESE_DAL in
+// poi: rendiconti e bilanci già chiusi non cambiano.
+const COMPETENZA_MESE_DAL = '2027-01-01';
+function ha2(n) { return String(n).padStart(2, '0'); }
+// Giorni del mese di `data` in cui c fa parte del condominio (ingresso compreso, uscita esclusa).
+function giorniNelMese(c, data) {
+  const m = /^(\d{4})-(\d{2})-\d{2}/.exec(data || '');
+  if (!m) return { giorni: 0, lunghezza: 0, entraNelMese: false };
+  const anno = +m[1], mese = +m[2];
+  const lunghezza = new Date(anno, mese, 0).getDate();
+  const primo = anno + '-' + m[2] + '-01', ultimo = anno + '-' + m[2] + '-' + ha2(lunghezza);
+  const { inizio, fine } = periodoCondomino(c);
+  const dal = inizio && inizio > primo ? (inizio > ultimo ? lunghezza + 1 : +inizio.slice(8, 10)) : 1;
+  const al = fine && fine <= ultimo ? (fine <= primo ? 1 : +fine.slice(8, 10)) : lunghezza + 1;
+  return { giorni: Math.max(0, al - dal), lunghezza, entraNelMese: !!inizio && inizio >= primo && inizio <= ultimo };
+}
+// Il mese di `data` è suo? Più della metà dei giorni; a metà esatta solo se subentra in quel mese.
+function haIlMese(c, data) {
+  const { giorni, lunghezza, entraNelMese } = giorniNelMese(c, data);
+  if (!lunghezza) return false;
+  return giorni * 2 > lunghezza || (giorni * 2 === lunghezza && entraNelMese);
+}
+function condominiPerMese(data, edificioId = state.edificioAttivo) {
+  const calcola = () => state.condomini.filter(c => c.edificioId === edificioId && !c.superAdmin && haIlMese(c, data));
+  if (!_memoRender) return calcola();
+  const k = 'm|' + edificioId + '|' + String(data || '').slice(0, 10);
+  let v = _memoRender.cond.get(k);
+  if (!v) { v = calcola(); _memoRender.cond.set(k, v); }
+  return v;
+}
+// Chi paga una voce a quella data: per mese se è una rata o una spesa ricorrente
+// da COMPETENZA_MESE_DAL in poi, altrimenti per giorno.
+function condominiCompetenza(data, edificioId, aMese) {
+  const d = String(data || '').slice(0, 10);
+  return aMese && d >= COMPETENZA_MESE_DAL ? condominiPerMese(d, edificioId) : condominiAllaData(d, edificioId);
+}
+// Chi paga la spesa s (ricorrente = per mese, puntuale = per giorno).
+function condominiDellaSpesa(s, edificioId) {
+  return condominiCompetenza(s.data, edificioId || s.edificioId || state.edificioAttivo, !!s.ricGruppoId);
 }
 
 // ── Memoria di un render (prestazioni, 2026-10-21) ────────────────────────
@@ -408,6 +453,45 @@ function modificaAnnoPassato(prima, dopo, campi, oggi) {
 // Dove c'è già una domanda di conferma (eliminazioni) si aggiunge il testo alla stessa domanda.
 function confermaAnnoPassato() {
   return chiedi(MSG_ANNO_PASSATO, { titolo: 'Anno già passato', conferma: 'Continua', pericolo: false });
+}
+
+// ── Avvisi di competenza (subentri) ───────────────────────────────────────
+// Una spesa con ripartizione scritta a mano può assegnare una quota a chi, a
+// quella data, non fa parte del condominio (esce prima, entra dopo), oppure
+// lasciare a zero chi c'è. Lo si segnala al salvataggio: l'amministratore può
+// salvare lo stesso (decisione: avviso, mai blocco). Solo se nel condominio ci
+// sono subentri; per le ricorrenze vale il mese, per le spese puntuali il giorno.
+// La data di uscita è il primo giorno in cui non c'è più: l'ultimo giorno è il precedente.
+function giornoPrima(iso) { const d = new Date(iso.slice(0, 10) + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
+function dataItaliana(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? m[3] + '/' + m[2] + '/' + m[1] : ''; }
+function avvisiCompetenzaSpesa(item) {
+  const split = (item.split || []).filter(x => (parseFloat(x.perc) || 0) > 0);
+  if (!split.length || !/^\d{4}-\d{2}-\d{2}/.test(item.data || '')) return [];
+  const ed = item.edificioId || state.edificioAttivo;
+  const tutti = state.condomini.filter(c => c.edificioId === ed && !c.superAdmin);
+  if (!tutti.some(c => c.dataIngresso || c.dataUscita || c.disabled)) return [];
+  const aMese = !!item.ricGruppoId || !!item.ricorrente;
+  const presenti = new Set(condominiCompetenza(item.data, ed, aMese).map(c => c.id));
+  const quando = aMese && String(item.data).slice(0, 10) >= COMPETENZA_MESE_DAL ? 'in questo mese' : 'in questa data';
+  const periodo = (c) => {
+    const { inizio, fine } = periodoCondomino(c);
+    return [inizio ? 'dal ' + dataItaliana(inizio) : '', fine && fine !== '0000-00-00' ? 'fino al ' + dataItaliana(giornoPrima(fine)) : (c.disabled ? 'archiviato' : '')].filter(Boolean).join(', ');
+  };
+  const righe = [];
+  split.forEach(x => {
+    const c = tutti.find(t => t.id === x.id);
+    if (c && !presenti.has(c.id)) righe.push('• ' + c.nome + ' ha il ' + fmtN(parseFloat(x.perc)) + '% ma ' + quando + ' non fa parte del condominio' + (periodo(c) ? ' (' + periodo(c) + ')' : '') + '.');
+  });
+  const conQuota = new Set(split.map(x => x.id));
+  tutti.filter(c => presenti.has(c.id) && !conQuota.has(c.id))
+    .forEach(c => righe.push('• ' + c.nome + ' fa parte del condominio ' + quando + ' ma non ha nessuna quota.'));
+  return righe;
+}
+async function confermaCompetenzaSpesa(item) {
+  const righe = avvisiCompetenzaSpesa(item);
+  if (!righe.length) return true;
+  return chiedi('Controlla la competenza di questa spesa (' + dataItaliana(item.data) + '):\n\n' + righe.join('\n')
+    + '\n\nPuoi salvare lo stesso se è voluto.', { titolo: 'Competenza della spesa', conferma: 'Salva lo stesso', annulla: 'Torna a correggere', pericolo: false });
 }
 
 // Riporto di un condomino: versamenti reali meno quota delle spese consuntivate,

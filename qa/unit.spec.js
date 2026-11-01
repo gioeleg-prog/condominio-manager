@@ -1335,7 +1335,7 @@ describe('UNIT — conti: totale al 100%, usciti con debito, ricerca e CSV (cons
       assert.match(campi['m-err'].textContent, /100%/);
     }
   });
-  it('scheda spesa: una ripartizione al 100% (anche 6 x 16,67) si salva', () => {
+  it('scheda spesa: una ripartizione al 100% (anche 6 x 16,67) si salva', async () => {
     const app = mk();
     const campi = { 'm-titolo': { value: 'Tetto' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '' },
       'm-cons': { value: '1000' }, 'm-data': { value: `${Y}-03-01` }, 'm-err': { style: {}, textContent: '' } };
@@ -1345,7 +1345,7 @@ describe('UNIT — conti: totale al 100%, usciti con debito, ricerca e CSV (cons
     let salvato = false;
     app.save = () => { salvato = true; };
     app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
-    app.salvaSchedaSpesa({ data: null });
+    await app.salvaSchedaSpesa({ data: null });
     assert.strictEqual(salvato, true);
   });
 
@@ -1587,8 +1587,8 @@ describe('UNIT — retest regole: ricorrenze, quote fuori scala, lucchetti, spes
   });
 
   // ADV-FUNC-027
-  it('scheda spesa: una quota negativa o sopra il 100% non si salva anche se il totale fa 100%; 100/0/0 sì', () => {
-    const prova = (percs) => {
+  it('scheda spesa: una quota negativa o sopra il 100% non si salva anche se il totale fa 100%; 100/0/0 sì', async () => {
+    const prova = async (percs) => {
       const app = mk();
       const campi = { 'm-titolo': { value: 'Tetto' }, 'm-cat': { value: 'tetto' }, 'm-tipo': { value: 'ordinaria' }, 'm-prev': { value: '' },
         'm-cons': { value: '1000' }, 'm-data': { value: `${Y}-03-01` }, 'm-err': { style: {}, textContent: '' } };
@@ -1597,16 +1597,16 @@ describe('UNIT — retest regole: ricorrenze, quote fuori scala, lucchetti, spes
       app.setState = (p) => app.__set('state', { ...app.__get('state'), ...p });
       let salvato = false;
       app.save = () => { salvato = true; };
-      app.salvaSchedaSpesa({ data: null });
+      await app.salvaSchedaSpesa({ data: null });
       return { salvato, err: campi['m-err'].textContent };
     };
     for (const p of [[120, -20, 0], [150, -50, 0], [-10, 110, 0]]) {
-      const r = prova(p);
+      const r = await prova(p);
       assert.strictEqual(r.salvato, false, 'salvata ' + p.join('/'));
       assert.match(r.err, /tra 0% e 100%/);
     }
-    assert.strictEqual(prova([100, 0, 0]).salvato, true);
-    assert.strictEqual(prova([33.34, 33.33, 33.33]).salvato, true);
+    assert.strictEqual((await prova([100, 0, 0])).salvato, true);
+    assert.strictEqual((await prova([33.34, 33.33, 33.33])).salvato, true);
   });
 
   // ADV-FUNC-028 (parte pura; il percorso reale è nell'E2E "cambio data")
@@ -3734,5 +3734,139 @@ describe("UNIT — bozza dell'informativa privacy (solo Super Admin)", () => {
     const fs = require('fs');
     const dati = fs.readFileSync(require('path').join(__dirname, '..', 'js', 'core', 'dati.js'), 'utf8');
     assert.ok(/k !== 'cm_privacy'/.test(dati));
+  });
+});
+
+describe('UNIT — competenza nei subentri: spese puntuali per giorno, rate e ricorrenti per mese', () => {
+  const mk = (condomini, extra = {}) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], page: 'entrate',
+      user: { id: 1, nome: 'Admin', isAdmin: true, canEdit: true, edificioId: 1 }, condomini, spese: [], entrate: [], ...extra });
+    return app;
+  };
+  const rossi = (uscita) => ({ id: 201, nome: 'Rossi', appartamento: 'Int. 1', edificioId: 1, dataUscita: uscita });
+  const bianchi = (ingresso) => ({ id: 202, nome: 'Bianchi', appartamento: 'Int. 1', edificioId: 1, dataIngresso: ingresso });
+  const dora = { id: 203, nome: 'Dora', appartamento: 'Int. 2', edificioId: 1 };
+
+  it('il mese è di chi ha più giorni: uscita il 15/06 → Bianchi (16 giorni); uscita il 20/06 → Rossi (19 giorni)', () => {
+    const a = mk([rossi('2027-06-15'), bianchi('2027-06-15'), dora]);
+    assert.strictEqual(a.haIlMese(a.__get('state').condomini[0], '2027-06-05'), false);
+    assert.strictEqual(a.haIlMese(a.__get('state').condomini[1], '2027-06-05'), true);
+    const b = mk([rossi('2027-06-20'), bianchi('2027-06-20'), dora]);
+    assert.strictEqual(b.haIlMese(b.__get('state').condomini[0], '2027-06-28'), true);
+    assert.strictEqual(b.haIlMese(b.__get('state').condomini[1], '2027-06-28'), false);
+  });
+  it('a parità di giorni (febbraio, 14 e 14) il mese va a chi subentra; chi c\'è tutto l\'anno ha sempre il mese', () => {
+    const a = mk([rossi('2027-02-15'), bianchi('2027-02-15'), dora]);
+    const [r, b, d] = a.__get('state').condomini;
+    assert.strictEqual(a.haIlMese(r, '2027-02-10'), false);
+    assert.strictEqual(a.haIlMese(b, '2027-02-10'), true);
+    assert.strictEqual(a.haIlMese(d, '2027-02-10'), true);
+    assert.strictEqual(a.haIlMese(r, '2027-01-31'), true);
+    assert.strictEqual(a.haIlMese(b, '2027-03-31'), true);
+  });
+  it('spesa puntuale per giorno, ricorrente per mese: stessa data, due risultati', () => {
+    const a = mk([rossi('2027-06-15'), bianchi('2027-06-15'), dora]);
+    const nomi = (l) => Array.from(l.map((c) => c.nome)).sort().join(',');
+    assert.strictEqual(nomi(a.condominiDellaSpesa({ data: '2027-06-05' }, 1)), 'Dora,Rossi');
+    assert.strictEqual(nomi(a.condominiDellaSpesa({ data: '2027-06-05', ricGruppoId: 'g1' }, 1)), 'Bianchi,Dora');
+  });
+  it('prima del 2027 i dati non cambiano: anche una ricorrente segue il giorno', () => {
+    const a = mk([rossi('2026-06-15'), bianchi('2026-06-15'), dora]);
+    const nomi = (l) => Array.from(l.map((c) => c.nome)).sort().join(',');
+    assert.strictEqual(nomi(a.condominiDellaSpesa({ data: '2026-06-05', ricGruppoId: 'g1' }, 1)), 'Dora,Rossi');
+  });
+  it('quota di una spesa senza ripartizione: la ricorrente va a chi ha il mese, la puntuale a chi c\'è quel giorno', () => {
+    const a = mk([rossi('2027-06-15'), bianchi('2027-06-15'), dora]);
+    const puntuale = { id: 1, data: '2027-06-05', preventivo: '1000', edificioId: 1 };
+    const ricorrente = { ...puntuale, id: 2, ricGruppoId: 'g1' };
+    assert.strictEqual(a.quotaSuSpesa(puntuale, 201, 1000, 2), 500);
+    assert.strictEqual(a.quotaSuSpesa(puntuale, 202, 1000, 2), 0);
+    assert.strictEqual(a.quotaSuSpesa(ricorrente, 201, 1000, 2), 0);
+    assert.strictEqual(a.quotaSuSpesa(ricorrente, 202, 1000, 2), 500);
+  });
+
+  describe('piano rate per periodo', () => {
+    const Y = new Date().getFullYear() + 1;
+    const scenario = () => mk([rossi(`${Y}-07-01`), bianchi(`${Y}-07-01`), dora], {
+      filterAnno: Y, filterAnni: [Y],
+      spese: [
+        { id: 1, data: `${Y}-03-15`, titolo: 'Caldaia', categoria: 'altro', preventivo: '1200', consuntivo: '', edificioId: 1 },
+        { id: 2, data: `${Y}-09-20`, titolo: 'Ascensore', categoria: 'altro', preventivo: '900', consuntivo: '', edificioId: 1 },
+      ] });
+    const mese = (r) => +r.data.slice(5, 7);
+    it('Rossi non ha rate dopo l\'uscita, Bianchi non ne ha prima dell\'ingresso; chi c\'è sempre le ha tutte', () => {
+      const piano = scenario().calcolaPianoRate(Y);
+      assert.strictEqual(piano.coperto, false);
+      for (const r of piano.rate) {
+        const pc = (id) => r.perCondomino.find((c) => c.id === id);
+        if (mese(r) >= 7) { assert.strictEqual(pc(201).importo, 0, 'Rossi ' + r.data); assert.strictEqual(pc(201).fuoriCompetenza, true); }
+        if (mese(r) <= 6) { assert.strictEqual(pc(202).importo, 0, 'Bianchi ' + r.data); assert.strictEqual(pc(202).fuoriCompetenza, true); }
+        assert.ok(pc(203).importo > 0, 'Dora ' + r.data);
+      }
+    });
+    it('la somma delle rate di chi ha rate nel suo periodo è la sua quota di competenza', () => {
+      const piano = scenario().calcolaPianoRate(Y);
+      const somma = (id) => Math.round(piano.rate.reduce((a, r) => a + r.perCondomino.find((c) => c.id === id).importo, 0) * 100) / 100;
+      const haRate = (id) => piano.rate.some((r) => r.perCondomino.find((c) => c.id === id).importo > 0);
+      if (haRate(201)) assert.ok(Math.abs(somma(201) - 600) <= 0.05, 'Rossi ' + somma(201));
+      if (haRate(202)) assert.ok(Math.abs(somma(202) - 450) <= 0.05, 'Bianchi ' + somma(202));
+      assert.ok(Math.abs(somma(203) - 1050) <= 0.05, 'Dora ' + somma(203));
+    });
+    it('chi non ha nessuna rata nel suo periodo non ne riceve una aggiunta d\'ufficio: la quota è segnalata', () => {
+      const piano = scenario().calcolaPianoRate(Y);
+      const senza = Array.from(piano.senzaRataNelPeriodo.map((x) => x.nome));
+      const haRate = (id) => piano.rate.some((r) => r.perCondomino.find((c) => c.id === id).importo > 0);
+      assert.strictEqual(senza.includes('Bianchi'), !haRate(202));
+      assert.strictEqual(senza.includes('Rossi'), !haRate(201));
+      assert.ok(!senza.includes('Dora'));
+    });
+    it('senza subentri il piano è quello di sempre: tutti hanno tutte le rate e il totale torna', () => {
+      const app = mk([{ id: 301, nome: 'A', edificioId: 1 }, { id: 302, nome: 'B', edificioId: 1 }], {
+        filterAnno: Y, filterAnni: [Y],
+        spese: [{ id: 1, data: `${Y}-03-15`, titolo: 'Caldaia', categoria: 'altro', preventivo: '1000', consuntivo: '', edificioId: 1 }] });
+      const piano = app.calcolaPianoRate(Y);
+      assert.strictEqual(Array.from(piano.senzaRataNelPeriodo).length, 0);
+      for (const r of piano.rate) {
+        assert.ok(r.perCondomino.every((c) => !c.fuoriCompetenza));
+        assert.ok(Math.abs(r.perCondomino.reduce((a, c) => a + c.importo, 0) - r.importoTotale) < 0.005);
+      }
+    });
+  });
+});
+
+describe('UNIT — avvisi di competenza sulla ripartizione scritta a mano (subentri)', () => {
+  const mk = (condomini) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], condomini, spese: [], entrate: [] });
+    return app;
+  };
+  const rossi = { id: 201, nome: 'Rossi', edificioId: 1, dataUscita: '2027-07-01' };
+  const bianchi = { id: 202, nome: 'Bianchi', edificioId: 1, dataIngresso: '2027-07-01' };
+  const dora = { id: 203, nome: 'Dora', edificioId: 1 };
+
+  it('caso B: dopo il subentro la quota a Rossi si segnala; caso C: Bianchi senza quota si segnala', () => {
+    const app = mk([rossi, bianchi, dora]);
+    const righe = app.avvisiCompetenzaSpesa({ data: '2027-09-20', edificioId: 1, split: [{ id: 201, perc: 50 }, { id: 203, perc: 50 }] });
+    assert.strictEqual(righe.length, 2);
+    assert.ok(/Rossi.*50(,00)?%.*non fa parte.*fino al 30\/06\/2027/.test(righe[0]), righe[0]);
+    assert.ok(/Bianchi.*non ha nessuna quota/.test(righe[1]), righe[1]);
+  });
+  it('una ripartizione coerente con la data non segnala nulla', () => {
+    const app = mk([rossi, bianchi, dora]);
+    assert.deepStrictEqual(Array.from(app.avvisiCompetenzaSpesa({ data: '2027-09-20', edificioId: 1, split: [{ id: 202, perc: 50 }, { id: 203, perc: 50 }] })), []);
+    assert.deepStrictEqual(Array.from(app.avvisiCompetenzaSpesa({ data: '2027-03-15', edificioId: 1, split: [{ id: 201, perc: 50 }, { id: 203, perc: 50 }] })), []);
+  });
+  it('senza ripartizione scritta, o senza subentri nel condominio, nessun avviso', () => {
+    const app = mk([rossi, bianchi, dora]);
+    assert.deepStrictEqual(Array.from(app.avvisiCompetenzaSpesa({ data: '2027-09-20', edificioId: 1, split: [] })), []);
+    const senza = mk([{ id: 1, nome: 'A', edificioId: 1 }, { id: 2, nome: 'B', edificioId: 1 }]);
+    assert.deepStrictEqual(Array.from(senza.avvisiCompetenzaSpesa({ data: '2027-09-20', edificioId: 1, split: [{ id: 1, perc: 100 }] })), []);
+  });
+  it('una spesa ricorrente si valuta per mese: stessa data, esito diverso dalla puntuale', () => {
+    const a = mk([{ ...rossi, dataUscita: '2027-06-15' }, { ...bianchi, dataIngresso: '2027-06-15' }, dora]);
+    const split = [{ id: 201, perc: 50 }, { id: 203, perc: 50 }];
+    assert.strictEqual(a.avvisiCompetenzaSpesa({ data: '2027-06-05', edificioId: 1, split }).length, 0, 'puntuale: Rossi c\'è ancora il 5/06');
+    assert.ok(a.avvisiCompetenzaSpesa({ data: '2027-06-05', edificioId: 1, split, ricGruppoId: 'g' }).length > 0, 'ricorrente: giugno è di Bianchi');
   });
 });

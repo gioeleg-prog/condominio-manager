@@ -16,7 +16,7 @@ function renderQuotaCell(spesa) {
   // attivi e non-superAdmin. Non usare mai state.condomini.length: include TUTTI gli edifici.
   const edId = spesa.edificioId || state.edificioAttivo;
   // Chi faceva parte del condominio alla data della spesa (subentri).
-  const condEd = condominiAllaData(spesa.data, edId);
+  const condEd = condominiDellaSpesa(spesa, edId);
   const nCond = condEd.length || 1;
   // Split valido = solo righe di condomini di questo edificio con quota > 0 (0% = escluso da questa spesa)
   const idsQuota = idsConQuotaSalvata(edId);
@@ -121,7 +121,7 @@ function renderQuotaCellText(spesa) {
   if (!importoRef) return '';
   const edId = spesa.edificioId || state.edificioAttivo;
   // Chi faceva parte del condominio alla data della spesa (subentri).
-  const condEd = condominiAllaData(spesa.data, edId);
+  const condEd = condominiDellaSpesa(spesa, edId);
   const nCond = condEd.length || 1;
   const idsQuota = idsConQuotaSalvata(edId);
   const validSplit = (spesa.split||[]).filter(s => idsQuota.has(s.id) && (s.perc||0) > 0);
@@ -146,12 +146,12 @@ function renderQuotaCellText(spesa) {
 function splitPerOccorrenza(split, data, dataBase, edificioId) {
   if (!split || !split.length) return split;
   const ed = edificioId || state.edificioAttivo;
-  const presenti = condominiAllaData(data, ed);
+  const presenti = condominiCompetenza(data, ed, true); // ricorrenze: per mese
   if (!presenti.length) return split;
   const idsPresenti = new Set(presenti.map(c => c.id));
   const uscenti = split.filter(x => (x.perc || 0) > 0 && !idsPresenti.has(x.id));
   if (!uscenti.length) return split;
-  const alBase = new Set(condominiAllaData(dataBase, ed).map(c => c.id));
+  const alBase = new Set(condominiCompetenza(dataBase, ed, true).map(c => c.id));
   const norm = (a) => String(a || '').trim().toLowerCase();
   const righe = new Map(); // id -> centesimi di punto (si mantiene l'ordine d'inserimento)
   const extra = new Map(); // id -> riga originale (per locked e altri campi)
@@ -767,7 +767,7 @@ function esportaSpeseCSV(spese, nomeFile) {
   const haQuota = (c) => spese.some(s => (s.split || []).some(x => x.id === c.id && (x.perc || 0) > 0));
   // Spese senza ripartizione (dati legacy): si dividono tra chi abitava alla data, quindi anche chi è uscito dopo ha la colonna.
   const presenteSenzaSplit = (c) => spese.some(s => !(s.split || []).length && (s.edificioId || state.edificioAttivo) === c.edificioId
-    && condominiAllaData(s.data, c.edificioId).some(x => x.id === c.id));
+    && condominiDellaSpesa(s, c.edificioId).some(x => x.id === c.id));
   const condTotali = state.condomini.filter(c => edificiCoinvolti.includes(c.edificioId) && !c.superAdmin && (!c.disabled || haQuota(c) || presenteSenzaSplit(c)));
 
   const intestazione = ['Data','Titolo','Descrizione','Categoria','Tipo','Fornitore','Preventivo','Consuntivo','Stato', ...condTotali.map(c=>c.nome)];
@@ -790,7 +790,7 @@ function esportaSpeseCSV(spese, nomeFile) {
     const exConQuota = (c) => c.disabled && c.edificioId === (s.edificioId||state.edificioAttivo) && (s.split || []).some(x => x.id === c.id && (x.perc || 0) > 0);
     // Senza ripartizione: ha la colonna anche chi abitava alla data e poi è uscito.
     const exPresenteAllaData = (c) => !(s.split || []).length && c.disabled && c.edificioId === (s.edificioId||state.edificioAttivo)
-      && condominiAllaData(s.data, c.edificioId).some(x => x.id === c.id);
+      && condominiDellaSpesa(s, c.edificioId).some(x => x.id === c.id);
     const quote = condTotali.map(c => condEdSpesa.some(ce=>ce.id===c.id) || exConQuota(c) || exPresenteAllaData(c) ? numCSV(quotaCondomino(s, c.id, condEdSpesa)) : '');
     return [...base, ...quote];
   });
@@ -1121,6 +1121,8 @@ async function salvaSchedaSpesa(m) {
     const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId, ...(tabellaMillesimi ? { tabellaMillesimi } : {}) };
     // Anno già passato (QA-CONS-029): nessun blocco, ma l'amministratore conferma prima di salvare.
     if (modificaAnnoPassato(m.data?.id ? m.data : null, item, CAMPI_ANNO_SPESA) && !await confermaAnnoPassato()) return;
+    // Subentri: avviso (non blocco) se la ripartizione scritta a mano non corrisponde a chi c'è alla data.
+    if (avvisiCompetenzaSpesa(item).length && !await confermaCompetenzaSpesa(item)) return;
     let spese;
     if (m.data?.id) {
       // Modifica spesa esistente
