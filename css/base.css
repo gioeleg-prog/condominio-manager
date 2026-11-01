@@ -136,6 +136,8 @@ body { font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, sans-se
 .login-sep::before, .login-sep::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 .login-google { width: 100%; gap: .5rem; }
 .login-footer { text-align: center; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 12px; color: var(--text2); }
+.login-privacy { margin: 0 0 .75rem; line-height: 1.5; }
+.login-privacy a { color: inherit; text-decoration: underline; display: inline-block; min-height: 24px; }
 .field { margin-bottom: 1rem; }
 .field label { display: block; font-size: 13px; font-weight: 500; color: var(--text2); margin-bottom: 6px; }
 .field input, .field select, .field textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; background: var(--surface); color: var(--text); outline: none; transition: border-color .15s, box-shadow .15s; }
