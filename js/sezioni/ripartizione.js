@@ -293,8 +293,8 @@ function bindSplit() {
 
   // ── cambio data: le righe seguono chi abitava alla data ───────────────
   if (tbody.dataset.segueData === '1') {
-    document.getElementById('m-data')?.addEventListener('change', () => {
-      const data = document.getElementById('m-data').value;
+    const seguiCompetenza = () => {
+      const data = dataCompetenzaDalForm();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return;
       const idsNuovi = condominiAllaData(data).filter(c => c.edificioId === state.edificioAttivo).map(c => c.id);
       if (!idsNuovi.length) return;
@@ -310,7 +310,8 @@ function bindSplit() {
       collegaRighe();
       aggiornaAggiungibili();
       updateTotals();
-    });
+    };
+    ['m-data', 'm-tipo', 'm-delibera-rif'].forEach(id => document.getElementById(id)?.addEventListener('change', seguiCompetenza));
   }
 
   // Spesa già salvata: cambiando la data le righe NON cambiano da sole (i conti salvati restano com'erano);
