@@ -3848,3 +3848,91 @@ describe('UNIT — avvisi di competenza sulla ripartizione scritta a mano (suben
     assert.ok(a.avvisiCompetenzaSpesa({ data: '2027-06-20', edificioId: 1, split, ricGruppoId: 'g' }).length > 0, 'il 20/06 non c\'è più');
   });
 });
+
+describe('UNIT — lavori straordinari con delibera: competenza alla data della delibera (dal 2027)', () => {
+  const rossi = { id: 201, nome: 'Rossi', appartamento: 'Int. 1', edificioId: 1, dataUscita: '2027-07-01' };
+  const bianchi = { id: 202, nome: 'Bianchi', appartamento: 'Int. 1', edificioId: 1, dataIngresso: '2027-07-01' };
+  const dora = { id: 203, nome: 'Dora', appartamento: 'Int. 2', edificioId: 1 };
+  const delibera = (extra = {}) => ({ id: 77, descrizioneSintetica: 'Rifacimento tetto', dataApprovazione: '2027-03-10', stato: 'approvata', edificioId: 1, ...extra });
+  const mk = (extra = {}) => {
+    const app = loadApp();
+    app.__set('state', { ...app.__get('state'), edificioAttivo: 1, edifici: [{ id: 1, nome: 'E' }], fornitori: [], page: 'entrate',
+      user: { id: 1, nome: 'Admin', isAdmin: true, canEdit: true, edificioId: 1 },
+      condomini: [rossi, bianchi, dora], delibere: [delibera()], spese: [], entrate: [], ...extra });
+    return app;
+  };
+  const tetto = (extra = {}) => ({ id: 1, data: '2027-09-20', titolo: 'Tetto', categoria: 'tetto', tipoSpesa: 'straordinaria', preventivo: '1200', consuntivo: '', edificioId: 1, ...extra });
+  const nomi = (l) => Array.from(l.map((c) => c.nome)).sort().join(',');
+
+  it('con la delibera collegata paga chi c\'era alla delibera, anche se la spesa è dopo la vendita', () => {
+    const a = mk();
+    assert.strictEqual(a.dataCompetenzaSpesa(tetto({ delibereRifId: 77 })), '2027-03-10');
+    assert.strictEqual(nomi(a.condominiDellaSpesa(tetto({ delibereRifId: 77 }), 1)), 'Dora,Rossi');
+    assert.strictEqual(a.quotaSuSpesa(tetto({ delibereRifId: 77 }), 201, 1200, 2), 600);
+    assert.strictEqual(a.quotaSuSpesa(tetto({ delibereRifId: 77 }), 202, 1200, 2), 0);
+  });
+  it('senza delibera collegata resta per giorno della spesa: paga chi c\'è quel giorno', () => {
+    const a = mk();
+    assert.strictEqual(nomi(a.condominiDellaSpesa(tetto(), 1)), 'Bianchi,Dora');
+    assert.strictEqual(a.quotaSuSpesa(tetto(), 202, 1200, 2), 600);
+  });
+  it('vale solo dal 2027 e solo per le straordinarie: le spese del 2026 e le ordinarie non cambiano', () => {
+    const a = mk();
+    assert.strictEqual(a.deliberaDellaSpesa(tetto({ delibereRifId: 77, data: '2026-09-20' })), null);
+    assert.strictEqual(a.deliberaDellaSpesa(tetto({ delibereRifId: 77, tipoSpesa: 'ordinaria' })), null);
+    assert.strictEqual(a.deliberaDellaSpesa(tetto({ delibereRifId: 999 })), null, 'delibera inesistente');
+    assert.ok(a.deliberaDellaSpesa(tetto({ delibereRifId: 77 })));
+  });
+  it('una delibera di un altro edificio non conta', () => {
+    const a = mk({ delibere: [delibera({ edificioId: 2 })] });
+    assert.strictEqual(a.deliberaDellaSpesa(tetto({ delibereRifId: 77 })), null);
+  });
+  it('il subentro non passa al nuovo condomino i lavori deliberati', () => {
+    const a = mk({ spese: [
+      tetto({ id: 1, delibereRifId: 77, split: [{ id: 201, perc: 50 }, { id: 203, perc: 50 }] }),
+      tetto({ id: 2, tipoSpesa: 'ordinaria', titolo: 'Pulizie', split: [{ id: 201, perc: 50 }, { id: 203, perc: 50 }] }),
+    ] });
+    const da = Array.from(a.speseDaPassare(201, '2027-07-01', 1).map((s) => s.id));
+    assert.deepStrictEqual(da, [2]);
+  });
+  it('avviso all\'uscita: elenca i lavori deliberati a suo carico con la quota; nessun avviso se non ne ha', () => {
+    const a = mk({ spese: [tetto({ delibereRifId: 77 })], entrate: [
+      { id: 1, condominoId: 201, importo: '100', data: '2027-02-01', edificioId: 1 },
+      { id: 2, condominoId: 201, importo: '200', previsionale: true, data: '2027-10-01', edificioId: 1 }] });
+    const txt = a.avvisoUscitaLavori(rossi);
+    assert.ok(/Tetto/.test(txt) && /10\/03\/2027/.test(txt), txt);
+    assert.ok(/600/.test(txt) && /100/.test(txt) && /200/.test(txt), txt);
+    assert.strictEqual(a.avvisoUscitaLavori(bianchi), '');
+    assert.strictEqual(mk({ spese: [tetto()] }).avvisoUscitaLavori(rossi), '');
+  });
+  it('avvisi sulla scheda: straordinaria senza delibera dal 2027, e quota a chi non c\'era alla delibera', () => {
+    const a = mk();
+    const senza = a.avvisiCompetenzaSpesa(tetto());
+    assert.ok(senza.some((r) => /senza delibera collegata/.test(r)));
+    assert.ok(!a.avvisiCompetenzaSpesa(tetto({ data: '2026-09-20' })).some((r) => /senza delibera/.test(r)));
+    const con = a.avvisiCompetenzaSpesa(tetto({ delibereRifId: 77, split: [{ id: 202, perc: 50 }, { id: 203, perc: 50 }] }));
+    assert.ok(con.some((r) => /Bianchi.*alla data della delibera \(10\/03\/2027\)/.test(r)), con.join('|'));
+    assert.ok(con.some((r) => /Rossi.*non ha nessuna quota/.test(r)), con.join('|'));
+  });
+
+  describe('piano rate', () => {
+    const Y = new Date().getFullYear() + 1;
+    it('la quota del lavoro deliberato resta a chi esce anche sulle rate dopo l\'uscita; il subentrante non ne ha', () => {
+      const a = mk({ filterAnno: Y, filterAnni: [Y],
+        delibere: [delibera({ dataApprovazione: `${Y}-01-20` })],
+        condomini: [{ ...rossi, dataUscita: `${Y}-07-01` }, { ...bianchi, dataIngresso: `${Y}-07-01` }, dora],
+        spese: [tetto({ data: `${Y}-09-15`, delibereRifId: 77 })] });
+      const piano = a.calcolaPianoRate(Y);
+      assert.strictEqual(piano.coperto, false);
+      const somma = (id) => Math.round(piano.rate.reduce((s, r) => s + r.perCondomino.find((c) => c.id === id).importo, 0) * 100) / 100;
+      assert.ok(Math.abs(somma(201) - 600) <= 0.05, 'Rossi ' + somma(201));
+      assert.ok(Math.abs(somma(203) - 600) <= 0.05, 'Dora ' + somma(203));
+      assert.strictEqual(somma(202), 0, 'Bianchi non paga il lavoro');
+      const dopoUscita = piano.rate.filter((r) => r.data >= `${Y}-07-01` && r.importoTotale > 0);
+      for (const r of dopoUscita) {
+        const ro = r.perCondomino.find((c) => c.id === 201);
+        assert.ok(ro.importo > 0 && !ro.fuoriCompetenza, 'Rossi ' + r.data);
+      }
+    });
+  });
+});

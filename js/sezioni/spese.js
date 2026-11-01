@@ -16,7 +16,7 @@ function renderQuotaCell(spesa) {
   // attivi e non-superAdmin. Non usare mai state.condomini.length: include TUTTI gli edifici.
   const edId = spesa.edificioId || state.edificioAttivo;
   // Chi faceva parte del condominio alla data della spesa (subentri).
-  const condEd = condominiAllaData(spesa.data, edId);
+  const condEd = condominiDellaSpesa(spesa, edId);
   const nCond = condEd.length || 1;
   // Split valido = solo righe di condomini di questo edificio con quota > 0 (0% = escluso da questa spesa)
   const idsQuota = idsConQuotaSalvata(edId);
@@ -121,7 +121,7 @@ function renderQuotaCellText(spesa) {
   if (!importoRef) return '';
   const edId = spesa.edificioId || state.edificioAttivo;
   // Chi faceva parte del condominio alla data della spesa (subentri).
-  const condEd = condominiAllaData(spesa.data, edId);
+  const condEd = condominiDellaSpesa(spesa, edId);
   const nCond = condEd.length || 1;
   const idsQuota = idsConQuotaSalvata(edId);
   const validSplit = (spesa.split||[]).filter(s => idsQuota.has(s.id) && (s.perc||0) > 0);
@@ -517,7 +517,7 @@ function renderModalSpesa(d) {
   // Spesa nuova (o senza ripartizione salvata): le righe sono chi abitava alla data della spesa,
   // non chi abita oggi (bolletta arrivata in ritardo dopo un subentro). L'amministratore può
   // aggiungere a mano chi è uscito. Per una spesa già salvata le quote salvate non cambiano.
-  const _dataRighe = d?.data || ymdLocale(new Date());
+  const _dataRighe = d?.id ? dataCompetenzaSpesa(d) : (d?.data || ymdLocale(new Date()));
   // Anche per una spesa già salvata il gruppo di base è chi abitava alla data della spesa (non chi abita oggi):
   // chi è entrato dopo non entra nei ricalcoli ("Parti uguali", modifica di una quota) e si può aggiungere a mano.
   const _allaData = condominiAllaData(_dataRighe).filter(c => c.edificioId === state.edificioAttivo);
@@ -596,6 +596,16 @@ function renderModalSpesa(d) {
             </select>
             <p class="hint">Default dalla categoria</p>
           </div>
+        </div>
+
+        <div class="field">
+          <label for="m-delibera-rif">Delibera di riferimento (lavori straordinari)</label>
+          <select id="m-delibera-rif">
+            <option value="">— Nessuna —</option>
+            ${getDelibereVisibili().filter(x => !x.stato || x.stato === 'approvata').slice().sort((a, b) => String(b.dataApprovazione).localeCompare(String(a.dataApprovazione)))
+              .map(x => `<option value="${esc(x.id)}" ${String(d?.delibereRifId) === String(x.id) ? 'selected' : ''}>${esc(dataItaliana(x.dataApprovazione))} — ${esc(x.descrizioneSintetica || 'Delibera')}</option>`).join('')}
+          </select>
+          <p class="hint">Dal 2027, un lavoro straordinario è di chi era proprietario alla data della delibera che approva intervento, impresa e prezzo, anche se il lavoro e le rate arrivano dopo una vendita.</p>
         </div>
 
         <div class="form-row">
@@ -767,7 +777,7 @@ function esportaSpeseCSV(spese, nomeFile) {
   const haQuota = (c) => spese.some(s => (s.split || []).some(x => x.id === c.id && (x.perc || 0) > 0));
   // Spese senza ripartizione (dati legacy): si dividono tra chi abitava alla data, quindi anche chi è uscito dopo ha la colonna.
   const presenteSenzaSplit = (c) => spese.some(s => !(s.split || []).length && (s.edificioId || state.edificioAttivo) === c.edificioId
-    && condominiAllaData(s.data, c.edificioId).some(x => x.id === c.id));
+    && condominiDellaSpesa(s, c.edificioId).some(x => x.id === c.id));
   const condTotali = state.condomini.filter(c => edificiCoinvolti.includes(c.edificioId) && !c.superAdmin && (!c.disabled || haQuota(c) || presenteSenzaSplit(c)));
 
   const intestazione = ['Data','Titolo','Descrizione','Categoria','Tipo','Fornitore','Preventivo','Consuntivo','Stato', ...condTotali.map(c=>c.nome)];
@@ -790,7 +800,7 @@ function esportaSpeseCSV(spese, nomeFile) {
     const exConQuota = (c) => c.disabled && c.edificioId === (s.edificioId||state.edificioAttivo) && (s.split || []).some(x => x.id === c.id && (x.perc || 0) > 0);
     // Senza ripartizione: ha la colonna anche chi abitava alla data e poi è uscito.
     const exPresenteAllaData = (c) => !(s.split || []).length && c.disabled && c.edificioId === (s.edificioId||state.edificioAttivo)
-      && condominiAllaData(s.data, c.edificioId).some(x => x.id === c.id);
+      && condominiDellaSpesa(s, c.edificioId).some(x => x.id === c.id);
     const quote = condTotali.map(c => condEdSpesa.some(ce=>ce.id===c.id) || exConQuota(c) || exPresenteAllaData(c) ? numCSV(quotaCondomino(s, c.id, condEdSpesa)) : '');
     return [...base, ...quote];
   });
@@ -1118,7 +1128,8 @@ async function salvaSchedaSpesa(m) {
       return;
     }
     const ricGruppoId = m.data?.ricGruppoId || (ricorrente ? newId() : null);
-    const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId, ...(tabellaMillesimi ? { tabellaMillesimi } : {}) };
+    const delibereRifId = tipo === 'straordinaria' ? (parseInt(document.getElementById('m-delibera-rif')?.value) || null) : null;
+    const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId, ...(tabellaMillesimi ? { tabellaMillesimi } : {}), ...(delibereRifId ? { delibereRifId } : {}) };
     // Anno già passato (QA-CONS-029): nessun blocco, ma l'amministratore conferma prima di salvare.
     if (modificaAnnoPassato(m.data?.id ? m.data : null, item, CAMPI_ANNO_SPESA) && !await confermaAnnoPassato()) return;
     // Subentri: avviso (non blocco) se la ripartizione scritta a mano non corrisponde a chi c'è alla data.
