@@ -207,7 +207,6 @@ function condominiAllaData(data, edificioId = state.edificioAttivo) {
   if (!v) { v = calcola(); _memoRender.cond.set(k, v); }
   return v;
 }
-
 // ── Memoria di un render (prestazioni, 2026-10-21) ────────────────────────
 // Bilancio, Entrate, Confronto e Rendiconto chiedono migliaia di volte chi era
 // nel condominio a una data e il totale di una ripartizione: con 2000 spese e
@@ -408,6 +407,44 @@ function modificaAnnoPassato(prima, dopo, campi, oggi) {
 // Dove c'è già una domanda di conferma (eliminazioni) si aggiunge il testo alla stessa domanda.
 function confermaAnnoPassato() {
   return chiedi(MSG_ANNO_PASSATO, { titolo: 'Anno già passato', conferma: 'Continua', pericolo: false });
+}
+
+// ── Avvisi di competenza (subentri) ───────────────────────────────────────
+// Una spesa con ripartizione scritta a mano può assegnare una quota a chi, a
+// quella data, non fa parte del condominio (esce prima, entra dopo), oppure
+// lasciare a zero chi c'è. Lo si segnala al salvataggio: l'amministratore può
+// salvare lo stesso (decisione: avviso, mai blocco). Solo se nel condominio ci
+// sono subentri; conta la data della spesa.
+// La data di uscita è il primo giorno in cui non c'è più: l'ultimo giorno è il precedente.
+function giornoPrima(iso) { const d = new Date(iso.slice(0, 10) + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }
+function dataItaliana(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? m[3] + '/' + m[2] + '/' + m[1] : ''; }
+function avvisiCompetenzaSpesa(item) {
+  const split = (item.split || []).filter(x => (parseFloat(x.perc) || 0) > 0);
+  if (!split.length || !/^\d{4}-\d{2}-\d{2}/.test(item.data || '')) return [];
+  const ed = item.edificioId || state.edificioAttivo;
+  const tutti = state.condomini.filter(c => c.edificioId === ed && !c.superAdmin);
+  if (!tutti.some(c => c.dataIngresso || c.dataUscita || c.disabled)) return [];
+  const presenti = new Set(condominiAllaData(item.data, ed).map(c => c.id));
+  const quando = 'in questa data';
+  const periodo = (c) => {
+    const { inizio, fine } = periodoCondomino(c);
+    return [inizio ? 'dal ' + dataItaliana(inizio) : '', fine && fine !== '0000-00-00' ? 'fino al ' + dataItaliana(giornoPrima(fine)) : (c.disabled ? 'archiviato' : '')].filter(Boolean).join(', ');
+  };
+  const righe = [];
+  split.forEach(x => {
+    const c = tutti.find(t => t.id === x.id);
+    if (c && !presenti.has(c.id)) righe.push('• ' + c.nome + ' ha il ' + fmtN(parseFloat(x.perc)) + '% ma ' + quando + ' non fa parte del condominio' + (periodo(c) ? ' (' + periodo(c) + ')' : '') + '.');
+  });
+  const conQuota = new Set(split.map(x => x.id));
+  tutti.filter(c => presenti.has(c.id) && !conQuota.has(c.id))
+    .forEach(c => righe.push('• ' + c.nome + ' fa parte del condominio ' + quando + ' ma non ha nessuna quota.'));
+  return righe;
+}
+async function confermaCompetenzaSpesa(item) {
+  const righe = avvisiCompetenzaSpesa(item);
+  if (!righe.length) return true;
+  return chiedi('Controlla la competenza di questa spesa (' + dataItaliana(item.data) + '):\n\n' + righe.join('\n')
+    + '\n\nPuoi salvare lo stesso se è voluto.', { titolo: 'Competenza della spesa', conferma: 'Salva lo stesso', annulla: 'Torna a correggere', pericolo: false });
 }
 
 // Riporto di un condomino: versamenti reali meno quota delle spese consuntivate,

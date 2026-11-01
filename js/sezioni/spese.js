@@ -1121,6 +1121,8 @@ async function salvaSchedaSpesa(m) {
     const item = { id: m.data?.id||newId(), titolo, descrizione:desc, categoria:cat, tipoSpesa:tipo, preventivo:prev||'', consuntivo:cons||'', data, allegati, split, fornitoreId, edificioId: state.edificioAttivo, ricorrente, frequenza: ricorrente?frequenza:null, ricorrenzaFine: ricorrente?ricorrenzaFine:'', ricGruppoId, ...(tabellaMillesimi ? { tabellaMillesimi } : {}) };
     // Anno già passato (QA-CONS-029): nessun blocco, ma l'amministratore conferma prima di salvare.
     if (modificaAnnoPassato(m.data?.id ? m.data : null, item, CAMPI_ANNO_SPESA) && !await confermaAnnoPassato()) return;
+    // Subentri: avviso (non blocco) se la ripartizione scritta a mano non corrisponde a chi c'è alla data.
+    if (avvisiCompetenzaSpesa(item).length && !await confermaCompetenzaSpesa(item)) return;
     let spese;
     if (m.data?.id) {
       // Modifica spesa esistente

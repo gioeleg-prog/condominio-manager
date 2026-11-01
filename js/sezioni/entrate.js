@@ -571,34 +571,64 @@ function calcolaPianoRate(anno, nRate = 3) {
 
   // ── 9. Split per condomino di ciascuna rata, proporzionale alla propria quota totale,
   //       con correzione dell'arrotondamento così il totale della rata torna esatto ──
+  // Competenza per periodo (subentri): una rata è di chi fa parte del condominio alla sua
+  // data di scadenza (come per ogni spesa ordinaria: conta il giorno). Chi non c'è quel
+  // giorno ha 0 (il record resta, con la nota "fuori competenza"); la sua quota di
+  // competenza si distribuisce solo sulle rate del suo periodo. Senza subentri nessuno è
+  // escluso e il calcolo è quello di sempre.
   const meseNomi = ['','Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
-  const rateFinali = rate.map(r => {
+  const dataDi = (r) => ymdLocale(r.data);
+  const compRata = rate.map(r => idsDi(condominiAllaData(dataDi(r), edId)));
+  const sommaPeriodo = {};   // id -> somma delle rate del suo periodo
+  const nelPeriodo = {};     // id -> quante rate cadono nel suo periodo
+  condominiAttivi.forEach(c => {
+    sommaPeriodo[c.id] = 0; nelPeriodo[c.id] = 0;
+    rate.forEach((r, i) => { if (compRata[i].has(c.id)) { sommaPeriodo[c.id] += r.importo; nelPeriodo[c.id]++; } });
+  });
+  const conEsclusi = condominiAttivi.some(c => nelPeriodo[c.id] < rate.length);
+  const rateFinali = rate.map((r, i) => {
     const pct = totDaRaccogliere > 0 ? r.importo / totDaRaccogliere : 0;
-    const perCondo = condominiAttivi.map(c => ({
-      id:c.id, nome:c.nome,
-      importo: Math.round(quotaCondomino[c.id] * pct * 100) / 100,
-    }));
+    const perCondo = condominiAttivi.map(c => {
+      const dentro = compRata[i].has(c.id);
+      if (nelPeriodo[c.id] === rate.length) {
+        return { id:c.id, nome:c.nome, importo: Math.round(quotaCondomino[c.id] * pct * 100) / 100 };
+      }
+      return { id:c.id, nome:c.nome, fuoriCompetenza: !dentro,
+        importo: dentro && sommaPeriodo[c.id] > 0 ? Math.round(quotaCondomino[c.id] * r.importo / sommaPeriodo[c.id] * 100) / 100 : 0 };
+    });
     const sommaCondo = perCondo.reduce((a,c)=>a+c.importo,0);
     const scarto = Math.round((r.importo - sommaCondo) * 100) / 100;
     // Si corregge solo l'arrotondamento (al massimo 1 centesimo per condomino). Una differenza
     // maggiore è una quota non attribuita ai condomini attivi: non si carica su nessuno (D1).
     let nonAttribuito = 0;
-    if (perCondo.length && Math.abs(scarto) <= perCondo.length * 0.01 + 0.0001) {
+    let importoTotale = r.importo;
+    if (conEsclusi) {
+      // Con le esclusioni per periodo il totale della rata è la somma delle quote di chi c'è.
+      importoTotale = Math.round(sommaCondo * 100) / 100;
+    } else if (perCondo.length && Math.abs(scarto) <= perCondo.length * 0.01 + 0.0001) {
       if (Math.abs(scarto) >= 0.01) perCondo[perCondo.length-1].importo = Math.round((perCondo[perCondo.length-1].importo + scarto) * 100) / 100;
     } else {
       nonAttribuito = scarto;
     }
+    const nPartecipanti = Math.max(1, compRata[i].size);
     return {
       n: r.n,
       dataObj: r.data,
       data: ymdLocale(r.data),
       mese: meseNomi[r.data.getMonth()+1],
-      importoTotale: r.importo,
-      importoPerCondo: Math.round(r.importo / nAttivi * 100) / 100,
+      importoTotale,
+      importoPerCondo: Math.round(importoTotale / (conEsclusi ? nPartecipanti : nAttivi) * 100) / 100,
       perCondomino: perCondo,
       nonAttribuito,
     };
   });
+  // Chi ha una quota ma nessuna rata nel proprio periodo: non si crea nulla, la quota
+  // resta da regolare quando si inserisce la prossima rata.
+  const senzaRataNelPeriodo = conEsclusi
+    ? condominiAttivi.filter(c => nelPeriodo[c.id] === 0 && quotaCondomino[c.id] >= 0.005)
+        .map(c => ({ id:c.id, nome:c.nome, quota: Math.round(quotaCondomino[c.id] * 100) / 100 }))
+    : [];
+  if (conEsclusi) rate.forEach((r, i) => { r.importo = rateFinali[i].importoTotale; }); // il grafico segue quanto si incassa davvero
   const totNonAttribuito = Math.round(rateFinali.reduce((a,r)=>a+r.nonAttribuito,0)*100)/100;
   const fattoreRate = totDaRaccogliere > 0 ? rate.reduce((a,r)=>a+r.importo,0) / totDaRaccogliere : 0;
   const nonAttribuitoDettaglio = totNonAttribuito > 0.01
@@ -632,6 +662,7 @@ function calcolaPianoRate(anno, nRate = 3) {
     serieMensile,
     totNonAttribuito,
     nonAttribuitoDettaglio,
+    senzaRataNelPeriodo,
     rateUscitiEsistenti: { n: rateUscitiEsistenti.length, importo: Math.round(rateUscitiEsistenti.reduce((a,e)=>a+importoNum(e.importo),0)*100)/100 },
   };
 }
@@ -680,7 +711,7 @@ function renderPianoRateBox(annoSel, canEdit) {
 
   const rateHtml = piano.rate.map(function(r) {
     const dettaglioRighe = r.perCondomino.map(c =>
-      '<tr><td style="padding:2px 8px 2px 0">' + esc(c.nome) + '</td><td style="padding:2px 0;text-align:right;font-weight:600">' + fmt(c.importo) + '</td></tr>'
+      '<tr><td style="padding:2px 8px 2px 0">' + esc(c.nome) + (c.fuoriCompetenza ? ' <span style="color:var(--text2)">(non c\'è in quella data)</span>' : '') + '</td><td style="padding:2px 0;text-align:right;font-weight:600">' + fmt(c.importo) + '</td></tr>'
     ).join('');
     return '<div style="flex:1;min-width:170px;background:var(--purple-light);border-radius:var(--radius-sm);padding:.875rem;border-left:3px solid var(--purple)">' +
       '<div style="font-weight:700;color:var(--purple);margin-bottom:2px;text-align:center">Rata ' + r.n + ' — ' + r.mese + '</div>' +
@@ -694,6 +725,9 @@ function renderPianoRateBox(annoSel, canEdit) {
     '</div>';
   }).join('');
 
+  const noteSenzaRata = (piano.senzaRataNelPeriodo || []).length
+    ? '<div style="font-size:11px;color:var(--text2);margin-top:5px">ℹ️ Nessuna rata cade nel periodo di ' + piano.senzaRataNelPeriodo.map(x => esc(x.nome) + ' (quota ' + fmt(x.quota) + ')').join(', ') + ': il piano non ne aggiunge, la quota resta da regolare con la prossima rata o spesa.</div>'
+    : '';
   const noteOggi = piano.forzataOggi
     ? '<div style="font-size:11px;color:var(--text2);margin-top:5px">ℹ️ Il 1° gennaio ' + annoSel + ' è già passato: la prima rata è fissata su oggi (' + ymdLocale(piano.dataRata1) + ') invece che al 1° gennaio.</div>'
     : '';
@@ -745,6 +779,7 @@ function renderPianoRateBox(annoSel, canEdit) {
     '<div>Saldo minimo previsto: <strong style="color:' + (piano.saldoMinimoPrevisto>=0?'var(--green)':'var(--red)') + '">' + fmt(piano.saldoMinimoPrevisto) + '</strong></div>' +
     '</div>' +
     noteOggi +
+    noteSenzaRata +
     '<div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.5rem">' + rateHtml + '</div>' +
     renderMiniCashflowRateChart(piano, annoSel) +
     avviso +
@@ -844,11 +879,23 @@ function bindAzioniEntrate() {
     for (const r of piano.rate) {
       for (const c of r.perCondomino) {
         const key = r.n + ':' + c.id;
+        const descrizione = 'Piano rate ' + annoSel + ' - Rata ' + r.n + ' (' + r.mese + ')';
+        if (c.fuoriCompetenza) {
+          // Rata con scadenza in un giorno in cui non c'è (esce o non è ancora entrato): una proposta già creata
+          // resta ma a 0, con la nota; se non esiste non se ne crea una a zero.
+          usedKeys.add(key);
+          if (validatiByKey.has(key)) { saltati++; continue; }
+          const ex = vecchieByKey.get(key);
+          if (ex && importoNum(ex.importo) !== 0) {
+            entrate = entrate.map(e => e.id === ex.id ? { ...e, importo: '', importoPrevisto: '0', data: r.data, descrizione: descrizione + ' — fuori competenza', fuoriCompetenza: true } : e);
+            aggiornati++;
+          }
+          continue;
+        }
         if (!(c.importo > 0)) continue; // quota 0 (es. chi è entrato dopo la spesa): nessuna rata, e una proposta già creata si toglie
         usedKeys.add(key);
         if (validatiByKey.has(key)) { saltati++; continue; } // già pagata: non toccare, non duplicare
         const esistente = vecchieByKey.get(key);
-        const descrizione = 'Piano rate ' + annoSel + ' - Rata ' + r.n + ' (' + r.mese + ')';
         if (esistente) {
           // stesso id: aggiorno solo i valori che il ricalcolo può aver cambiato.
           // importoPrevisto tiene traccia dell'ultima proposta calcolata — utile da confrontare
@@ -880,6 +927,15 @@ function bindAzioniEntrate() {
     // Proposte pendenti che non fanno più parte del piano ricalcolato (rate/condomini cambiati):
     // queste sì vanno rimosse, non ha senso lasciarle in sospeso.
     // Quelle di condomini usciti (archiviati) restano a loro (D1) e non si rimuovono.
+    // Chi è uscito (archiviato): le sue rate previste con scadenza dopo l'uscita non sono più sue,
+    // vanno a 0 (il record resta). Quelle con scadenza quando c'era restano com'erano (D1).
+    entrate = entrate.map(e => {
+      if (!vecchieByKey.has(e.pianoRataN + ':' + e.condominoId) || vecchieByKey.get(e.pianoRataN + ':' + e.condominoId).id !== e.id) return e;
+      const cond = state.condomini.find(x => x.id === e.condominoId && x.edificioId === edId);
+      if (!cond || !cond.disabled || importoNum(e.importo) === 0 || attivoAllaData(cond, e.data)) return e;
+      aggiornati++;
+      return { ...e, importo: '', importoPrevisto: '0', descrizione: String(e.descrizione || '').replace(/ — fuori competenza$/, '') + ' — fuori competenza', fuoriCompetenza: true };
+    });
     const usciti = new Set(state.condomini.filter(c => c.edificioId === edId && c.disabled).map(c => c.id));
     const daRimuovere = vecchieProposte.filter(e => !usedKeys.has(e.pianoRataN + ':' + e.condominoId) && !usciti.has(e.condominoId));
     if (daRimuovere.length) {
