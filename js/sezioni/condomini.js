@@ -659,6 +659,9 @@ function bindSchedaCondomini() {
         { titolo: 'Subentro già registrato', conferma: 'Archivia lo stesso' })) return;
       note = prima.disabledNote + (note ? ' · ' + note : '');
     }
+    // Lavori straordinari deliberati quando era proprietario: restano a suo carico, glielo si ricorda prima che esca.
+    const avvisoLavori = prima ? avvisoUscitaLavori(prima) : '';
+    if (avvisoLavori && !await chiedi(avvisoLavori, { titolo: 'Lavori deliberati a suo carico', conferma: 'Archivia', pericolo: false })) return;
     const condomini = state.condomini.map(c => c.id===id
       ? {...c, disabled:true, disabledOn: new Date().toISOString(), disabledNote: note, dataUscita}
       : c);
@@ -803,7 +806,7 @@ async function salvaSchedaCondomino(m) {
 // Spese dell'edificio dalla data del subentro, non consuntivate, in cui chi esce ha una quota.
 function speseDaPassare(condId, data, edificioId) {
   return state.spese.filter(s => (s.edificioId || state.edificioAttivo) === edificioId && String(s.data || '') >= data
-    && !(parseFloat(s.consuntivo) > 0) && (s.split || []).some(x => x.id === condId && (x.perc || 0) > 0));
+    && !(parseFloat(s.consuntivo) > 0) && !deliberaDellaSpesa(s) && (s.split || []).some(x => x.id === condId && (x.perc || 0) > 0));
 }
 
 // Solo amministratore e amministratore di edificio (come archiviare e creare condomini;
@@ -875,6 +878,8 @@ function bindSchedaSubentro() {
     if (inizio && data <= inizio) return err('La data del subentro deve venire dopo l\'ingresso di ' + vecchio.nome + ' (' + dataPdf(inizio) + ').');
     const edificioId = vecchio.edificioId || state.edificioAttivo;
     if (email && !await emailUsabileQui(email, edificioId)) return;
+    const avvisoLavori = avvisoUscitaLavori(vecchio);
+    if (avvisoLavori && !await chiedi(avvisoLavori, { titolo: 'Lavori deliberati a suo carico', conferma: 'Registra il subentro', pericolo: false })) return;
     const nuovo = { id: newId(), nome, appartamento: vecchio.appartamento || '', email, username: '', canEdit: ruolo === 'modifica', isAdmin: false, superAdmin: false,
       edificioId, color: COLORS[state.condomini.length % COLORS.length], dataIngresso: data };
     // Data futura (CONS-023, ADV-FUNC-010): chi esce resta attivo (con accesso, email e quota) fino a quel

@@ -152,7 +152,7 @@ function quotaSuSpesa(s, condId, importo, nAttivi) {
   }
   // Senza ripartizione: parti uguali tra chi faceva parte del condominio alla
   // data della spesa (subentri: chi è entrato dopo o uscito prima non paga).
-  const partecipanti = condominiAllaData(s.data, s.edificioId || state.edificioAttivo);
+  const partecipanti = condominiDellaSpesa(s, s.edificioId || state.edificioAttivo);
   if (partecipanti.length) return idsDi(partecipanti).has(condId) ? importo / partecipanti.length : 0;
   return importo / (nAttivi || 1);
 }
@@ -207,6 +207,53 @@ function condominiAllaData(data, edificioId = state.edificioAttivo) {
   if (!v) { v = calcola(); _memoRender.cond.set(k, v); }
   return v;
 }
+// ── Lavori straordinari con delibera (dal 2027) ───────────────────────────
+// Un lavoro straordinario deliberato è di chi era proprietario alla DATA DELLA
+// DELIBERA che approva intervento, impresa e prezzo, anche se il lavoro e le
+// rate vengono dopo la vendita (Cass. 24236/2025; art. 63 disp. att. c.c.).
+// Vale per le spese dal 2027 con la delibera collegata; le spese precedenti e
+// quelle senza delibera restano per giorno della spesa.
+const COMPETENZA_DELIBERA_DAL = '2027-01-01';
+function deliberaDellaSpesa(s) {
+  if (!s || s.tipoSpesa !== 'straordinaria' || !s.delibereRifId) return null;
+  if (String(s.data || '').slice(0, 10) < COMPETENZA_DELIBERA_DAL) return null;
+  const ed = s.edificioId || state.edificioAttivo;
+  const d = (state.delibere || []).find(x => String(x.id) === String(s.delibereRifId) && (!x.edificioId || x.edificioId === ed));
+  return d && dataIsoValida(String(d.dataApprovazione || '').slice(0, 10)) ? d : null;
+}
+// Data a cui si guarda per sapere chi paga la spesa.
+function dataCompetenzaSpesa(s) {
+  const d = deliberaDellaSpesa(s);
+  return d ? String(d.dataApprovazione).slice(0, 10) : String((s && s.data) || '').slice(0, 10);
+}
+function condominiDellaSpesa(s, edificioId) {
+  return condominiAllaData(dataCompetenzaSpesa(s), edificioId || s.edificioId || state.edificioAttivo);
+}
+// Data di competenza di quel che c'è nella scheda spesa aperta (data, tipo, delibera scelta).
+function dataCompetenzaDalForm() {
+  const val = (id) => document.getElementById(id)?.value || '';
+  return dataCompetenzaSpesa({ data: val('m-data'), tipoSpesa: val('m-tipo'), delibereRifId: val('m-delibera-rif'), edificioId: state.edificioAttivo });
+}
+// Lavori deliberati a carico di un condomino (quota > 0) e cosa ha già versato.
+function lavoriDeliberatiACarico(condId, edificioId) {
+  return state.spese.filter(s => (s.edificioId || state.edificioAttivo) === edificioId && deliberaDellaSpesa(s))
+    .map(s => ({ s, d: deliberaDellaSpesa(s), quota: Math.round(quotaSuSpesa(s, condId, importoNum(s.consuntivo) || importoNum(s.preventivo), 1) * 100) / 100 }))
+    .filter(x => x.quota >= 0.005);
+}
+// Testo per chi sta per uscire (archiviazione, subentro): lavori deliberati che restano a suo carico.
+function avvisoUscitaLavori(c) {
+  const ed = c.edificioId || state.edificioAttivo;
+  const lavori = lavoriDeliberatiACarico(c.id, ed);
+  if (!lavori.length) return '';
+  const suoi = state.entrate.filter(e => (!e.edificioId || e.edificioId === ed) && e.condominoId === c.id);
+  const versato = suoi.filter(e => !e.previsionale).reduce((a, e) => a + importoNum(e.importo), 0);
+  const previste = suoi.filter(e => e.previsionale).reduce((a, e) => a + importoNum(e.importo), 0);
+  return c.nome + ' ha a carico lavori straordinari deliberati quando era proprietario: la quota resta sua anche dopo l\'uscita.\n\n'
+    + lavori.map(x => '• ' + (x.s.titolo || 'Lavoro') + ' (delibera del ' + dataItaliana(x.d.dataApprovazione) + '): quota ' + fmt(x.quota)).join('\n')
+    + '\n\nVersamenti ricevuti da ' + c.nome + ' in totale: ' + fmt(versato) + '. Rate previste ancora da incassare: ' + fmt(previste) + '.'
+    + '\nControlla il saldo prima che esca. Il condominio può comunque chiedere il pagamento al nuovo proprietario per l\'esercizio in corso e il precedente, che poi si rivale sul venditore.';
+}
+
 // ── Memoria di un render (prestazioni, 2026-10-21) ────────────────────────
 // Bilancio, Entrate, Confronto e Rendiconto chiedono migliaia di volte chi era
 // nel condominio a una data e il totale di una ripartizione: con 2000 spese e
@@ -420,17 +467,23 @@ function giornoPrima(iso) { const d = new Date(iso.slice(0, 10) + 'T00:00:00Z');
 function dataItaliana(iso) { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); return m ? m[3] + '/' + m[2] + '/' + m[1] : ''; }
 function avvisiCompetenzaSpesa(item) {
   const split = (item.split || []).filter(x => (parseFloat(x.perc) || 0) > 0);
-  if (!split.length || !/^\d{4}-\d{2}-\d{2}/.test(item.data || '')) return [];
+  if (!/^\d{4}-\d{2}-\d{2}/.test(item.data || '')) return [];
   const ed = item.edificioId || state.edificioAttivo;
   const tutti = state.condomini.filter(c => c.edificioId === ed && !c.superAdmin);
   if (!tutti.some(c => c.dataIngresso || c.dataUscita || c.disabled)) return [];
-  const presenti = new Set(condominiAllaData(item.data, ed).map(c => c.id));
-  const quando = 'in questa data';
+  const righe = [];
+  // Lavoro straordinario dal 2027 senza delibera collegata: la competenza segue il giorno della spesa.
+  if (item.tipoSpesa === 'straordinaria' && !item.delibereRifId && String(item.data).slice(0, 10) >= COMPETENZA_DELIBERA_DAL) {
+    righe.push('• È una spesa straordinaria senza delibera collegata: la competenza segue la data della spesa. Collega la delibera che approva intervento, impresa e prezzo, così il lavoro resta a chi era proprietario alla delibera.');
+  }
+  if (!split.length) return righe;
+  const dataComp = dataCompetenzaSpesa(item);
+  const presenti = new Set(condominiAllaData(dataComp, ed).map(c => c.id));
+  const quando = dataComp !== String(item.data).slice(0, 10) ? 'alla data della delibera (' + dataItaliana(dataComp) + ')' : 'in questa data';
   const periodo = (c) => {
     const { inizio, fine } = periodoCondomino(c);
     return [inizio ? 'dal ' + dataItaliana(inizio) : '', fine && fine !== '0000-00-00' ? 'fino al ' + dataItaliana(giornoPrima(fine)) : (c.disabled ? 'archiviato' : '')].filter(Boolean).join(', ');
   };
-  const righe = [];
   split.forEach(x => {
     const c = tutti.find(t => t.id === x.id);
     if (c && !presenti.has(c.id)) righe.push('• ' + c.nome + ' ha il ' + fmtN(parseFloat(x.perc)) + '% ma ' + quando + ' non fa parte del condominio' + (periodo(c) ? ' (' + periodo(c) + ')' : '') + '.');

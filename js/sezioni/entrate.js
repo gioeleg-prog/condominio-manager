@@ -512,6 +512,16 @@ function calcolaPianoRate(anno, nRate = 3) {
     condominiAttivi.forEach(c => { quotaCondomino[c.id] += quotaSuSpesa(s, c.id, ref, nAttivi); });
   });
 
+  // Lavori straordinari con delibera (dal 2027): la quota resta a chi c'era alla data della delibera,
+  // su TUTTE le rate, anche quelle con scadenza dopo la sua uscita (non si divide per periodo).
+  const quotaDelibera = {};
+  condominiAttivi.forEach(c => quotaDelibera[c.id] = 0);
+  speseAperte.filter(s => deliberaDellaSpesa(s)).forEach(s => {
+    const ref = importoNum(s.preventivo);
+    if (!ref) return;
+    condominiAttivi.forEach(c => { quotaDelibera[c.id] += quotaSuSpesa(s, c.id, ref, nAttivi); });
+  });
+
   // Quote che restano a chi non è attivo (uscito, archiviato): decisione D1, restano sue e il
   // piano le segnala senza addebitarle a nessun altro. Quel che non ha un intestatario
   // (ripartizione incompleta, condomino eliminato) non compare per nome.
@@ -593,8 +603,10 @@ function calcolaPianoRate(anno, nRate = 3) {
       if (nelPeriodo[c.id] === rate.length) {
         return { id:c.id, nome:c.nome, importo: Math.round(quotaCondomino[c.id] * pct * 100) / 100 };
       }
-      return { id:c.id, nome:c.nome, fuoriCompetenza: !dentro,
-        importo: dentro && sommaPeriodo[c.id] > 0 ? Math.round(quotaCondomino[c.id] * r.importo / sommaPeriodo[c.id] * 100) / 100 : 0 };
+      const quotaOrd = quotaCondomino[c.id] - quotaDelibera[c.id];
+      const parteOrd = dentro && sommaPeriodo[c.id] > 0 ? quotaOrd * r.importo / sommaPeriodo[c.id] : 0;
+      return { id:c.id, nome:c.nome, fuoriCompetenza: !dentro && quotaDelibera[c.id] < 0.005,
+        importo: Math.round((parteOrd + quotaDelibera[c.id] * pct) * 100) / 100 };
     });
     const sommaCondo = perCondo.reduce((a,c)=>a+c.importo,0);
     const scarto = Math.round((r.importo - sommaCondo) * 100) / 100;
@@ -625,8 +637,8 @@ function calcolaPianoRate(anno, nRate = 3) {
   // Chi ha una quota ma nessuna rata nel proprio periodo: non si crea nulla, la quota
   // resta da regolare quando si inserisce la prossima rata.
   const senzaRataNelPeriodo = conEsclusi
-    ? condominiAttivi.filter(c => nelPeriodo[c.id] === 0 && quotaCondomino[c.id] >= 0.005)
-        .map(c => ({ id:c.id, nome:c.nome, quota: Math.round(quotaCondomino[c.id] * 100) / 100 }))
+    ? condominiAttivi.filter(c => nelPeriodo[c.id] === 0 && quotaCondomino[c.id] - quotaDelibera[c.id] >= 0.005)
+        .map(c => ({ id:c.id, nome:c.nome, quota: Math.round((quotaCondomino[c.id] - quotaDelibera[c.id]) * 100) / 100 }))
     : [];
   if (conEsclusi) rate.forEach((r, i) => { r.importo = rateFinali[i].importoTotale; }); // il grafico segue quanto si incassa davvero
   const totNonAttribuito = Math.round(rateFinali.reduce((a,r)=>a+r.nonAttribuito,0)*100)/100;
