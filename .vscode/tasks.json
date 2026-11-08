@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Test unitari",
+      "type": "shell",
+      "command": "npm run test:unit",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Test regole Firestore e Storage",
+      "type": "shell",
+      "command": "npm test",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test funzioni",
+      "type": "shell",
+      "command": "npm run test:functions",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test E2E (browser)",
+      "type": "shell",
+      "command": "npm run test:e2e",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Emulatori Firebase (demo-qa)",
+      "type": "shell",
+      "command": "npm run qa:emulators",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Pagina in locale (porta 8901)",
+      "type": "shell",
+      "command": "npx http-server -p 8901 -c-1",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}

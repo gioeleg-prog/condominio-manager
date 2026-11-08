@@ -1,0 +1,147 @@
+{
+  "01_xss_lavori": {
+    "scritturaAdmin": {
+      "ok": true
+    },
+    "letturaMemberRaw": true,
+    "htmlContieneTagNonEscapato": true,
+    "htmlHaVersioneEscapata": false,
+    "cspUnsafeInline": true
+  },
+  "02_xss_spese": {
+    "scritturaEditor": {
+      "ok": true
+    },
+    "htmlContieneTagNonEscapato": true
+  },
+  "03_whoami_email_non_verificata": {
+    "emailVerified": false,
+    "risposta": "ok",
+    "claims": {
+      "role": "editor",
+      "buildingId": "1"
+    },
+    "uidCollegato": "u-newbie"
+  },
+  "04_admin_revocato": {
+    "claimsAzzeratiDalServer": true,
+    "avvisoConVecchioToken": {
+      "ok": true
+    },
+    "invioEmailCreato": true,
+    "ripristinoRecord": {
+      "ok": true
+    },
+    "claimsDopoRipristino": {},
+    "whoami": "ok",
+    "claimsFinali": {
+      "role": "adminEdificio",
+      "buildingId": "1"
+    }
+  },
+  "06_notificaVita_senza_riverifica": {
+    "avvisoConVecchioToken": {
+      "ok": true
+    },
+    "invioCreatoDalTrigger": true
+  },
+  "05_storage_editor": {
+    "sovrascrittaEditor": {
+      "ok": true
+    },
+    "contenutoDopo": "%PDF-1.4 MANOMESSO",
+    "cancellazioneEditor": {
+      "ok": true
+    },
+    "controlloMemberCancella": {
+      "ok": false,
+      "code": "storage/unauthorized"
+    },
+    "controlloAdminAltroEdificio": {
+      "ok": false,
+      "code": "storage/unauthorized"
+    }
+  },
+  "15_storagePath_altro_edificio": {
+    "scritturaRecordConPathAltroEdificio": {
+      "ok": true
+    },
+    "adminEliminaFileAltroEdificio": {
+      "ok": false,
+      "code": "storage/unauthorized"
+    },
+    "superAdminEliminaFileAltroEdificio": {
+      "ok": true
+    }
+  },
+  "09_clientErrors_flood": {
+    "creati": 300,
+    "rifiutati": 0,
+    "documentiPresenti": 300
+  },
+  "12_loginstats_id0": {
+    "sceltaSuperAdminPrima": {
+      "nome": "Super Admin",
+      "superAdmin": true,
+      "ultimoLogin": "2026-10-30 07:46",
+      "totale": 1,
+      "mensile": {
+        "2026-10": 1
+      }
+    },
+    "scritturaMembro0": {
+      "ok": true
+    },
+    "scritturaContatti0": {
+      "ok": true
+    },
+    "whoamiFresh": "ok",
+    "rigaDopo": {
+      "nome": "INTRUSO",
+      "superAdmin": false,
+      "ultimoLogin": "2026-10-30 07:46",
+      "totale": 2,
+      "mensile": {
+        "2026-10": 2
+      }
+    }
+  },
+  "11_loginstats_nome_grande": {
+    "scritturaMembroNome600KB": {
+      "ok": true
+    },
+    "scritturaContatti": {
+      "ok": true
+    },
+    "whoami": "ok",
+    "byteBlobStatistiche": 600106
+  },
+  "13_squatting": {
+    "scritturaProfilo": [
+      {
+        "ok": true
+      },
+      {
+        "ok": true
+      }
+    ],
+    "whoami": {
+      "ok": true
+    },
+    "claims": {
+      "role": "member",
+      "buildingId": "2"
+    }
+  },
+  "14_record_enormi": {
+    "scrittura8000ElementiSplit": {
+      "ok": true
+    }
+  },
+  "10_mioProfilo_audit": {
+    "chiamateRiuscite": 20,
+    "auditPrima": 0,
+    "auditDopo": 115,
+    "nuoviEventi": 115
+  }
+}

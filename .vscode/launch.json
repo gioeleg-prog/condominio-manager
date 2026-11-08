@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Pagina in Chrome (serve la pagina locale su 8901)",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:8901/index.html",
+      "webRoot": "${workspaceFolder}",
+      "preLaunchTask": "Pagina in locale (porta 8901)"
+    }
+  ]
+}
