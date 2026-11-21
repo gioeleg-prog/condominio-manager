@@ -14,3 +14,10 @@ functions/.secret.local
 
 # Report della squadra qualita: descrivono difetti non ancora corretti, il repository e pubblico
 quality/reports/
+
+# Profilo e prove della squadra qualità: citano falle ancora aperte, il repository è pubblico
+quality/profilo-progetto.md
+quality/prove/
+
+# Configurazione locale dell editor
+.vscode/
