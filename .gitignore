@@ -21,3 +21,4 @@ quality/prove/
 
 # Configurazione locale dell editor
 .vscode/
+mcp/node_modules/

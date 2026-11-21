@@ -1,0 +1,14 @@
+{
+  "name": "condominio-manager-mcp",
+  "private": true,
+  "description": "Prototipo fase A: connettore MCP in sola lettura, solo su emulatori demo-qa",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "firebase": "^13.1.0",
+    "zod": "^3.25.0"
+  }
+}
